@@ -30,7 +30,13 @@ import {
   updateAgentConfig,
   deleteAgentConfig,
 } from '../store/index.js';
-import { syncMonitors, restartMonitor, stopAllMonitors } from './feishu-monitor.js';
+import { MonitorManager } from './monitor-manager.js';
+import { FeishuAdapter } from './feishu-monitor.js';
+
+const monitorManager = new MonitorManager({
+  feishu: new FeishuAdapter(),
+  lark: new FeishuAdapter(),   // 'lark' is an alias for the same Feishu plugin
+});
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = join(__dirname, '..', 'web');
@@ -116,7 +122,7 @@ async function handleRequest(req: Request): Promise<Response> {
       });
       // Start the WebSocket monitor for this account
       if (binding.enabled) {
-        restartMonitor(binding.accountId).catch((err: unknown) => {
+        monitorManager.restartMonitor(binding.channelType, binding.accountId).catch((err: unknown) => {
           console.error('[gateway] failed to start monitor:', err);
         });
       }
@@ -135,7 +141,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const updated = updateChannelBinding(id, body as never);
       if (!updated) return notFound();
       // Restart monitor if needed
-      restartMonitor(updated.accountId).catch((err: unknown) => {
+      monitorManager.restartMonitor(updated.channelType, updated.accountId).catch((err: unknown) => {
         console.error('[gateway] failed to restart monitor:', err);
       });
       return json(updated);
@@ -145,7 +151,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const id = channelsPath;
       if (!deleteChannelBinding(id)) return notFound(`Channel ${id} not found`);
       // Re-sync monitors to stop the removed account
-      syncMonitors().catch((err: unknown) => {
+      monitorManager.syncMonitors().catch((err: unknown) => {
         console.error('[gateway] failed to sync monitors:', err);
       });
       return json({ deleted: true });
@@ -229,14 +235,14 @@ console.log(`   Web UI:  http://localhost:${PORT}/`);
 console.log(`   API:     http://localhost:${PORT}/api/channels`);
 
 // Sync existing monitors on startup
-syncMonitors().catch((err: unknown) => {
+monitorManager.syncMonitors().catch((err: unknown) => {
   console.error('[gateway] initial monitor sync failed:', err);
 });
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\n[gateway] shutting down…');
-  await stopAllMonitors();
+  await monitorManager.stopAllMonitors();
   server.stop();
   process.exit(0);
 });
