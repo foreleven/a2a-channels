@@ -153,10 +153,12 @@ async function handleRequest(req: Request): Promise<Response> {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
+      // Log the full error server-side but only expose a generic message to clients
+      console.error('[echo-agent] internal error:', err);
       return new Response(
         JSON.stringify({
           jsonrpc: '2.0',
-          error: { code: -32603, message: String(err) },
+          error: { code: -32603, message: 'Internal error' },
           id: (body as Record<string, unknown>)?.['id'] ?? null,
         }),
         { status: 500, headers: { 'Content-Type': 'application/json' } },
