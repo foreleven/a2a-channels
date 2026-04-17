@@ -9,12 +9,6 @@ export interface ChannelBindingRef {
 
 export interface ChannelAccountRunner {
   /**
-   * Push the shared plugin runtime into the channel SDK.
-   * Called once before run() for each new runner instance.
-   */
-  injectRuntime(runtime: unknown): void;
-
-  /**
    * Open the channel connection and keep it alive until signal fires.
    * Resolves when the connection ends normally or after abort.
    */

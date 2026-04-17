@@ -4,9 +4,8 @@
  * Owns per-account monitor handles (AbortController + running Promise)
  * and drives start/stop/restart across all registered ChannelProviders.
  *
- * Adding a new channel type requires only:
- *   1. Implementing ChannelProvider (e.g. packages/channel-slack).
- *   2. Registering the provider instance in apps/gateway/src/index.ts.
+ * Adding a new channel type requires only registering its OpenClaw plugin
+ * in apps/gateway/src/register-plugins.ts.
  */
 
 import type { ChannelProvider } from "@a2a-channels/core";
@@ -23,7 +22,6 @@ export class MonitorManager {
 
   constructor(
     private readonly providers: readonly ChannelProvider[],
-    private readonly runtime: unknown,
   ) {
     // console.log("[monitor] providers=", this.providers);
   }
@@ -65,7 +63,6 @@ export class MonitorManager {
 
     const abortController = new AbortController();
     const runner = provider.createAccountRunner({ accountId, channelType });
-    runner.injectRuntime(this.runtime);
 
     console.log(`[monitor] starting monitor for ${key}`);
     const promise = runner.run(abortController.signal).catch((err: unknown) => {

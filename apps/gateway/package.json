@@ -5,13 +5,13 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "start": "tsx --env-file ../../.env src/index.ts",
-    "dev": "tsx --env-file ../../.env src/index.ts"
+    "start": "node --env-file-if-exists ../../.env --import tsx/esm src/index.ts",
+    "dev": "node --env-file-if-exists ../../.env --import tsx/esm src/index.ts"
   },
   "dependencies": {
-    "@a2a-channels/core": "*",
-    "@a2a-channels/agent-transport": "*",
-    "@a2a-channels/openclaw-compat": "*",
-    "@a2a-channels/channel-lark": "*"
+    "@a2a-channels/core": "workspace:*",
+    "@a2a-channels/agent-transport": "workspace:*",
+    "@a2a-channels/openclaw-compat": "workspace:*",
+    "@larksuite/openclaw-lark": "^2026.4.7"
   }
 }

@@ -25,13 +25,12 @@ import { serve } from "@hono/node-server";
 
 import { A2ATransport } from "@a2a-channels/agent-transport";
 import {
-  LarkChannelProvider,
-  registerLarkPlugin,
-} from "@a2a-channels/channel-lark";
-import {
+  OpenClawChannelProvider,
   OpenClawPluginHost,
   buildOpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
+
+import { registerAllPlugins } from "./register-plugins.js";
 
 import {
   listChannelBindings,
@@ -61,14 +60,13 @@ const runtime = buildOpenClawPluginRuntime({
   getConfig: buildOpenClawConfig,
 });
 
-const openclawHost = new OpenClawPluginHost(buildOpenClawConfig);
-registerLarkPlugin(openclawHost);
-openclawHost.setRuntime(runtime);
+const openclawHost = new OpenClawPluginHost(runtime, buildOpenClawConfig);
 
-const monitorManager = new MonitorManager(
-  [new LarkChannelProvider(openclawHost)],
-  runtime,
-);
+registerAllPlugins(openclawHost);
+
+const monitorManager = new MonitorManager([
+  new OpenClawChannelProvider(openclawHost),
+]);
 
 // ---------------------------------------------------------------------------
 // Static assets
