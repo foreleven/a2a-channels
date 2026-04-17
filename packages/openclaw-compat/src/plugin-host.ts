@@ -6,8 +6,8 @@
  * full control of the account lifecycle.
  *
  * This class is intentionally channel-agnostic.  Channel-specific bootstrap
- * (plugin loading, runtime injection wiring) lives in each channel's own
- * registration module under packages/channel-<name>/src/register.ts.
+ * (plugin loading) lives in each channel's own registration module under
+ * apps/gateway/src/register-plugins.ts.
  *
  * Typical gateway startup:
  *   const host = new OpenClawPluginHost(() => store.buildOpenClawConfig());
@@ -76,8 +76,7 @@ const logger: HostLogger = {
 // ---------------------------------------------------------------------------
 
 export class OpenClawPluginHost {
-  private runtime:         unknown = null;
-  private runtimeInjector: ((runtime: unknown) => void) | null = null;
+  private runtime: unknown = null;
 
   private readonly channels     = new Map<string, RegisteredChannelPlugin>();
   private readonly hookHandlers = new Map<string, Array<(...args: unknown[]) => unknown>>();
@@ -103,24 +102,10 @@ export class OpenClawPluginHost {
   }
 
   /**
-   * Set the shared plugin runtime and propagate it to any registered runtime
-   * injector (e.g. the Lark SDK's internal runtime-store).
+   * Set the shared plugin runtime.
    */
   setRuntime(runtime: unknown): void {
     this.runtime = runtime;
-    this.runtimeInjector?.(runtime);
-  }
-
-  /**
-   * Register a runtime injector that will be called every time setRuntime()
-   * is invoked.  Channel registration modules use this to wire up
-   * SDK-internal runtime setters.
-   *
-   * If a runtime has already been set, the injector is called immediately.
-   */
-  setRuntimeInjector(injector: (runtime: unknown) => void): void {
-    this.runtimeInjector = injector;
-    if (this.runtime !== null) injector(this.runtime);
   }
 
   /**
