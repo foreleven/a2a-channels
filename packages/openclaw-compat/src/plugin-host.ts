@@ -94,6 +94,15 @@ export class OpenClawPluginHost {
   // -------------------------------------------------------------------------
 
   /**
+   * Returns true if a channel plugin with the given id or alias has been
+   * registered.  Used by OpenClawChannelProvider.supports() to determine
+   * which channel types this host can handle.
+   */
+  hasChannel(channelType: string): boolean {
+    return this.resolveChannel(channelType) !== undefined;
+  }
+
+  /**
    * Set the shared plugin runtime and propagate it to any registered runtime
    * injector (e.g. the Lark SDK's internal runtime-store).
    */

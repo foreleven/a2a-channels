@@ -25,13 +25,12 @@ import { serve } from "@hono/node-server";
 
 import { A2ATransport } from "@a2a-channels/agent-transport";
 import {
-  LarkChannelProvider,
-  registerLarkPlugin,
-} from "@a2a-channels/channel-lark";
-import {
+  OpenClawChannelProvider,
   OpenClawPluginHost,
   buildOpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
+
+import { registerAllPlugins } from "./register-plugins.js";
 
 import {
   listChannelBindings,
@@ -62,12 +61,11 @@ const runtime = buildOpenClawPluginRuntime({
 });
 
 const openclawHost = new OpenClawPluginHost(buildOpenClawConfig);
-registerLarkPlugin(openclawHost);
+registerAllPlugins(openclawHost);
 openclawHost.setRuntime(runtime);
 
 const monitorManager = new MonitorManager(
-  [new LarkChannelProvider(openclawHost)],
-  runtime,
+  [new OpenClawChannelProvider(openclawHost)],
 );
 
 // ---------------------------------------------------------------------------
