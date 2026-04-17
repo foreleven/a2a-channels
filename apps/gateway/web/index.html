@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>A2A Channels Gateway</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8f9fa;
+      color: #212529;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: #1a73e8;
+      color: #fff;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { margin: 0; font-size: 1.4rem; font-weight: 600; }
+    .container { max-width: 960px; margin: 32px auto; padding: 0 16px; }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .card h2 { margin: 0 0 16px; font-size: 1.1rem; color: #1a73e8; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    label { display: block; font-size: .85rem; color: #555; margin-bottom: 4px; }
+    input, select, textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: .95rem;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #1a73e8;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 18px;
+      border: none;
+      border-radius: 4px;
+      font-size: .9rem;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: #1a73e8; color: #fff; }
+    .btn-danger  { background: #dc3545; color: #fff; }
+    .btn-sm { padding: 4px 10px; font-size: .8rem; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+    th { background: #f8f9fa; font-weight: 600; color: #555; font-size: .8rem; text-transform: uppercase; letter-spacing: .5px; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: .75rem;
+      font-weight: 600;
+    }
+    .badge-enabled  { background: #e6f4ea; color: #1e7e34; }
+    .badge-disabled { background: #fce8e6; color: #d93025; }
+    .actions { display: flex; gap: 8px; }
+    .section-title {
+      font-size: .75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      color: #888;
+      margin: 0 0 12px;
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #333;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 6px;
+      font-size: .9rem;
+      opacity: 0;
+      transition: opacity .3s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+    .toast.success { background: #28a745; }
+    .toast.error   { background: #dc3545; }
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+    .tab {
+      padding: 8px 20px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      background: #fff;
+      cursor: pointer;
+      font-size: .9rem;
+    }
+    .tab.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+  </style>
+</head>
+<body>
+<header>
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+  </svg>
+  <h1>A2A Channels Gateway</h1>
+</header>
+
+<div class="container">
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('channels')">Channels</button>
+    <button class="tab" onclick="showTab('agents')">Agents</button>
+  </div>
+
+  <!-- Channels Tab -->
+  <div id="tab-channels" class="tab-panel active">
+
+    <!-- Register new channel -->
+    <div class="card">
+      <h2>Register Channel</h2>
+      <form id="form-channel" onsubmit="submitChannel(event)">
+        <div class="grid-2">
+          <div>
+            <label>Channel Name</label>
+            <input id="ch-name" placeholder="My Feishu Bot" required />
+          </div>
+          <div>
+            <label>Channel Type</label>
+            <select id="ch-type">
+              <option value="feishu">Feishu / Lark</option>
+            </select>
+          </div>
+          <div>
+            <label>App ID</label>
+            <input id="ch-appId" placeholder="cli_xxxxxxxxxxxxxxxx" required />
+          </div>
+          <div>
+            <label>App Secret</label>
+            <input id="ch-appSecret" type="password" placeholder="••••••••••••••••" required />
+          </div>
+          <div>
+            <label>Verification Token <small>(optional)</small></label>
+            <input id="ch-vtoken" placeholder="Leave empty if not using event verification" />
+          </div>
+          <div>
+            <label>Encrypt Key <small>(optional)</small></label>
+            <input id="ch-ekey" placeholder="Leave empty if not using encryption" />
+          </div>
+          <div>
+            <label>Allow From <small>(comma-separated open_ids, or * for all)</small></label>
+            <input id="ch-allowFrom" placeholder="*" />
+          </div>
+          <div>
+            <label>Agent</label>
+            <select id="ch-agentId" required>
+              <option value="">— select an agent —</option>
+            </select>
+          </div>
+        </div>
+        <br/>
+        <button type="submit" class="btn btn-primary">Register Channel</button>
+      </form>
+    </div>
+
+    <!-- Registered channels -->
+    <div class="card">
+      <h2>Registered Channels</h2>
+      <table id="table-channels">
+        <thead>
+          <tr>
+            <th>Name</th><th>Type</th><th>App ID</th><th>Agent</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-channels">
+          <tr><td colspan="6" style="text-align:center;color:#888;padding:24px">No channels registered yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Agents Tab -->
+  <div id="tab-agents" class="tab-panel">
+
+    <!-- Register new agent -->
+    <div class="card">
+      <h2>Register Agent</h2>
+      <form id="form-agent" onsubmit="submitAgent(event)">
+        <div class="grid-2">
+          <div>
+            <label>Agent Name</label>
+            <input id="ag-name" placeholder="My Agent" required />
+          </div>
+          <div>
+            <label>Agent URL (A2A endpoint)</label>
+            <input id="ag-url" placeholder="http://localhost:3001" required />
+          </div>
+          <div style="grid-column:span 2">
+            <label>Description <small>(optional)</small></label>
+            <input id="ag-desc" placeholder="What does this agent do?" />
+          </div>
+        </div>
+        <br/>
+        <button type="submit" class="btn btn-primary">Register Agent</button>
+      </form>
+    </div>
+
+    <!-- Registered agents -->
+    <div class="card">
+      <h2>Registered Agents</h2>
+      <table>
+        <thead>
+          <tr><th>Name</th><th>URL</th><th>Description</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="tbody-agents">
+          <tr><td colspan="4" style="text-align:center;color:#888;padding:24px">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  // -------------------------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------------------------
+
+  function toast(msg, type = 'success') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = `toast show ${type}`;
+    setTimeout(() => el.className = 'toast', 2800);
+  }
+
+  function showTab(name) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      const tabs = ['channels', 'agents'];
+      t.classList.toggle('active', tabs[i] === name);
+    });
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.toggle('active', p.id === `tab-${name}`);
+    });
+  }
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || res.statusText);
+    }
+    return res.json();
+  }
+
+  // -------------------------------------------------------------------------
+  // Agents
+  // -------------------------------------------------------------------------
+
+  async function loadAgents() {
+    const agents = await api('/api/agents');
+    const tbody = document.getElementById('tbody-agents');
+    if (!agents.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:24px">No agents registered.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = agents.map(a => `
+      <tr>
+        <td><strong>${esc(a.name)}</strong></td>
+        <td><code>${esc(a.url)}</code></td>
+        <td>${esc(a.description ?? '')}</td>
+        <td class="actions">
+          <button class="btn btn-danger btn-sm" onclick="deleteAgent('${a.id}')">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+
+    // Populate agent dropdown in channel form
+    const sel = document.getElementById('ch-agentId');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— select an agent —</option>' +
+      agents.map(a => `<option value="${a.id}" ${a.id === current ? 'selected' : ''}>${esc(a.name)} (${esc(a.url)})</option>`).join('');
+  }
+
+  async function submitAgent(e) {
+    e.preventDefault();
+    try {
+      await api('/api/agents', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: document.getElementById('ag-name').value,
+          url: document.getElementById('ag-url').value,
+          description: document.getElementById('ag-desc').value || undefined,
+        }),
+      });
+      toast('Agent registered');
+      e.target.reset();
+      loadAgents();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function deleteAgent(id) {
+    if (!confirm('Delete this agent?')) return;
+    try {
+      await api(`/api/agents/${id}`, { method: 'DELETE' });
+      toast('Agent deleted');
+      loadAgents();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Channels
+  // -------------------------------------------------------------------------
+
+  async function loadChannels() {
+    const [channels, agents] = await Promise.all([
+      api('/api/channels'),
+      api('/api/agents'),
+    ]);
+    const agentMap = Object.fromEntries(agents.map(a => [a.id, a]));
+    const tbody = document.getElementById('tbody-channels');
+    if (!channels.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:24px">No channels registered yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = channels.map(c => {
+      const agent = agentMap[c.agentId] || { name: c.agentUrl, url: c.agentUrl };
+      return `
+        <tr>
+          <td><strong>${esc(c.name)}</strong></td>
+          <td>${esc(c.channelType)}</td>
+          <td><code>${esc(c.channelConfig.appId)}</code></td>
+          <td>${esc(agent.name)}</td>
+          <td><span class="badge ${c.enabled ? 'badge-enabled' : 'badge-disabled'}">${c.enabled ? 'Enabled' : 'Disabled'}</span></td>
+          <td class="actions">
+            <button class="btn btn-sm" style="background:#ffc107" onclick="toggleChannel('${c.id}', ${!c.enabled})">
+              ${c.enabled ? 'Disable' : 'Enable'}
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteChannel('${c.id}')">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  async function submitChannel(e) {
+    e.preventDefault();
+    const agentSel = document.getElementById('ch-agentId');
+    const agentOpt = agentSel.options[agentSel.selectedIndex];
+    if (!agentSel.value) { toast('Please select an agent', 'error'); return; }
+
+    const agentUrl = agentOpt.text.match(/\((.+)\)$/)?.[1] ?? agentSel.value;
+    const allowFromRaw = document.getElementById('ch-allowFrom').value.trim();
+    const allowFrom = allowFromRaw ? allowFromRaw.split(',').map(s => s.trim()).filter(Boolean) : ['*'];
+
+    try {
+      await api('/api/channels', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: document.getElementById('ch-name').value,
+          channelType: document.getElementById('ch-type').value,
+          channelConfig: {
+            appId: document.getElementById('ch-appId').value,
+            appSecret: document.getElementById('ch-appSecret').value,
+            verificationToken: document.getElementById('ch-vtoken').value || undefined,
+            encryptKey: document.getElementById('ch-ekey').value || undefined,
+            allowFrom,
+          },
+          agentId: agentSel.value,
+          agentUrl,
+          enabled: true,
+        }),
+      });
+      toast('Channel registered & monitor started');
+      e.target.reset();
+      loadChannels();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function toggleChannel(id, enabled) {
+    try {
+      await api(`/api/channels/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      });
+      toast(enabled ? 'Channel enabled' : 'Channel disabled');
+      loadChannels();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function deleteChannel(id) {
+    if (!confirm('Delete this channel binding?')) return;
+    try {
+      await api(`/api/channels/${id}`, { method: 'DELETE' });
+      toast('Channel deleted');
+      loadChannels();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Utilities
+  // -------------------------------------------------------------------------
+
+  function esc(s) {
+    return String(s ?? '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // -------------------------------------------------------------------------
+  // Boot
+  // -------------------------------------------------------------------------
+
+  loadAgents();
+  loadChannels();
+</script>
+</body>
+</html>

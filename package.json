@@ -1,0 +1,29 @@
+{
+  "name": "a2a-channels",
+  "version": "0.1.0",
+  "description": "Node.js gateway bridging messaging channel plugins with A2A agents",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/patch-node-modules.js",
+    "gateway": "tsx --env-file .env apps/gateway/src/index.ts",
+    "echo-agent": "tsx apps/echo-agent/src/index.ts",
+    "dev": "tsx --env-file .env apps/gateway/src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^1.19.14",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.19.17",
+    "hono": "^4.12.14",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
