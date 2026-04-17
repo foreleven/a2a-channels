@@ -1,22 +1,26 @@
 {
   "name": "a2a-channels",
   "version": "0.1.0",
-  "description": "A Bun.js gateway bridging messaging channel plugins with A2A agents",
+  "description": "Node.js gateway bridging messaging channel plugins with A2A agents",
   "type": "module",
   "private": true,
-  "main": "src/gateway/index.ts",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "gateway": "bun run src/gateway/index.ts",
-    "echo-agent": "bun run src/echo-agent/index.ts",
-    "dev": "bun run src/gateway/index.ts"
-  },
-  "dependencies": {
-    "@a2a-js/sdk": "^0.3.13",
-    "@larksuite/openclaw-lark": "^2026.4.7",
-    "openclaw": "^2026.4.14"
+    "postinstall": "node scripts/patch-node-modules.js",
+    "gateway": "tsx --env-file .env apps/gateway/src/index.ts",
+    "echo-agent": "tsx apps/echo-agent/src/index.ts",
+    "dev": "tsx --env-file .env apps/gateway/src/index.ts",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@hono/node-server": "^1.19.14",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.19.17",
+    "hono": "^4.12.14",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   },
   "peerDependencies": {

@@ -1,0 +1,13 @@
+{
+  "name": "@a2a-channels/channel-lark",
+  "version": "0.1.0",
+  "description": "Lark / Feishu channel provider for a2a-channels",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@a2a-channels/core": "*",
+    "@a2a-channels/openclaw-compat": "*",
+    "@larksuite/openclaw-lark": "^2026.4.7"
+  }
+}

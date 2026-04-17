@@ -1,0 +1,17 @@
+{
+  "name": "@a2a-channels/gateway",
+  "version": "0.1.0",
+  "description": "A2A Channels Gateway – Hono HTTP server on Node.js",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx --env-file ../../.env src/index.ts",
+    "dev": "tsx --env-file ../../.env src/index.ts"
+  },
+  "dependencies": {
+    "@a2a-channels/core": "*",
+    "@a2a-channels/agent-transport": "*",
+    "@a2a-channels/openclaw-compat": "*",
+    "@a2a-channels/channel-lark": "*"
+  }
+}
