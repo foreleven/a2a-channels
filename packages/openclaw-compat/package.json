@@ -4,10 +4,12 @@
   "description": "OpenClaw plugin host and runtime compatibility layer",
   "type": "module",
   "main": "src/index.ts",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "dependencies": {
-    "@a2a-channels/core": "*",
-    "@a2a-channels/agent-transport": "*",
+    "@a2a-channels/core": "workspace:*",
+    "@a2a-channels/agent-transport": "workspace:*",
     "openclaw": "^2026.4.14"
   }
 }

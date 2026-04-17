@@ -60,13 +60,13 @@ const runtime = buildOpenClawPluginRuntime({
   getConfig: buildOpenClawConfig,
 });
 
-const openclawHost = new OpenClawPluginHost(buildOpenClawConfig);
-registerAllPlugins(openclawHost);
-openclawHost.setRuntime(runtime);
+const openclawHost = new OpenClawPluginHost(runtime, buildOpenClawConfig);
 
-const monitorManager = new MonitorManager(
-  [new OpenClawChannelProvider(openclawHost)],
-);
+registerAllPlugins(openclawHost);
+
+const monitorManager = new MonitorManager([
+  new OpenClawChannelProvider(openclawHost),
+]);
 
 // ---------------------------------------------------------------------------
 // Static assets

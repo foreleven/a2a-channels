@@ -14,7 +14,7 @@ import type { OpenClawPluginHost } from "@a2a-channels/openclaw-compat";
 // ---------------------------------------------------------------------------
 
 export function registerLarkPlugin(host: OpenClawPluginHost): void {
-  host.registerPlugin((api) => larkPlugin.register(api));
+  host.registerPlugin((api) => larkPlugin.default.register(api));
   console.info("[lark-register] @larksuite/openclaw-lark registered");
 }
 

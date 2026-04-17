@@ -1,116 +1,128 @@
 #!/usr/bin/env node
 /**
- * Patches node_modules after npm install to fix compatibility issues:
+ * Patches node_modules after pnpm install to fix compatibility issues:
  *
- * 1. All packages with ESM-only exports (import but no require):
- *    Adds a `require` condition mirroring `import`, so tsx CJS hook can
- *    resolve them when required from CJS context.
- *
- * 2. @larksuite/openclaw-lark:
+ * 1. @larksuite/openclaw-lark:
  *    - Fixes broken `exports` (was pointing to non-existent dist/)
  *    - Exposes `./package.json` subpath needed by register.ts
- *
- * 3. openclaw/dist/models-config-B-YHRI3g.js:
- *    - Removes a dead `path.resolve(import.meta.dirname, ...)` expression
- *      that crashes tsx's CJS transformer.
  */
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
 
-const NM = path.join(__dirname, "..", "node_modules");
+const ROOT = path.join(import.meta.dirname, "..");
 
-// ---------------------------------------------------------------------------
-// 1. Add `require` condition to all ESM-only exports
-// ---------------------------------------------------------------------------
-let patchCount = 0;
-
-function patchExports(obj) {
-  if (!obj || typeof obj !== "object") return false;
-  let changed = false;
-  for (const key of Object.keys(obj)) {
-    const val = obj[key];
-    if (val && typeof val === "object") {
-      if (val.import && !val.require) {
-        val.require = val.import;
-        changed = true;
-      }
-      if (patchExports(val)) changed = true;
-    }
-  }
-  return changed;
-}
-
-function patchPkg(pkgPath) {
+function isDir(p) {
   try {
-    const raw = fs.readFileSync(pkgPath, "utf8");
-    const pkg = JSON.parse(raw);
-    if (!pkg.exports) return;
-    if (patchExports(pkg.exports)) {
-      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
-      console.log(
-        "[patch] added require condition:",
-        pkgPath.replace(NM + "/", ""),
-      );
-      patchCount++;
-    }
-  } catch (_) {}
-}
-
-for (const entry of fs.readdirSync(NM)) {
-  const entryPath = path.join(NM, entry);
-  if (entry.startsWith("@")) {
-    try {
-      for (const pkg of fs.readdirSync(entryPath)) {
-        patchPkg(path.join(entryPath, pkg, "package.json"));
-      }
-    } catch (_) {}
-  } else {
-    patchPkg(path.join(entryPath, "package.json"));
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
   }
 }
 
+function findInstalledPackageDirs(packageParts) {
+  const found = new Set();
+  const nmRoot = path.join(ROOT, "node_modules");
+  const direct = path.join(nmRoot, ...packageParts);
+  if (isDir(direct)) found.add(direct);
+  const virtualStore = path.join(nmRoot, ".pnpm");
+  if (isDir(virtualStore)) {
+    for (const dir of fs.readdirSync(virtualStore)) {
+      const candidate = path.join(
+        virtualStore,
+        dir,
+        "node_modules",
+        ...packageParts,
+      );
+      if (isDir(candidate)) found.add(candidate);
+    }
+  }
+  return Array.from(found);
+}
+
 // ---------------------------------------------------------------------------
-// 2. Fix @larksuite/openclaw-lark broken exports
+// Fix @larksuite/openclaw-lark broken exports
 // ---------------------------------------------------------------------------
-const larkPkgPath = path.join(
-  NM,
+let larkPatched = 0;
+for (const larkDir of findInstalledPackageDirs([
   "@larksuite",
   "openclaw-lark",
-  "package.json",
-);
-try {
-  const pkg = JSON.parse(fs.readFileSync(larkPkgPath, "utf8"));
-  pkg.exports = {
-    ".": { require: "./index.js", default: "./index.js" },
-    "./package.json": "./package.json",
-  };
-  pkg.main = "./index.js";
-  fs.writeFileSync(larkPkgPath, JSON.stringify(pkg, null, 2));
-  console.log("[patch] fixed @larksuite/openclaw-lark exports");
-} catch (e) {
-  console.warn("[patch] could not patch @larksuite/openclaw-lark:", e.message);
-}
-
-// ---------------------------------------------------------------------------
-// 3. Remove dead import.meta.dirname expression in openclaw dist
-// ---------------------------------------------------------------------------
-const openclaw = path.join(NM, "openclaw", "dist", "models-config-B-YHRI3g.js");
-try {
-  let src = fs.readFileSync(openclaw, "utf8");
-  const before = src;
-  src = src.replace(
-    /path\.resolve\(import\.meta\.dirname,\s*["'][^"']*["']\);/g,
-    "/* patched */",
-  );
-  if (src !== before) {
-    fs.writeFileSync(openclaw, src);
-    console.log("[patch] removed import.meta.dirname in openclaw/dist");
+])) {
+  const larkPkgPath = path.join(larkDir, "package.json");
+  try {
+    const pkg = JSON.parse(fs.readFileSync(larkPkgPath, "utf8"));
+    pkg.type = "commonjs";
+    pkg.exports = {
+      ".": { require: "./index.js", default: "./index.js" },
+      "./package.json": "./package.json",
+    };
+    pkg.main = "./index.js";
+    fs.writeFileSync(larkPkgPath, JSON.stringify(pkg, null, 2));
+    larkPatched++;
+  } catch (e) {
+    console.warn(
+      "[patch] could not patch @larksuite/openclaw-lark at",
+      path.relative(ROOT, larkPkgPath),
+      ":",
+      e.message,
+    );
   }
-} catch (e) {
-  console.warn("[patch] could not patch openclaw dist:", e.message);
+}
+if (larkPatched > 0) {
+  console.log(
+    `[patch] fixed @larksuite/openclaw-lark exports in ${larkPatched} location(s)`,
+  );
+} else {
+  console.warn("[patch] @larksuite/openclaw-lark not found");
 }
 
-console.log(
-  `[patch] done. ${patchCount} packages patched with require condition.`,
-);
+// ---------------------------------------------------------------------------
+// Fix @larksuite/openclaw-lark src/**/*.js: import.meta in CJS files
+// ---------------------------------------------------------------------------
+function walkJs(dir, cb) {
+  for (const entry of fs.readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    if (fs.statSync(full).isDirectory()) walkJs(full, cb);
+    else if (entry.endsWith(".js") && !entry.endsWith(".d.ts")) cb(full);
+  }
+}
+for (const larkDir of findInstalledPackageDirs([
+  "@larksuite",
+  "openclaw-lark",
+])) {
+  const srcDir = path.join(larkDir, "src");
+  if (!isDir(srcDir)) continue;
+  walkJs(srcDir, (filePath) => {
+    try {
+      let src = fs.readFileSync(filePath, "utf8");
+      if (!src.includes("import.meta")) return;
+      const before = src;
+      // fileURLToPath(import.meta.url)  →  __filename
+      src = src.replace(
+        /\(0,\s*node_url_1\.fileURLToPath\)\(import\.meta\.url\)/g,
+        "__filename",
+      );
+      // ternary guard: typeof __filename !== 'undefined' ? __filename : import.meta.url
+      src = src.replace(
+        /typeof __filename\s*!==\s*['"]undefined['"]\s*\?\s*__filename\s*:\s*import\.meta\.url/g,
+        "__filename",
+      );
+      // bare import.meta.url remaining
+      src = src.replace(/import\.meta\.url/g, "__filename");
+      if (src !== before) {
+        fs.writeFileSync(filePath, src);
+        console.log(
+          "[patch] fixed import.meta in",
+          path.relative(larkDir, filePath),
+        );
+      }
+    } catch (e) {
+      console.warn(
+        "[patch] could not patch",
+        path.relative(larkDir, filePath),
+        ":",
+        e.message,
+      );
+    }
+  });
+}

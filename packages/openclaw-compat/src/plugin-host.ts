@@ -15,6 +15,17 @@
  *   host.setRuntime(buildRuntime()); // shared runtime injected once
  */
 
+import type {
+  OpenClawPluginChannelRegistration,
+  PluginHookHandlerMap,
+  PluginHookName,
+} from "node_modules/openclaw/dist/plugin-sdk/src/plugins/types";
+import type {
+  ChannelPlugin,
+  OpenClawPluginApi,
+  PluginRuntime,
+} from "openclaw/plugin-sdk";
+
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
@@ -22,8 +33,8 @@
 /** Minimal logger interface shared between the host and registered plugins. */
 interface HostLogger {
   debug: (msg: string, meta?: unknown) => void;
-  info:  (msg: string, meta?: unknown) => void;
-  warn:  (msg: string, meta?: unknown) => void;
+  info: (msg: string, meta?: unknown) => void;
+  warn: (msg: string, meta?: unknown) => void;
   error: (msg: string, meta?: unknown) => void;
 }
 
@@ -32,31 +43,31 @@ interface HostLogger {
  * Mirrors the env object a real OpenClaw host normally provides.
  */
 export interface GatewayRuntimeEnv {
-  log:   (...args: unknown[]) => void;
+  log: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
-  exit:  (code: number) => void;
+  exit: (code: number) => void;
 }
 
 interface ChannelGatewayController {
   startAccount?: (ctx: {
-    cfg:         Record<string, unknown>;
-    accountId:   string;
-    runtime:     GatewayRuntimeEnv;
+    cfg: Record<string, unknown>;
+    accountId: string;
+    runtime: GatewayRuntimeEnv;
     abortSignal: AbortSignal;
-    setStatus:   (status: Record<string, unknown>) => void;
-    log?:        HostLogger;
+    setStatus: (status: Record<string, unknown>) => void;
+    log?: HostLogger;
   }) => Promise<void>;
   stopAccount?: (ctx: {
-    cfg:       Record<string, unknown>;
+    cfg: Record<string, unknown>;
     accountId: string;
-    runtime:   GatewayRuntimeEnv;
-    log?:      HostLogger;
+    runtime: GatewayRuntimeEnv;
+    log?: HostLogger;
   }) => Promise<void>;
 }
 
 interface RegisteredChannelPlugin {
-  id:       string;
-  meta?:    { aliases?: string[] };
+  id: string;
+  meta?: { aliases?: string[] };
   gateway?: ChannelGatewayController;
 }
 
@@ -65,10 +76,10 @@ interface RegisteredChannelPlugin {
 // ---------------------------------------------------------------------------
 
 const logger: HostLogger = {
-  debug: (msg, meta) => console.debug('[openclaw-host]', msg, meta ?? ''),
-  info:  (msg, meta) => console.info( '[openclaw-host]', msg, meta ?? ''),
-  warn:  (msg, meta) => console.warn( '[openclaw-host]', msg, meta ?? ''),
-  error: (msg, meta) => console.error('[openclaw-host]', msg, meta ?? ''),
+  debug: (msg, meta) => console.debug("[openclaw-host]", msg, meta ?? ""),
+  info: (msg, meta) => console.info("[openclaw-host]", msg, meta ?? ""),
+  warn: (msg, meta) => console.warn("[openclaw-host]", msg, meta ?? ""),
+  error: (msg, meta) => console.error("[openclaw-host]", msg, meta ?? ""),
 };
 
 // ---------------------------------------------------------------------------
@@ -76,17 +87,21 @@ const logger: HostLogger = {
 // ---------------------------------------------------------------------------
 
 export class OpenClawPluginHost {
-  private runtime: unknown = null;
-
-  private readonly channels     = new Map<string, RegisteredChannelPlugin>();
-  private readonly hookHandlers = new Map<string, Array<(...args: unknown[]) => unknown>>();
+  private readonly channels = new Map<string, RegisteredChannelPlugin>();
+  private readonly hookHandlers = new Map<
+    string,
+    Array<(...args: any[]) => unknown>
+  >();
 
   /**
    * @param getConfig  Callback that returns the current OpenClaw-compatible
    *   channel config.  Injected by the gateway so this package has no
    *   dependency on the store implementation.
    */
-  constructor(private readonly getConfig: () => Record<string, unknown>) {}
+  constructor(
+    private readonly runtime: PluginRuntime,
+    private readonly getConfig: () => Record<string, unknown>,
+  ) {}
 
   // -------------------------------------------------------------------------
   // Public API
@@ -99,13 +114,6 @@ export class OpenClawPluginHost {
    */
   hasChannel(channelType: string): boolean {
     return this.resolveChannel(channelType) !== undefined;
-  }
-
-  /**
-   * Set the shared plugin runtime.
-   */
-  setRuntime(runtime: unknown): void {
-    this.runtime = runtime;
   }
 
   /**
@@ -124,25 +132,26 @@ export class OpenClawPluginHost {
    */
   async startChannelAccount(
     channelType: string,
-    accountId:   string,
-    runtimeEnv:  GatewayRuntimeEnv,
+    accountId: string,
+    runtimeEnv: GatewayRuntimeEnv,
     abortSignal: AbortSignal,
   ): Promise<void> {
     const channel = this.resolveChannel(channelType);
     if (!channel?.gateway?.startAccount) {
       throw new Error(
         `No registered channel gateway for "${channelType}". ` +
-        `Did you forget to call the channel's register function before starting accounts?`,
+          `Did you forget to call the channel's register function before starting accounts?`,
       );
     }
 
     await channel.gateway.startAccount({
-      cfg:       this.getConfig(),
+      cfg: this.getConfig(),
       accountId,
-      runtime:   runtimeEnv,
+      runtime: runtimeEnv,
       abortSignal,
-      setStatus: (status) => logger.info(`status [${channel.id}:${accountId}]`, status),
-      log:       logger,
+      setStatus: (status) =>
+        logger.info(`status [${channel.id}:${accountId}]`, status),
+      log: logger,
     });
   }
 
@@ -150,7 +159,9 @@ export class OpenClawPluginHost {
   // Private helpers
   // -------------------------------------------------------------------------
 
-  private resolveChannel(channelType: string): RegisteredChannelPlugin | undefined {
+  private resolveChannel(
+    channelType: string,
+  ): RegisteredChannelPlugin | undefined {
     const exact = this.channels.get(channelType);
     if (exact) return exact;
     for (const channel of this.channels.values()) {
@@ -166,21 +177,25 @@ export class OpenClawPluginHost {
    * implemented.  Everything else is a deliberate no-op stub — stubs exist
    * to satisfy the plugin's registration phase without throwing.
    */
-  private buildPluginApi(): unknown {
+  private buildPluginApi(): OpenClawPluginApi {
     const host = this;
 
     return {
       // ---- Identity -------------------------------------------------------
-      id:               'a2a-channels-gateway',
-      name:             'A2A Channels Gateway',
-      version:          '0.1.0',
-      description:      'A2A-backed OpenClaw channel plugin host',
-      source:           'local',
-      registrationMode: 'eager',
+      id: "a2a-channels-gateway",
+      name: "A2A Channels Gateway",
+      version: "0.1.0",
+      description: "A2A-backed OpenClaw channel plugin host",
+      source: "local",
+      registrationMode: "setup-runtime",
 
       // ---- Live getters ---------------------------------------------------
-      get config()  { return host.getConfig(); },
-      get runtime() { return host.runtime; },
+      get config() {
+        return host.getConfig();
+      },
+      get runtime() {
+        return host.runtime!;
+      },
       pluginConfig: {},
 
       logger,
@@ -189,25 +204,36 @@ export class OpenClawPluginHost {
 
       /** Called by channel plugins to register their gateway controller. */
       registerChannel: (
-        registration: { plugin?: RegisteredChannelPlugin } | RegisteredChannelPlugin,
+        registration: OpenClawPluginChannelRegistration | ChannelPlugin,
       ) => {
         const channel = (
-          typeof registration === 'object' &&
+          typeof registration === "object" &&
           registration !== null &&
-          'plugin' in registration
+          "plugin" in registration
             ? registration.plugin
             : registration
         ) as RegisteredChannelPlugin | undefined;
 
         if (!channel?.id) {
-          throw new Error('registerChannel: plugin object must have a non-empty id');
+          throw new Error(
+            "registerChannel: plugin object must have a non-empty id",
+          );
         }
         host.channels.set(channel.id, channel);
-        logger.info('channel registered', { id: channel.id, aliases: channel.meta?.aliases ?? [] });
+        logger.info("channel registered", {
+          id: channel.id,
+          aliases: channel.meta?.aliases ?? [],
+        });
       },
 
       /** Subscribe to host lifecycle events. */
-      on: (hookName: string, handler: (...args: unknown[]) => unknown) => {
+      on: <K extends PluginHookName>(
+        hookName: K,
+        handler: PluginHookHandlerMap[K],
+        opts?: {
+          priority?: number;
+        },
+      ) => {
         const existing = host.hookHandlers.get(hookName) ?? [];
         existing.push(handler);
         host.hookHandlers.set(hookName, existing);
@@ -218,42 +244,42 @@ export class OpenClawPluginHost {
       // ---- No-op stubs for unused registration surface --------------------
       // Allow plugin register() calls to complete without throwing when
       // the gateway doesn't implement the corresponding capability.
-      registerTool:                          () => {},
-      registerHook:                          () => {},
-      registerHttpRoute:                     () => {},
-      registerGatewayMethod:                 () => {},
-      registerCli:                           () => {},
-      registerReload:                        () => {},
-      registerNodeHostCommand:               () => {},
-      registerSecurityAuditCollector:        () => {},
-      registerService:                       () => {},
-      registerCliBackend:                    () => {},
-      registerTextTransforms:                () => {},
-      registerConfigMigration:               () => {},
-      registerAutoEnableProbe:               () => {},
-      registerProvider:                      () => {},
-      registerSpeechProvider:                () => {},
+      registerTool: () => {},
+      registerHook: () => {},
+      registerHttpRoute: () => {},
+      registerGatewayMethod: () => {},
+      registerCli: () => {},
+      registerReload: () => {},
+      registerNodeHostCommand: () => {},
+      registerSecurityAuditCollector: () => {},
+      registerService: () => {},
+      registerCliBackend: () => {},
+      registerTextTransforms: () => {},
+      registerConfigMigration: () => {},
+      registerAutoEnableProbe: () => {},
+      registerProvider: () => {},
+      registerSpeechProvider: () => {},
       registerRealtimeTranscriptionProvider: () => {},
-      registerRealtimeVoiceProvider:         () => {},
-      registerMediaUnderstandingProvider:    () => {},
-      registerImageGenerationProvider:       () => {},
-      registerVideoGenerationProvider:       () => {},
-      registerMusicGenerationProvider:       () => {},
-      registerWebFetchProvider:              () => {},
-      registerWebSearchProvider:             () => {},
-      registerInteractiveHandler:            () => {},
-      onConversationBindingResolved:         () => {},
-      registerCommand:                       () => {},
-      registerContextEngine:                 () => {},
-      registerCompactionProvider:            () => {},
-      registerAgentHarness:                  () => {},
-      registerMemoryCapability:              () => {},
-      registerMemoryPromptSection:           () => {},
-      registerMemoryPromptSupplement:        () => {},
-      registerMemoryCorpusSupplement:        () => {},
-      registerMemoryFlushPlan:               () => {},
-      registerMemoryRuntime:                 () => {},
-      registerMemoryEmbeddingProvider:       () => {},
+      registerRealtimeVoiceProvider: () => {},
+      registerMediaUnderstandingProvider: () => {},
+      registerImageGenerationProvider: () => {},
+      registerVideoGenerationProvider: () => {},
+      registerMusicGenerationProvider: () => {},
+      registerWebFetchProvider: () => {},
+      registerWebSearchProvider: () => {},
+      registerInteractiveHandler: () => {},
+      onConversationBindingResolved: () => {},
+      registerCommand: () => {},
+      registerContextEngine: () => {},
+      registerCompactionProvider: () => {},
+      registerAgentHarness: () => {},
+      registerMemoryCapability: () => {},
+      registerMemoryPromptSection: () => {},
+      registerMemoryPromptSupplement: () => {},
+      registerMemoryCorpusSupplement: () => {},
+      registerMemoryFlushPlan: () => {},
+      registerMemoryRuntime: () => {},
+      registerMemoryEmbeddingProvider: () => {},
     };
   }
 }

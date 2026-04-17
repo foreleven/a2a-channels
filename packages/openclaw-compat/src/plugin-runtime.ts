@@ -19,6 +19,7 @@ import * as routingSdk from "openclaw/plugin-sdk/routing";
 import * as textRuntimeSdk from "openclaw/plugin-sdk/text-runtime";
 
 import type { AgentTransport } from "@a2a-channels/core";
+import type { PluginRuntime } from "openclaw/plugin-sdk";
 
 // ---------------------------------------------------------------------------
 // Runtime options
@@ -47,7 +48,7 @@ export interface PluginRuntimeOptions {
 
 export function buildOpenClawPluginRuntime(
   options: PluginRuntimeOptions,
-): Record<string, unknown> {
+): PluginRuntime {
   const { transport, getAgentUrl, getConfig } = options;
 
   async function dispatch(
@@ -80,36 +81,44 @@ export function buildOpenClawPluginRuntime(
 
     // ---- Agent (stubs – this gateway doesn't run embedded agents) ----
     agent: {
-      defaults: { model: "gpt-4o", provider: "openai" },
+      defaults: { model: "gpt-5.4", provider: "openai" },
       resolveAgentDir: () => "/tmp/a2a-channels",
       resolveAgentWorkspaceDir: () => "/tmp/a2a-channels",
       resolveAgentIdentity: () => ({ agentId: "main", name: "main" }),
       resolveThinkingDefault: () => "off",
-      runEmbeddedAgent: async () => ({ text: "", sessionKey: "" }),
-      runEmbeddedPiAgent: async () => ({ text: "", sessionKey: "" }),
+      runEmbeddedAgent: async () => ({ meta: { durationMs: 0 } }),
+      runEmbeddedPiAgent: async () => ({ meta: { durationMs: 0 } }),
       resolveAgentTimeoutMs: () => 30_000,
-      ensureAgentWorkspace: async () => {},
+      ensureAgentWorkspace: async () => ({
+        dir: "/tmp/a2a-channels",
+        created: false,
+      }),
       session: {
         resolveStorePath: () => "/tmp/a2a-sessions",
-        loadSessionStore: async () => ({ messages: [] }),
+        loadSessionStore: async (storePath: string) => ({}) as any,
         saveSessionStore: async () => {},
         resolveSessionFilePath: () => "/tmp/a2a-sessions/session.json",
-      },
+      } as unknown as PluginRuntime["agent"]["session"],
     },
 
     // ---- System ----
     system: {
       enqueueSystemEvent: (msg: string, meta?: unknown) => {
         console.log("[system]", msg, meta ?? "");
+        return false;
       },
       requestHeartbeatNow: async () => {},
-      runHeartbeatOnce: async () => ({ ok: true }),
+      runHeartbeatOnce: async () => ({ status: "ran", durationMs: 0 }),
       runCommandWithTimeout: async () => ({
+        code: 0,
+        signal: null,
+        killed: false,
+        termination: "exit",
         stdout: "",
         stderr: "",
         exitCode: 0,
       }),
-      formatNativeDependencyHint: (h: { name: string }) => h.name,
+      formatNativeDependencyHint: (h: { packageName: string }) => h.packageName,
     },
 
     // ---- Media / TTS / AI stubs ----
@@ -343,5 +352,5 @@ export function buildOpenClawPluginRuntime(
         watch: () => () => {},
       },
     },
-  };
+  } as unknown as PluginRuntime;
 }

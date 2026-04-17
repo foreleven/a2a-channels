@@ -5,5 +5,6 @@
 
 declare module "@larksuite/openclaw-lark" {
   const plugin: { register(api: unknown): void };
-  export default plugin;
+  const exports = { default: plugin };
+  export default exports;
 }
