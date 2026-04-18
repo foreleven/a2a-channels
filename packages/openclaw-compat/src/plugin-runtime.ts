@@ -177,8 +177,8 @@ export class OpenClawPluginRuntime extends EventEmitter {
   // -------------------------------------------------------------------------
 
   /**
-   * Returns this instance cast as `PluginRuntime` for use with
-   * `OpenClawPluginHost`.  The object shape matches the expected interface
+   * Returns a `PluginRuntime` facade backed by this instance for use with
+   * `OpenClawPluginHost`. The returned object matches the expected interface
    * even though TypeScript cannot verify it statically.
    */
   asPluginRuntime(): PluginRuntime {
