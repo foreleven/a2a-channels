@@ -76,7 +76,7 @@ export interface RuntimeEventMap {
  * Class-based OpenClaw plugin runtime that emits lifecycle events so that
  * external observers (e.g. MonitorManager) can record message traffic.
  *
- * Cast the instance to `PluginRuntime` when passing it to `OpenClawPluginHost`.
+ * Use `runtime.asPluginRuntime()` when passing it to `OpenClawPluginHost`.
  */
 export class OpenClawPluginRuntime extends EventEmitter {
   private readonly transport: AgentTransport;
