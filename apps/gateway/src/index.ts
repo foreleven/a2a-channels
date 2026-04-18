@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 
 import { A2ATransport } from "@a2a-channels/agent-transport";
@@ -81,6 +82,17 @@ const PORT = Number(process.env["PORT"] ?? 7890);
 // ---------------------------------------------------------------------------
 
 const app = new Hono();
+
+// ── CORS – allow requests from the Next.js admin UI ──────────────────────────
+const CORS_ORIGIN = process.env["CORS_ORIGIN"] ?? "http://localhost:3000";
+app.use(
+  "/api/*",
+  cors({
+    origin: CORS_ORIGIN,
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type"],
+  }),
+);
 
 // ── Static Web UI ────────────────────────────────────────────────────────────
 app.get("/", async (c) => {

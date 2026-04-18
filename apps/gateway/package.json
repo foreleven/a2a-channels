@@ -12,6 +12,7 @@
     "@a2a-channels/core": "workspace:*",
     "@a2a-channels/agent-transport": "workspace:*",
     "@a2a-channels/openclaw-compat": "workspace:*",
+    "@a2a-channels/store-sqlite": "workspace:*",
     "@larksuite/openclaw-lark": "^2026.4.7"
   }
 }

@@ -1,16 +1,29 @@
 /**
- * In-memory store for channel bindings and agent configurations.
+ * SQLite-backed store for channel bindings and agent configurations.
  *
- * Implements ChannelStore and AgentStore from @a2a-channels/core.
- * All state lives in RAM and is reset when the gateway restarts.
+ * Delegates to @a2a-channels/store-sqlite, which provides ChannelStore and
+ * AgentStore implementations backed by a local SQLite file.
  *
- * For persistence, replace this module with an adapter backed by
- * SQLite, Redis, or any other storage system while keeping the same
- * exported function signatures.
+ * The database file path is controlled by the DB_PATH environment variable
+ * (defaults to `./a2a-channels.db` next to the process working directory).
+ *
+ * The exported function signatures are identical to the previous in-memory
+ * implementation so that the HTTP handlers in index.ts need no changes.
  */
 
-import crypto from "node:crypto";
+import { join } from "node:path";
 import type { ChannelBinding, AgentConfig } from "@a2a-channels/core";
+import { createSQLiteStores } from "@a2a-channels/store-sqlite";
+
+// ---------------------------------------------------------------------------
+// Open the database
+// ---------------------------------------------------------------------------
+
+const DB_PATH =
+  process.env["DB_PATH"] ?? join(process.cwd(), "db/a2a-channels.db");
+
+const { channels: channelStore, agents: agentStore } =
+  createSQLiteStores(DB_PATH);
 
 // ---------------------------------------------------------------------------
 // Lark / Feishu channel config shape (gateway-internal)
@@ -25,45 +38,50 @@ interface FeishuChannelConfig {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory collections
+// Seed defaults on first launch
 // ---------------------------------------------------------------------------
-
-const channelBindings = new Map<string, ChannelBinding>();
-const agentConfigs = new Map<string, AgentConfig>();
 
 const DEFAULT_ECHO_AGENT_URL =
   process.env["ECHO_AGENT_URL"] ?? "http://localhost:3001";
 
-// Seed a default echo agent so the UI shows something on first launch
-agentConfigs.set("echo", {
-  id: "echo",
-  name: "Echo Agent",
-  url: DEFAULT_ECHO_AGENT_URL,
-  description: "Built-in echo agent – mirrors every message back",
-  createdAt: new Date().toISOString(),
-});
+// Seed echo agent if the agents table is empty.
+if (agentStore.list().length === 0) {
+  agentStore.create({
+    name: "Echo Agent",
+    url: DEFAULT_ECHO_AGENT_URL,
+    description: "Built-in echo agent – mirrors every message back",
+  });
+}
 
-// Optional bootstrap binding from environment variables
+// Seed a Feishu bootstrap binding from environment variables (once).
 const bootstrapAppId = process.env["FEISHU_APP_ID"];
 const bootstrapAppSecret = process.env["FEISHU_APP_SECRET"];
+
 if (bootstrapAppId && bootstrapAppSecret) {
-  const bootstrapBinding: ChannelBinding = {
-    id: "bootstrap-feishu",
-    name: "Bootstrap Feishu Bot",
-    channelType: "feishu",
-    accountId: process.env["FEISHU_ACCOUNT_ID"] ?? "default",
-    channelConfig: {
-      appId: bootstrapAppId,
-      appSecret: bootstrapAppSecret,
-      verificationToken: process.env["FEISHU_VERIFICATION_TOKEN"] || undefined,
-      encryptKey: process.env["FEISHU_ENCRYPT_KEY"] || undefined,
-      allowFrom: ["*"],
-    },
-    agentUrl: DEFAULT_ECHO_AGENT_URL,
-    enabled: true,
-    createdAt: new Date().toISOString(),
-  };
-  channelBindings.set(bootstrapBinding.id, bootstrapBinding);
+  const existing = channelStore
+    .list()
+    .find(
+      (b) =>
+        b.channelType === "feishu" &&
+        b.accountId === (process.env["FEISHU_ACCOUNT_ID"] ?? "default"),
+    );
+  if (!existing) {
+    channelStore.create({
+      name: "Bootstrap Feishu Bot",
+      channelType: "feishu",
+      accountId: process.env["FEISHU_ACCOUNT_ID"] ?? "default",
+      channelConfig: {
+        appId: bootstrapAppId,
+        appSecret: bootstrapAppSecret,
+        verificationToken:
+          process.env["FEISHU_VERIFICATION_TOKEN"] || undefined,
+        encryptKey: process.env["FEISHU_ENCRYPT_KEY"] || undefined,
+        allowFrom: ["*"],
+      },
+      agentUrl: DEFAULT_ECHO_AGENT_URL,
+      enabled: true,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -71,38 +89,28 @@ if (bootstrapAppId && bootstrapAppSecret) {
 // ---------------------------------------------------------------------------
 
 export function listChannelBindings(): ChannelBinding[] {
-  return Array.from(channelBindings.values());
+  return channelStore.list();
 }
 
 export function getChannelBinding(id: string): ChannelBinding | undefined {
-  return channelBindings.get(id);
+  return channelStore.get(id);
 }
 
 export function createChannelBinding(
   data: Omit<ChannelBinding, "id" | "createdAt">,
 ): ChannelBinding {
-  const binding: ChannelBinding = {
-    ...data,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
-  channelBindings.set(binding.id, binding);
-  return binding;
+  return channelStore.create(data);
 }
 
 export function updateChannelBinding(
   id: string,
   data: Partial<Omit<ChannelBinding, "id" | "createdAt">>,
 ): ChannelBinding | undefined {
-  const existing = channelBindings.get(id);
-  if (!existing) return undefined;
-  const updated = { ...existing, ...data };
-  channelBindings.set(id, updated);
-  return updated;
+  return channelStore.update(id, data);
 }
 
 export function deleteChannelBinding(id: string): boolean {
-  return channelBindings.delete(id);
+  return channelStore.delete(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -110,38 +118,28 @@ export function deleteChannelBinding(id: string): boolean {
 // ---------------------------------------------------------------------------
 
 export function listAgentConfigs(): AgentConfig[] {
-  return Array.from(agentConfigs.values());
+  return agentStore.list();
 }
 
 export function getAgentConfig(id: string): AgentConfig | undefined {
-  return agentConfigs.get(id);
+  return agentStore.get(id);
 }
 
 export function createAgentConfig(
   data: Omit<AgentConfig, "id" | "createdAt">,
 ): AgentConfig {
-  const agent: AgentConfig = {
-    ...data,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
-  agentConfigs.set(agent.id, agent);
-  return agent;
+  return agentStore.create(data);
 }
 
 export function updateAgentConfig(
   id: string,
   data: Partial<Omit<AgentConfig, "id" | "createdAt">>,
 ): AgentConfig | undefined {
-  const existing = agentConfigs.get(id);
-  if (!existing) return undefined;
-  const updated = { ...existing, ...data };
-  agentConfigs.set(id, updated);
-  return updated;
+  return agentStore.update(id, data);
 }
 
 export function deleteAgentConfig(id: string): boolean {
-  return agentConfigs.delete(id);
+  return agentStore.delete(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -154,12 +152,11 @@ export function deleteAgentConfig(id: string): boolean {
  */
 export function getAgentUrlForAccount(accountId: string | undefined): string {
   const target = accountId ?? "default";
-  for (const b of channelBindings.values()) {
-    if (b.accountId === target && b.enabled) return b.agentUrl;
-  }
-  for (const b of channelBindings.values()) {
-    if (b.enabled) return b.agentUrl;
-  }
+  const all = channelStore.list();
+  const exact = all.find((b) => b.accountId === target && b.enabled);
+  if (exact) return exact.agentUrl;
+  const any = all.find((b) => b.enabled);
+  if (any) return any.agentUrl;
   return DEFAULT_ECHO_AGENT_URL;
 }
 
@@ -171,7 +168,7 @@ export function buildOpenClawConfig(): Record<string, unknown> {
   const feishuAccounts: Record<string, unknown> = {};
   let defaultFeishuConfig: Record<string, unknown> | null = null;
 
-  for (const binding of channelBindings.values()) {
+  for (const binding of channelStore.list()) {
     if (!binding.enabled || binding.channelType !== "feishu") continue;
 
     const cfg = binding.channelConfig as unknown as FeishuChannelConfig;
@@ -202,9 +199,6 @@ export function buildOpenClawConfig(): Record<string, unknown> {
           ? { accounts: feishuAccounts }
           : {}),
       },
-      // Feishu Docs (云文档) is not configured in this gateway.
-      // Providing an empty object prevents the Lark plugin from logging a
-      // "No accounts configured" warning during startup.
       feishu_doc: {},
     },
     agents: {},

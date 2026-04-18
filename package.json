@@ -9,6 +9,7 @@
     "postinstall": "node scripts/patch-node-modules.js",
     "gateway": "node --env-file-if-exists .env --import tsx/esm apps/gateway/src/index.ts",
     "echo-agent": "node --import tsx/esm apps/echo-agent/src/index.ts",
+    "web": "pnpm --filter @a2a-channels/web dev",
     "dev": "node --env-file-if-exists .env --import tsx/esm apps/gateway/src/index.ts",
     "typecheck": "tsc --noEmit"
   },
