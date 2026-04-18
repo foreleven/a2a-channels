@@ -1,9 +1,8 @@
 /**
  * A2A Channels Gateway – main HTTP server.
  *
- * Composition root: creates the store provider, gateway store, transport,
- * plugin host, and monitor manager, then starts the Hono HTTP server on
- * Node.js.
+ * Composition root: creates the Prisma store, transport, plugin host, and
+ * monitor manager, then starts the Hono HTTP server on Node.js.
  *
  * Routes:
  *   GET  /                     → Admin Web UI
@@ -31,25 +30,32 @@ import {
   OpenClawPluginHost,
   buildOpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
-import { SQLiteStoreProvider } from "@a2a-channels/store-sqlite";
 
 import { registerAllPlugins } from "./register-plugins.js";
-import { createGatewayStore, seedDefaults } from "./store/index.js";
+import {
+  initStore,
+  seedDefaults,
+  listChannelBindings,
+  getChannelBinding,
+  createChannelBinding,
+  updateChannelBinding,
+  deleteChannelBinding,
+  listAgentConfigs,
+  getAgentConfig,
+  createAgentConfig,
+  updateAgentConfig,
+  deleteAgentConfig,
+  getAgentUrlForAccount,
+  buildOpenClawConfig,
+} from "./store/index.js";
 import { MonitorManager } from "./monitor-manager.js";
 
 // ---------------------------------------------------------------------------
-// Store provider (swap SQLiteStoreProvider for any other StoreProvider here)
+// Configuration
 // ---------------------------------------------------------------------------
 
-const DB_PATH =
-  process.env["DB_PATH"] ?? join(process.cwd(), "db/a2a-channels.db");
 const DEFAULT_ECHO_AGENT_URL =
   process.env["ECHO_AGENT_URL"] ?? "http://localhost:3001";
-
-const storeProvider = new SQLiteStoreProvider(DB_PATH);
-seedDefaults(storeProvider, DEFAULT_ECHO_AGENT_URL);
-
-const store = createGatewayStore(storeProvider, DEFAULT_ECHO_AGENT_URL);
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -59,19 +65,20 @@ const transport = new A2ATransport();
 
 const runtime = buildOpenClawPluginRuntime({
   transport,
-  getAgentUrl: (accountId) => store.getAgentUrlForAccount(accountId),
-  getConfig: () => store.buildOpenClawConfig(),
+  getAgentUrl: (accountId) =>
+    getAgentUrlForAccount(accountId, DEFAULT_ECHO_AGENT_URL),
+  getConfig: () => buildOpenClawConfig(),
 });
 
 const openclawHost = new OpenClawPluginHost(runtime, () =>
-  store.buildOpenClawConfig(),
+  buildOpenClawConfig(),
 );
 
 registerAllPlugins(openclawHost);
 
 const monitorManager = new MonitorManager(
   [new OpenClawChannelProvider(openclawHost)],
-  () => store.listChannelBindings(),
+  () => listChannelBindings(),
 );
 
 // ---------------------------------------------------------------------------
@@ -110,10 +117,10 @@ app.get("/", async (c) => {
 });
 
 // ── Channel bindings ─────────────────────────────────────────────────────────
-app.get("/api/channels", (c) => c.json(store.listChannelBindings()));
+app.get("/api/channels", async (c) => c.json(await listChannelBindings()));
 
-app.get("/api/channels/:id", (c) => {
-  const binding = store.getChannelBinding(c.req.param("id"));
+app.get("/api/channels/:id", async (c) => {
+  const binding = await getChannelBinding(c.req.param("id"));
   return binding ? c.json(binding) : c.json({ error: "Not found" }, 404);
 });
 
@@ -130,7 +137,7 @@ app.post("/api/channels", async (c) => {
       400,
     );
   }
-  const binding = store.createChannelBinding({
+  const binding = await createChannelBinding({
     name: String(body["name"]),
     channelType: (body["channelType"] as string | undefined) ?? "feishu",
     channelConfig: body["channelConfig"] as Record<string, unknown>,
@@ -150,7 +157,7 @@ app.post("/api/channels", async (c) => {
 
 app.patch("/api/channels/:id", async (c) => {
   const id = c.req.param("id");
-  if (!store.getChannelBinding(id))
+  if (!(await getChannelBinding(id)))
     return c.json({ error: `Channel ${id} not found` }, 404);
   let body: Record<string, unknown>;
   try {
@@ -158,7 +165,7 @@ app.patch("/api/channels/:id", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const updated = store.updateChannelBinding(id, body);
+  const updated = await updateChannelBinding(id, body);
   if (!updated) return c.json({ error: "Not found" }, 404);
   monitorManager
     .restartMonitor(updated.channelType, updated.accountId)
@@ -168,9 +175,9 @@ app.patch("/api/channels/:id", async (c) => {
   return c.json(updated);
 });
 
-app.delete("/api/channels/:id", (c) => {
+app.delete("/api/channels/:id", async (c) => {
   const id = c.req.param("id");
-  if (!store.deleteChannelBinding(id))
+  if (!(await deleteChannelBinding(id)))
     return c.json({ error: `Channel ${id} not found` }, 404);
   monitorManager
     .syncMonitors()
@@ -181,10 +188,10 @@ app.delete("/api/channels/:id", (c) => {
 });
 
 // ── Agent configs ─────────────────────────────────────────────────────────────
-app.get("/api/agents", (c) => c.json(store.listAgentConfigs()));
+app.get("/api/agents", async (c) => c.json(await listAgentConfigs()));
 
-app.get("/api/agents/:id", (c) => {
-  const agent = store.getAgentConfig(c.req.param("id"));
+app.get("/api/agents/:id", async (c) => {
+  const agent = await getAgentConfig(c.req.param("id"));
   return agent ? c.json(agent) : c.json({ error: "Not found" }, 404);
 });
 
@@ -198,7 +205,7 @@ app.post("/api/agents", async (c) => {
   if (!body["name"] || !body["url"])
     return c.json({ error: "Missing required fields: name, url" }, 400);
   return c.json(
-    store.createAgentConfig({
+    await createAgentConfig({
       name: String(body["name"]),
       url: String(body["url"]),
       description: body["description"] as string | undefined,
@@ -209,7 +216,7 @@ app.post("/api/agents", async (c) => {
 
 app.patch("/api/agents/:id", async (c) => {
   const id = c.req.param("id");
-  if (!store.getAgentConfig(id))
+  if (!(await getAgentConfig(id)))
     return c.json({ error: `Agent ${id} not found` }, 404);
   let body: Record<string, unknown>;
   try {
@@ -217,13 +224,13 @@ app.patch("/api/agents/:id", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const updated = store.updateAgentConfig(id, body);
+  const updated = await updateAgentConfig(id, body);
   return updated ? c.json(updated) : c.json({ error: "Not found" }, 404);
 });
 
-app.delete("/api/agents/:id", (c) => {
+app.delete("/api/agents/:id", async (c) => {
   const id = c.req.param("id");
-  return store.deleteAgentConfig(id)
+  return (await deleteAgentConfig(id))
     ? c.json({ deleted: true })
     : c.json({ error: `Agent ${id} not found` }, 404);
 });
@@ -233,6 +240,11 @@ app.delete("/api/agents/:id", (c) => {
 // ---------------------------------------------------------------------------
 
 console.log(`🚀 A2A Channels Gateway starting on http://localhost:${PORT}`);
+
+await initStore();
+await seedDefaults(DEFAULT_ECHO_AGENT_URL);
+// Re-populate cache in case seedDefaults created new channel bindings.
+await initStore();
 
 const server = serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`✅ Gateway listening on http://localhost:${PORT}`);

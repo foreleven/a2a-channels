@@ -1,0 +1,34 @@
+// Gateway Prisma schema – SQLite backing store
+// Run `prisma generate` after changes; use `prisma db push` to sync the schema.
+
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+model ChannelBinding {
+  id            String   @id @default(uuid())
+  name          String
+  channelType   String   @map("channel_type")
+  accountId     String   @map("account_id")
+  channelConfig String   @default("{}") @map("channel_config")
+  agentUrl      String   @map("agent_url")
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("channel_bindings")
+}
+
+model Agent {
+  id          String   @id @default(uuid())
+  name        String
+  url         String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("agents")
+}

@@ -36,3 +36,5 @@ node_modules
 
 # Dev
 db/
+# Prisma generated client
+apps/gateway/src/generated/

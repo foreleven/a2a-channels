@@ -6,13 +6,20 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "node --env-file-if-exists ../../.env --import tsx/esm src/index.ts",
-    "dev": "node --env-file-if-exists ../../.env --import tsx/esm src/index.ts"
+    "dev": "node --env-file-if-exists ../../.env --import tsx/esm src/index.ts",
+    "postinstall": "prisma generate --schema=prisma/schema.prisma",
+    "db:generate": "prisma generate --schema=prisma/schema.prisma",
+    "db:push": "prisma db push --schema=prisma/schema.prisma"
   },
   "dependencies": {
-    "@a2a-channels/core": "workspace:*",
     "@a2a-channels/agent-transport": "workspace:*",
+    "@a2a-channels/core": "workspace:*",
     "@a2a-channels/openclaw-compat": "workspace:*",
-    "@a2a-channels/store-sqlite": "workspace:*",
-    "@larksuite/openclaw-lark": "^2026.4.7"
+    "@larksuite/openclaw-lark": "^2026.4.7",
+    "@prisma/adapter-better-sqlite3": "7.7.0",
+    "@prisma/client": "7.7.0"
+  },
+  "devDependencies": {
+    "prisma": "7.7.0"
   }
 }
