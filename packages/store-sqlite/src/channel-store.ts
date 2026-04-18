@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { ChannelBinding } from "@a2a-channels/core";
-import type { ChannelStore } from "@a2a-channels/core";
+import type { ChannelRepository } from "@a2a-channels/core";
 import type { Db } from "./db.js";
 
 interface ChannelBindingRow {
@@ -27,7 +27,7 @@ function rowToBinding(row: ChannelBindingRow): ChannelBinding {
   };
 }
 
-export function createChannelStore(db: Db): ChannelStore {
+export function createChannelStore(db: Db): ChannelRepository {
   return {
     list(): ChannelBinding[] {
       const rows = db
