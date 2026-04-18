@@ -28,7 +28,7 @@ import { A2ATransport } from "@a2a-channels/agent-transport";
 import {
   OpenClawChannelProvider,
   OpenClawPluginHost,
-  buildOpenClawPluginRuntime,
+  OpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
 
 import { registerAllPlugins } from "./register-plugins.js";
@@ -63,14 +63,14 @@ const DEFAULT_ECHO_AGENT_URL =
 
 const transport = new A2ATransport();
 
-const runtime = buildOpenClawPluginRuntime({
+const runtime = new OpenClawPluginRuntime({
   transport,
   getAgentUrl: (accountId) =>
     getAgentUrlForAccount(accountId, DEFAULT_ECHO_AGENT_URL),
   getConfig: () => buildOpenClawConfig(),
 });
 
-const openclawHost = new OpenClawPluginHost(runtime, () =>
+const openclawHost = new OpenClawPluginHost(runtime.asPluginRuntime(), () =>
   buildOpenClawConfig(),
 );
 
@@ -79,6 +79,7 @@ registerAllPlugins(openclawHost);
 const monitorManager = new MonitorManager(
   [new OpenClawChannelProvider(openclawHost)],
   () => listChannelBindings(),
+  runtime,
 );
 
 // ---------------------------------------------------------------------------
