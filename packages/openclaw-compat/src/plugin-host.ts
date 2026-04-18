@@ -15,16 +15,7 @@
  *   host.setRuntime(buildRuntime()); // shared runtime injected once
  */
 
-import type {
-  OpenClawPluginChannelRegistration,
-  PluginHookHandlerMap,
-  PluginHookName,
-} from "node_modules/openclaw/dist/plugin-sdk/src/plugins/types";
-import type {
-  ChannelPlugin,
-  OpenClawPluginApi,
-  PluginRuntime,
-} from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi, PluginRuntime } from "openclaw/plugin-sdk";
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -81,6 +72,9 @@ const logger: HostLogger = {
   warn: (msg, meta) => console.warn("[openclaw-host]", msg, meta ?? ""),
   error: (msg, meta) => console.error("[openclaw-host]", msg, meta ?? ""),
 };
+
+type PluginHookName = Parameters<OpenClawPluginApi["on"]>[0];
+type PluginHookHandlerMap = Parameters<OpenClawPluginApi["on"]>[1];
 
 // ---------------------------------------------------------------------------
 // OpenClawPluginHost
@@ -180,6 +174,12 @@ export class OpenClawPluginHost {
   private buildPluginApi(): OpenClawPluginApi {
     const host = this;
 
+    const on: OpenClawPluginApi["on"] = (event, handler) => {
+      const existing = host.hookHandlers.get(event) ?? [];
+      existing.push(handler);
+      host.hookHandlers.set(event, existing);
+    };
+
     return {
       // ---- Identity -------------------------------------------------------
       id: "a2a-channels-gateway",
@@ -204,7 +204,7 @@ export class OpenClawPluginHost {
 
       /** Called by channel plugins to register their gateway controller. */
       registerChannel: (
-        registration: OpenClawPluginChannelRegistration | ChannelPlugin,
+        registration: Parameters<OpenClawPluginApi["registerChannel"]>[0],
       ) => {
         const channel = (
           typeof registration === "object" &&
@@ -227,17 +227,7 @@ export class OpenClawPluginHost {
       },
 
       /** Subscribe to host lifecycle events. */
-      on: <K extends PluginHookName>(
-        hookName: K,
-        handler: PluginHookHandlerMap[K],
-        opts?: {
-          priority?: number;
-        },
-      ) => {
-        const existing = host.hookHandlers.get(hookName) ?? [];
-        existing.push(handler);
-        host.hookHandlers.set(hookName, existing);
-      },
+      on: on,
 
       resolvePath: (input: string) => input,
 

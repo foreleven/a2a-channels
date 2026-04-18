@@ -14,7 +14,10 @@
 import type { ChannelBinding, AgentConfig } from "@a2a-channels/core";
 import { PrismaClient } from "../generated/prisma/index.js";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
 // Lark / Feishu channel config shape (gateway-internal)
@@ -34,6 +37,9 @@ interface FeishuChannelConfig {
 
 const DB_PATH =
   process.env["DB_PATH"] ?? join(process.cwd(), "db/a2a-channels.db");
+
+// Ensure the DB directory exists before better-sqlite3 tries to open the file.
+mkdirSync(dirname(DB_PATH), { recursive: true });
 
 const adapter = new PrismaBetterSqlite3({ url: `file:${DB_PATH}` });
 
@@ -83,7 +89,21 @@ function mapAgent(
 // Store initialisation (call once at startup)
 // ---------------------------------------------------------------------------
 
+/** apps/gateway/ directory – used to locate prisma.config.ts for db push. */
+const GATEWAY_DIR = fileURLToPath(new URL("../../", import.meta.url));
+
 export async function initStore(): Promise<void> {
+  // First-run: if tables don't exist yet, push the Prisma schema to create them.
+  try {
+    await prisma.$queryRaw`SELECT 1 FROM "channel_bindings" LIMIT 0`;
+  } catch {
+    execSync("npx prisma db push", {
+      cwd: GATEWAY_DIR,
+      env: { ...process.env, DB_PATH },
+      stdio: "inherit",
+    });
+  }
+
   const bindings = await prisma.channelBinding.findMany({
     orderBy: { createdAt: "asc" },
   });
@@ -214,7 +234,8 @@ export async function updateAgentConfig(
   });
   const agent = mapAgent(row);
   // Remove the old URL entry if the URL changed, then add the new one.
-  if (existing.url && existing.url !== agent.url) agentByUrl.delete(existing.url);
+  if (existing.url && existing.url !== agent.url)
+    agentByUrl.delete(existing.url);
   agentByUrl.set(agent.url, agent);
   return agent;
 }
@@ -355,5 +376,3 @@ export async function seedDefaults(defaultEchoAgentUrl: string): Promise<void> {
     }
   }
 }
-
-

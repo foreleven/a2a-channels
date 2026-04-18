@@ -7,20 +7,25 @@
  * direct dependency on a specific protocol SDK or store implementation.
  */
 
-import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
-
-import * as channelInbound from "openclaw/plugin-sdk/channel-inbound";
-import * as channelRuntimeSdk from "openclaw/plugin-sdk/channel-runtime";
-import * as commandDetection from "openclaw/plugin-sdk/command-detection";
-import * as markdownTableRuntime from "openclaw/plugin-sdk/markdown-table-runtime";
-import * as replyDispatchRuntime from "openclaw/plugin-sdk/reply-dispatch-runtime";
-import * as replyRuntime from "openclaw/plugin-sdk/reply-runtime";
-import * as routingSdk from "openclaw/plugin-sdk/routing";
-import * as textRuntimeSdk from "openclaw/plugin-sdk/text-runtime";
 
 import type { TransportRegistry } from "@a2a-channels/core";
 import type { PluginRuntime } from "openclaw/plugin-sdk";
+
+import { buildAgentCompat } from "./compatibilities/agent.js";
+import { buildChannelCompat } from "./compatibilities/channel.js";
+import { buildConfigCompat } from "./compatibilities/config.js";
+import {
+  buildImageGenerationCompat,
+  buildVideoGenerationCompat,
+} from "./compatibilities/generation.js";
+import {
+  buildMediaCompat,
+  buildMediaUnderstandingCompat,
+  buildTtsCompat,
+} from "./compatibilities/media.js";
+import { buildSystemCompat } from "./compatibilities/system.js";
+import { buildTasksCompat } from "./compatibilities/tasks.js";
 
 // ---------------------------------------------------------------------------
 // Runtime options
@@ -111,10 +116,7 @@ export class OpenClawPluginRuntime extends EventEmitter {
     event: K,
     listener: RuntimeEventMap[K],
   ): this;
-  override on(
-    event: string | symbol,
-    listener: (...args: any[]) => void,
-  ): this;
+  override on(event: string | symbol, listener: (...args: any[]) => void): this;
   override on(
     event: string | symbol,
     listener: (...args: any[]) => void,
@@ -167,7 +169,12 @@ export class OpenClawPluginRuntime extends EventEmitter {
     const protocol = this.getAgentProtocol(agentUrl);
     const transport = this.transportRegistry.resolve(protocol);
 
-    this.emit("message:inbound", { accountId, sessionKey, userMessage, agentUrl });
+    this.emit("message:inbound", {
+      accountId,
+      sessionKey,
+      userMessage,
+      agentUrl,
+    });
 
     const result = await transport.send(agentUrl, {
       userMessage,
@@ -206,288 +213,73 @@ export class OpenClawPluginRuntime extends EventEmitter {
 
     return {
       version: "1.0.0",
-
-      // ---- Config ----
-      config: {
-        loadConfig: () => self.getConfig(),
-        writeConfigFile: async () => {},
-      },
-
-      // ---- Agent (stubs – this gateway doesn't run embedded agents) ----
-      agent: {
-        defaults: { model: "gpt-5.4", provider: "openai" },
-        resolveAgentDir: () => "/tmp/a2a-channels",
-        resolveAgentWorkspaceDir: () => "/tmp/a2a-channels",
-        resolveAgentIdentity: () => ({ agentId: "main", name: "main" }),
-        resolveThinkingDefault: () => "off",
-        runEmbeddedAgent: async () => ({ meta: { durationMs: 0 } }),
-        runEmbeddedPiAgent: async () => ({ meta: { durationMs: 0 } }),
-        resolveAgentTimeoutMs: () => 30_000,
-        ensureAgentWorkspace: async () => ({
-          dir: "/tmp/a2a-channels",
-          created: false,
-        }),
-        session: {
-          resolveStorePath: () => "/tmp/a2a-sessions",
-          loadSessionStore: async (_storePath: string) => ({}) as any,
-          saveSessionStore: async () => {},
-          resolveSessionFilePath: () => "/tmp/a2a-sessions/session.json",
-        } as unknown as PluginRuntime["agent"]["session"],
-      },
-
-      // ---- System ----
-      system: {
-        enqueueSystemEvent: (msg: string, meta?: unknown) => {
-          console.log("[system]", msg, meta ?? "");
-          return false;
-        },
-        requestHeartbeatNow: async () => {},
-        runHeartbeatOnce: async () => ({ status: "ran", durationMs: 0 }),
-        runCommandWithTimeout: async () => ({
-          code: 0,
-          signal: null,
-          killed: false,
-          termination: "exit",
-          stdout: "",
-          stderr: "",
-          exitCode: 0,
-        }),
-        formatNativeDependencyHint: (h: { packageName: string }) =>
-          h.packageName,
-      },
-
-      // ---- Media / TTS / AI stubs ----
-      media: {
-        loadWebMedia: async () => null,
-        detectMime: () => "application/octet-stream",
-        mediaKindFromMime: () => "file",
-        isVoiceCompatibleAudio: () => false,
-        getImageMetadata: async () => null,
-        resizeToJpeg: async () => Buffer.alloc(0),
-      },
-      tts: {
-        textToSpeech: async () => null,
-        textToSpeechTelephony: async () => null,
-        listVoices: async () => [],
-      },
-      mediaUnderstanding: {
-        runFile: async () => null,
-        describeImageFile: async () => "",
-        describeImageFileWithModel: async () => "",
-        describeVideoFile: async () => "",
-        transcribeAudioFile: async () => "",
-      },
-      imageGeneration: {
-        generate: async () => ({ url: "" }),
+      config: buildConfigCompat(self.getConfig),
+      agent: buildAgentCompat(),
+      system: buildSystemCompat(),
+      media: buildMediaCompat(),
+      tts: buildTtsCompat(),
+      mediaUnderstanding: buildMediaUnderstandingCompat(),
+      imageGeneration: buildImageGenerationCompat(),
+      videoGeneration: buildVideoGenerationCompat(),
+      musicGeneration: {
+        generate: async () =>
+          ({
+            tracks: [],
+            provider: "",
+            model: "",
+            attempts: [],
+            ignoredOverrides: [],
+          }) as Awaited<
+            ReturnType<PluginRuntime["musicGeneration"]["generate"]>
+          >,
         listProviders: () => [],
       },
-      videoGeneration: {
-        generate: async () => ({ url: "" }),
+      webSearch: {
         listProviders: () => [],
+        search: async () => ({ provider: "", result: {} }),
       },
-      tasks: {
-        runs: {
-          get: async () => null,
-          list: async () => [],
-          create: async () => ({ id: crypto.randomUUID() }),
-          update: async () => null,
-          cancel: async () => null,
-        },
-        flows: { get: async () => null, list: async () => [] },
+      stt: {
+        transcribeAudioFile: async () => ({ text: undefined }),
       },
-
-      // ---- Channel ----
-      channel: {
-        // -- Text helpers (real implementations from openclaw SDK) --
-        text: {
-          chunkByNewline: (text: string, limit?: number) => {
-            if (!limit) return text.split("\n");
-            const chunks: string[] = [];
-            let current = "";
-            for (const line of text.split("\n")) {
-              if (current.length + line.length + 1 > limit && current) {
-                chunks.push(current);
-                current = line;
-              } else {
-                current = current ? `${current}\n${line}` : line;
-              }
-            }
-            if (current) chunks.push(current);
-            return chunks;
-          },
-          chunkText: replyRuntime.chunkText,
-          chunkTextWithMode: replyRuntime.chunkTextWithMode,
-          chunkMarkdownText:
-            replyRuntime.chunkMarkdownText ??
-            replyRuntime.chunkMarkdownTextWithMode,
-          chunkMarkdownTextWithMode: replyRuntime.chunkMarkdownTextWithMode,
-          resolveChunkMode: replyRuntime.resolveChunkMode,
-          resolveTextChunkLimit: replyRuntime.resolveTextChunkLimit,
-          hasControlCommand: commandDetection.hasControlCommand,
-          resolveMarkdownTableMode:
-            markdownTableRuntime.resolveMarkdownTableMode,
-          convertMarkdownTables: textRuntimeSdk.convertMarkdownTables,
-        },
-
-        // -- Reply pipeline --
-        reply: {
-          /**
-           * PRIMARY DISPATCH: called by openclaw-lark for every normal inbound message.
-           * Forwards to the bound A2A / ACP agent and delivers the reply.
-           */
-          dispatchReplyFromConfig: async (params: {
-            ctx: Record<string, unknown>;
-            cfg: unknown;
-            dispatcher: {
-              sendFinalReply: (payload: { text: string }) => boolean;
-              waitForIdle: () => Promise<void>;
-              markComplete: () => void;
-              getQueuedCounts: () => Record<string, number>;
-              getFailedCounts: () => Record<string, number>;
-            };
-            replyOptions?: unknown;
-          }) => {
-            const response = await self.dispatch(params.ctx);
-            if (!response) {
-              params.dispatcher.markComplete();
-              return {
-                queuedFinal: false,
-                counts: { tool: 0, block: 0, final: 0 },
-              };
-            }
-            params.dispatcher.sendFinalReply({ text: response.text });
-            await params.dispatcher.waitForIdle();
-            params.dispatcher.markComplete();
-            return {
-              queuedFinal: false,
-              counts: { tool: 0, block: 0, final: 1 },
-            };
-          },
-
-          /**
-           * BUFFERED DISPATCH: used by openclaw-lark for comment / drive replies.
-           */
-          dispatchReplyWithBufferedBlockDispatcher: async (params: {
-            ctx: Record<string, unknown>;
-            cfg: unknown;
-            dispatcherOptions: {
-              deliver: (
-                payload: { text: string },
-                info: { kind: string },
-              ) => Promise<void>;
-              onSkip?: (payload: unknown, info: unknown) => void;
-              onError?: (error: unknown, info: unknown) => void;
-            };
-            replyOptions?: unknown;
-          }) => {
-            const response = await self.dispatch(params.ctx);
-            if (!response)
-              return {
-                queuedFinal: false,
-                counts: { tool: 0, block: 0, final: 0 },
-              };
-            try {
-              await params.dispatcherOptions.deliver(
-                { text: response.text },
-                { kind: "final" },
-              );
-              return {
-                queuedFinal: false,
-                counts: { tool: 0, block: 0, final: 1 },
-              };
-            } catch (error) {
-              params.dispatcherOptions.onError?.(error, { kind: "final" });
-              return {
-                queuedFinal: false,
-                counts: { tool: 0, block: 0, final: 0 },
-              };
-            }
-          },
-
-          createReplyDispatcherWithTyping:
-            replyRuntime.createReplyDispatcherWithTyping,
-          finalizeInboundContext: replyDispatchRuntime.finalizeInboundContext,
-          formatAgentEnvelope: channelInbound.formatInboundEnvelope,
-          formatInboundEnvelope: channelInbound.formatInboundEnvelope,
-          resolveEnvelopeFormatOptions:
-            channelInbound.resolveEnvelopeFormatOptions,
-          resolveEffectiveMessagesConfig: (cfg: unknown) =>
-            (cfg as Record<string, unknown>)?.["messages"] ?? {},
-          resolveHumanDelayConfig: () => undefined,
-          withReplyDispatcher: async (
-            d: unknown,
-            fn: (x: unknown) => Promise<unknown>,
-          ) => fn(d),
-        },
-
-        // -- Routing --
-        routing: {
-          buildAgentSessionKey: routingSdk.buildAgentSessionKey,
-          resolveAgentRoute: routingSdk.resolveAgentRoute,
-        },
-
-        // -- Stubs --
-        pairing: {
-          buildPairingReply: () => ({
-            text: "Pairing not supported in A2A gateway.",
-          }),
-          readAllowFromStore: async () => [],
-          upsertPairingRequest: async () => {},
-        },
-        media: {
-          fetchRemoteMedia: async () => Buffer.alloc(0),
-          saveMediaBuffer: async (_b: unknown, _n: string) =>
-            `/tmp/${crypto.randomUUID()}`,
-        },
-        activity: {
-          record: channelRuntimeSdk.recordChannelActivity ?? (() => {}),
-          get: () => null,
-        },
-        session: {
-          resolveStorePath: () => "/tmp/a2a-sessions",
-          readSessionUpdatedAt: async () => null,
-          recordSessionMetaFromInbound: async () => {},
-          recordInboundSession: async () => {},
-          updateLastRoute: async () => {},
-        },
-        mentions: {
-          buildMentionRegexes: channelInbound.buildMentionRegexes,
-          matchesMentionPatterns: channelInbound.matchesMentionPatterns,
-          matchesMentionWithExplicit: channelInbound.matchesMentionWithExplicit,
-          implicitMentionKindWhen: channelInbound.implicitMentionKindWhen,
-          resolveInboundMentionDecision:
-            channelInbound.resolveInboundMentionDecision,
-        },
-        reactions: {
-          shouldAckReaction: () => false,
-          removeAckReactionAfterReply: async () => {},
-        },
-        groups: {
-          resolveGroupPolicy: () => ({ allowed: true }),
-          resolveRequireMention: () => false,
-        },
-        debounce: {
-          createInboundDebouncer: replyRuntime.createInboundDebouncer,
-          resolveInboundDebounceMs: replyRuntime.resolveInboundDebounceMs,
-        },
-        commands: {
-          resolveCommandAuthorizedFromAuthorizers: () => true,
-          isControlCommandMessage: commandDetection.isControlCommandMessage,
-          shouldComputeCommandAuthorized:
-            commandDetection.shouldComputeCommandAuthorized,
-          shouldHandleTextCommands: () => true,
-        },
-        outbound: { loadAdapter: async () => null },
-        threadBindings: {
-          setIdleTimeoutBySessionKey: () => [],
-          setMaxAgeBySessionKey: () => [],
-        },
-        runtimeContexts: {
-          register: (_p: unknown) => ({ dispose: () => {} }),
-          get: () => undefined,
-          watch: () => () => {},
-        },
+      events: {
+        onAgentEvent: () => () => {},
+        onSessionTranscriptUpdate: () => () => {},
       },
-    } as unknown as PluginRuntime;
+      logging: {
+        shouldLogVerbose: () => false,
+        getChildLogger: () => ({
+          info: () => {},
+          warn: () => {},
+          error: () => {},
+        }),
+      },
+      state: {
+        resolveStateDir: () => "/tmp/a2a-channels",
+      },
+      modelAuth: {
+        getApiKeyForModel: async () => ({
+          source: "stub",
+          mode: "api-key" as const,
+        }),
+        getRuntimeAuthForModel: async () => ({
+          source: "stub",
+          mode: "api-key" as const,
+        }),
+        resolveApiKeyForProvider: async () => ({
+          source: "stub",
+          mode: "api-key" as const,
+        }),
+      },
+      tasks: buildTasksCompat(),
+      taskFlow: buildTasksCompat().flow,
+      subagent: {
+        run: async () => ({ runId: "" }),
+        waitForRun: async () => ({ status: "ok" as const }),
+        getSessionMessages: async () => ({ messages: [] }),
+        getSession: async () => ({ messages: [] }),
+        deleteSession: async () => {},
+      },
+      channel: buildChannelCompat((ctx) => self.dispatch(ctx)),
+    } as PluginRuntime;
   }
 }
