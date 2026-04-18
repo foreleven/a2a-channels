@@ -205,10 +205,17 @@
             <input id="ag-name" placeholder="My Agent" required />
           </div>
           <div>
-            <label>Agent URL (A2A endpoint)</label>
+            <label>Protocol</label>
+            <select id="ag-protocol">
+              <option value="a2a">A2A (Agent-to-Agent)</option>
+              <option value="acp">ACP (Agent Communication Protocol)</option>
+            </select>
+          </div>
+          <div>
+            <label>Agent URL</label>
             <input id="ag-url" placeholder="http://localhost:3001" required />
           </div>
-          <div style="grid-column:span 2">
+          <div>
             <label>Description <small>(optional)</small></label>
             <input id="ag-desc" placeholder="What does this agent do?" />
           </div>
@@ -223,10 +230,10 @@
       <h2>Registered Agents</h2>
       <table>
         <thead>
-          <tr><th>Name</th><th>URL</th><th>Description</th><th>Actions</th></tr>
+          <tr><th>Name</th><th>Protocol</th><th>URL</th><th>Description</th><th>Actions</th></tr>
         </thead>
         <tbody id="tbody-agents">
-          <tr><td colspan="4" style="text-align:center;color:#888;padding:24px">Loading…</td></tr>
+          <tr><td colspan="5" style="text-align:center;color:#888;padding:24px">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -278,12 +285,13 @@
     const agents = await api('/api/agents');
     const tbody = document.getElementById('tbody-agents');
     if (!agents.length) {
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:24px">No agents registered.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:24px">No agents registered.</td></tr>';
       return;
     }
     tbody.innerHTML = agents.map(a => `
       <tr>
         <td><strong>${esc(a.name)}</strong></td>
+        <td><span class="badge" style="background:#e8f0fe;color:#1a73e8">${esc(a.protocol ?? 'a2a').toUpperCase()}</span></td>
         <td><code>${esc(a.url)}</code></td>
         <td>${esc(a.description ?? '')}</td>
         <td class="actions">
@@ -307,6 +315,7 @@
         body: JSON.stringify({
           name: document.getElementById('ag-name').value,
           url: document.getElementById('ag-url').value,
+          protocol: document.getElementById('ag-protocol').value,
           description: document.getElementById('ag-desc').value || undefined,
         }),
       });

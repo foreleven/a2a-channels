@@ -23,3 +23,45 @@ export interface AgentTransport {
   readonly protocol: string;
   send(agentUrl: string, request: AgentRequest): Promise<AgentResponse>;
 }
+
+// ---------------------------------------------------------------------------
+// Transport registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Registry that maps protocol identifiers to transport implementations.
+ *
+ * The gateway creates one shared instance, registers all supported transports
+ * (A2A, ACP, …), and injects it into the plugin runtime so the runtime can
+ * dispatch each message through the correct transport based on the agent's
+ * configured protocol.
+ */
+export class TransportRegistry {
+  private readonly transports = new Map<string, AgentTransport>();
+
+  /** Register a transport. Overwrites any previously registered transport for the same protocol. */
+  register(transport: AgentTransport): this {
+    this.transports.set(transport.protocol, transport);
+    return this;
+  }
+
+  /**
+   * Resolve the transport for a protocol identifier.
+   * Falls back to "a2a" if the requested protocol is not registered.
+   * Throws if neither the requested protocol nor "a2a" is registered.
+   */
+  resolve(protocol: string): AgentTransport {
+    const t = this.transports.get(protocol) ?? this.transports.get("a2a");
+    if (!t) {
+      throw new Error(
+        `No transport registered for protocol "${protocol}" and no "a2a" fallback available.`,
+      );
+    }
+    return t;
+  }
+
+  /** Returns true if a transport for the given protocol is registered. */
+  has(protocol: string): boolean {
+    return this.transports.has(protocol);
+  }
+}

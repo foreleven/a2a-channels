@@ -19,7 +19,7 @@ import * as replyRuntime from "openclaw/plugin-sdk/reply-runtime";
 import * as routingSdk from "openclaw/plugin-sdk/routing";
 import * as textRuntimeSdk from "openclaw/plugin-sdk/text-runtime";
 
-import type { AgentTransport } from "@a2a-channels/core";
+import type { TransportRegistry } from "@a2a-channels/core";
 import type { PluginRuntime } from "openclaw/plugin-sdk";
 
 // ---------------------------------------------------------------------------
@@ -27,14 +27,25 @@ import type { PluginRuntime } from "openclaw/plugin-sdk";
 // ---------------------------------------------------------------------------
 
 export interface PluginRuntimeOptions {
-  /** Transport used to forward messages to the configured agent. */
-  transport: AgentTransport;
+  /**
+   * Registry holding all registered transport implementations (A2A, ACP, …).
+   * The runtime resolves the correct transport per-message based on the agent's
+   * configured protocol.
+   */
+  transportRegistry: TransportRegistry;
 
   /**
    * Resolve the agent URL for the given accountId.
    * Injected by the gateway so this package has no store dependency.
    */
   getAgentUrl: (accountId: string | undefined) => string;
+
+  /**
+   * Resolve the transport protocol for the agent at the given URL.
+   * Returns "a2a" when the agent URL is not found in the store.
+   * Injected by the gateway.
+   */
+  getAgentProtocol: (agentUrl: string) => string;
 
   /**
    * Return the current OpenClaw-compatible channel configuration.
@@ -79,14 +90,16 @@ export interface RuntimeEventMap {
  * Use `runtime.asPluginRuntime()` when passing it to `OpenClawPluginHost`.
  */
 export class OpenClawPluginRuntime extends EventEmitter {
-  private readonly transport: AgentTransport;
+  private readonly transportRegistry: TransportRegistry;
   private readonly getAgentUrl: (accountId: string | undefined) => string;
+  private readonly getAgentProtocol: (agentUrl: string) => string;
   private readonly getConfig: () => Record<string, unknown>;
 
   constructor(options: PluginRuntimeOptions) {
     super();
-    this.transport = options.transport;
+    this.transportRegistry = options.transportRegistry;
     this.getAgentUrl = options.getAgentUrl;
+    this.getAgentProtocol = options.getAgentProtocol;
     this.getConfig = options.getConfig;
   }
 
@@ -151,10 +164,12 @@ export class OpenClawPluginRuntime extends EventEmitter {
     const accountId = ctx["AccountId"] as string | undefined;
     const sessionKey = ctx["SessionKey"] as string | undefined;
     const agentUrl = this.getAgentUrl(accountId);
+    const protocol = this.getAgentProtocol(agentUrl);
+    const transport = this.transportRegistry.resolve(protocol);
 
     this.emit("message:inbound", { accountId, sessionKey, userMessage, agentUrl });
 
-    const result = await this.transport.send(agentUrl, {
+    const result = await transport.send(agentUrl, {
       userMessage,
       contextId: sessionKey,
       accountId,
