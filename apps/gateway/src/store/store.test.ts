@@ -48,7 +48,7 @@ function pushSchema(): void {
   );
 }
 
-/** Delete all rows from every table and refresh the in-memory cache. */
+/** Delete all rows from the `channel_bindings` and `agents` tables and refresh the in-memory cache. */
 async function resetDB(): Promise<void> {
   await prisma.channelBinding.deleteMany();
   await prisma.agent.deleteMany();
