@@ -25,7 +25,7 @@ export interface AgentConfig {
   name: string;
   url: string;
   /** Transport protocol this agent speaks. Defaults to "a2a". */
-  protocol: string;
+  protocol?: string;
   description?: string;
   createdAt: string;
 }
