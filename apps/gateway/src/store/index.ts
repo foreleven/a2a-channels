@@ -214,7 +214,7 @@ export async function updateAgentConfig(
   });
   const agent = mapAgent(row);
   // Remove the old URL entry if the URL changed, then add the new one.
-  if (existing.url !== agent.url) agentByUrl.delete(existing.url);
+  if (existing.url && existing.url !== agent.url) agentByUrl.delete(existing.url);
   agentByUrl.set(agent.url, agent);
   return agent;
 }

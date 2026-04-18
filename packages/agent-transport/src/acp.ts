@@ -63,7 +63,8 @@ function extractText(output: AcpMessage[] | undefined): string {
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 const POLL_INTERVAL_MS = 500;
-const MAX_POLLS = 60; // 30 seconds max wait
+/** Maximum number of poll attempts (each ~500 ms apart, not counting network latency). */
+const MAX_POLLS = 60;
 
 // ---------------------------------------------------------------------------
 // ACPTransport
@@ -73,8 +74,9 @@ export class ACPTransport implements AgentTransport {
   readonly protocol = "acp";
 
   async send(agentUrl: string, request: AgentRequest): Promise<AgentResponse> {
-    // Normalise base URL: strip trailing slash
-    const base = agentUrl.replace(/\/+$/, "");
+    // Normalise base URL: strip trailing slashes (avoid regex to prevent ReDoS)
+    let base = agentUrl;
+    while (base.endsWith("/")) base = base.slice(0, -1);
     const runsUrl = `${base}/runs`;
 
     const body = {
