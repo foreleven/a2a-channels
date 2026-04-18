@@ -27,6 +27,7 @@ model Agent {
   id          String   @id @default(uuid())
   name        String
   url         String
+  protocol    String   @default("a2a")
   description String?
   createdAt   DateTime @default(now()) @map("created_at")
 

@@ -24,7 +24,8 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 
-import { A2ATransport } from "@a2a-channels/agent-transport";
+import { A2ATransport, ACPTransport } from "@a2a-channels/agent-transport";
+import { TransportRegistry } from "@a2a-channels/core";
 import {
   OpenClawChannelProvider,
   OpenClawPluginHost,
@@ -46,6 +47,7 @@ import {
   updateAgentConfig,
   deleteAgentConfig,
   getAgentUrlForAccount,
+  getAgentProtocolForUrl,
   buildOpenClawConfig,
 } from "./store/index.js";
 import { MonitorManager } from "./monitor-manager.js";
@@ -61,12 +63,15 @@ const DEFAULT_ECHO_AGENT_URL =
 // Bootstrap
 // ---------------------------------------------------------------------------
 
-const transport = new A2ATransport();
+const transportRegistry = new TransportRegistry()
+  .register(new A2ATransport())
+  .register(new ACPTransport());
 
 const runtime = new OpenClawPluginRuntime({
-  transport,
+  transportRegistry,
   getAgentUrl: (accountId) =>
     getAgentUrlForAccount(accountId, DEFAULT_ECHO_AGENT_URL),
+  getAgentProtocol: (agentUrl) => getAgentProtocolForUrl(agentUrl),
   getConfig: () => buildOpenClawConfig(),
 });
 
@@ -209,6 +214,7 @@ app.post("/api/agents", async (c) => {
     await createAgentConfig({
       name: String(body["name"]),
       url: String(body["url"]),
+      protocol: (body["protocol"] as string | undefined) ?? "a2a",
       description: body["description"] as string | undefined,
     }),
     201,

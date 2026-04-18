@@ -44,6 +44,8 @@ export const prisma = new PrismaClient({ adapter });
 // ---------------------------------------------------------------------------
 
 let channelCache: ChannelBinding[] = [];
+/** Secondary index: agentUrl → AgentConfig, for hot-path protocol lookup. */
+let agentByUrl = new Map<string, AgentConfig>();
 
 // ---------------------------------------------------------------------------
 // Row mappers
@@ -71,6 +73,7 @@ function mapAgent(
     id: a.id,
     name: a.name,
     url: a.url,
+    protocol: a.protocol,
     description: a.description ?? undefined,
     createdAt: a.createdAt.toISOString(),
   };
@@ -85,6 +88,9 @@ export async function initStore(): Promise<void> {
     orderBy: { createdAt: "asc" },
   });
   channelCache = bindings.map(mapBinding);
+
+  const agents = await prisma.agent.findMany({ orderBy: { createdAt: "asc" } });
+  agentByUrl = new Map(agents.map(mapAgent).map((a) => [a.url, a]));
 }
 
 // ---------------------------------------------------------------------------
@@ -179,10 +185,13 @@ export async function createAgentConfig(
     data: {
       name: data.name,
       url: data.url,
+      protocol: data.protocol ?? "a2a",
       description: data.description ?? null,
     },
   });
-  return mapAgent(row);
+  const agent = mapAgent(row);
+  agentByUrl.set(agent.url, agent);
+  return agent;
 }
 
 export async function updateAgentConfig(
@@ -197,17 +206,24 @@ export async function updateAgentConfig(
     data: {
       ...(data.name !== undefined && { name: data.name }),
       ...(data.url !== undefined && { url: data.url }),
+      ...(data.protocol !== undefined && { protocol: data.protocol }),
       ...(data.description !== undefined && {
         description: data.description ?? null,
       }),
     },
   });
-  return mapAgent(row);
+  const agent = mapAgent(row);
+  // Remove the old URL entry if the URL changed, then add the new one.
+  if (existing.url !== agent.url) agentByUrl.delete(existing.url);
+  agentByUrl.set(agent.url, agent);
+  return agent;
 }
 
 export async function deleteAgentConfig(id: string): Promise<boolean> {
   try {
+    const existing = await prisma.agent.findUnique({ where: { id } });
     await prisma.agent.delete({ where: { id } });
+    if (existing) agentByUrl.delete(existing.url);
     return true;
   } catch {
     return false;
@@ -232,6 +248,14 @@ export function getAgentUrlForAccount(
   const any = channelCache.find((b) => b.enabled);
   if (any) return any.agentUrl;
   return defaultUrl;
+}
+
+/**
+ * Resolve the transport protocol for the agent at the given URL.
+ * Returns "a2a" when the agent is not found in the cache.
+ */
+export function getAgentProtocolForUrl(agentUrl: string): string {
+  return agentByUrl.get(agentUrl)?.protocol ?? "a2a";
 }
 
 /**
@@ -291,13 +315,15 @@ export function buildOpenClawConfig(): Record<string, unknown> {
 export async function seedDefaults(defaultEchoAgentUrl: string): Promise<void> {
   const agentCount = await prisma.agent.count();
   if (agentCount === 0) {
-    await prisma.agent.create({
+    const row = await prisma.agent.create({
       data: {
         name: "Echo Agent",
         url: defaultEchoAgentUrl,
+        protocol: "a2a",
         description: "Built-in echo agent – mirrors every message back",
       },
     });
+    agentByUrl.set(row.url, mapAgent(row));
   }
 
   const bootstrapAppId = process.env["FEISHU_APP_ID"];
