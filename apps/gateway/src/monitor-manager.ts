@@ -4,11 +4,20 @@
  * Owns per-account monitor handles (AbortController + running Promise)
  * and drives start/stop/restart across all registered ChannelProviders.
  *
+ * Subscribes to runtime events so message traffic can be observed and
+ * persisted (e.g. written to a database table) without coupling the
+ * runtime itself to any store implementation.
+ *
  * Adding a new channel type requires only registering its OpenClaw plugin
  * in apps/gateway/src/register-plugins.ts.
  */
 
 import type { ChannelBinding, ChannelProvider } from "@a2a-channels/core";
+import type {
+  MessageInboundEvent,
+  MessageOutboundEvent,
+  OpenClawPluginRuntime,
+} from "@a2a-channels/openclaw-compat";
 
 interface MonitorHandle {
   abortController: AbortController;
@@ -22,8 +31,20 @@ export class MonitorManager {
   constructor(
     private readonly providers: readonly ChannelProvider[],
     private readonly listBindings: () => ChannelBinding[] | Promise<ChannelBinding[]>,
+    runtime?: OpenClawPluginRuntime,
   ) {
-    // console.log("[monitor] providers=", this.providers);
+    if (runtime) {
+      runtime.on("message:inbound", (event: MessageInboundEvent) => {
+        console.log(
+          `[monitor] message:inbound accountId=${event.accountId ?? "-"} agent=${event.agentUrl} text=${JSON.stringify(event.userMessage)}`,
+        );
+      });
+      runtime.on("message:outbound", (event: MessageOutboundEvent) => {
+        console.log(
+          `[monitor] message:outbound accountId=${event.accountId ?? "-"} agent=${event.agentUrl} text=${JSON.stringify(event.replyText)}`,
+        );
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
