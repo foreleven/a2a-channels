@@ -20,7 +20,7 @@ import { createSQLiteStores } from "@a2a-channels/store-sqlite";
 // ---------------------------------------------------------------------------
 
 const DB_PATH =
-  process.env["DB_PATH"] ?? join(process.cwd(), "a2a-channels.db");
+  process.env["DB_PATH"] ?? join(process.cwd(), "db/a2a-channels.db");
 
 const { channels: channelStore, agents: agentStore } =
   createSQLiteStores(DB_PATH);
@@ -60,7 +60,11 @@ const bootstrapAppSecret = process.env["FEISHU_APP_SECRET"];
 if (bootstrapAppId && bootstrapAppSecret) {
   const existing = channelStore
     .list()
-    .find((b) => b.channelType === "feishu" && b.accountId === (process.env["FEISHU_ACCOUNT_ID"] ?? "default"));
+    .find(
+      (b) =>
+        b.channelType === "feishu" &&
+        b.accountId === (process.env["FEISHU_ACCOUNT_ID"] ?? "default"),
+    );
   if (!existing) {
     channelStore.create({
       name: "Bootstrap Feishu Bot",
@@ -69,7 +73,8 @@ if (bootstrapAppId && bootstrapAppSecret) {
       channelConfig: {
         appId: bootstrapAppId,
         appSecret: bootstrapAppSecret,
-        verificationToken: process.env["FEISHU_VERIFICATION_TOKEN"] || undefined,
+        verificationToken:
+          process.env["FEISHU_VERIFICATION_TOKEN"] || undefined,
         encryptKey: process.env["FEISHU_ENCRYPT_KEY"] || undefined,
         allowFrom: ["*"],
       },
