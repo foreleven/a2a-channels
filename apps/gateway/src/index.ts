@@ -1,8 +1,9 @@
 /**
  * A2A Channels Gateway – main HTTP server.
  *
- * Composition root: creates the store, transport, plugin host, and monitor
- * manager, then starts the Hono HTTP server on Node.js.
+ * Composition root: creates the store provider, gateway store, transport,
+ * plugin host, and monitor manager, then starts the Hono HTTP server on
+ * Node.js.
  *
  * Routes:
  *   GET  /                     → Admin Web UI
@@ -30,24 +31,25 @@ import {
   OpenClawPluginHost,
   buildOpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
+import { SQLiteStoreProvider } from "@a2a-channels/store-sqlite";
 
 import { registerAllPlugins } from "./register-plugins.js";
-
-import {
-  listChannelBindings,
-  getChannelBinding,
-  createChannelBinding,
-  updateChannelBinding,
-  deleteChannelBinding,
-  listAgentConfigs,
-  getAgentConfig,
-  createAgentConfig,
-  updateAgentConfig,
-  deleteAgentConfig,
-  getAgentUrlForAccount,
-  buildOpenClawConfig,
-} from "./store/index.js";
+import { createGatewayStore, seedDefaults } from "./store/index.js";
 import { MonitorManager } from "./monitor-manager.js";
+
+// ---------------------------------------------------------------------------
+// Store provider (swap SQLiteStoreProvider for any other StoreProvider here)
+// ---------------------------------------------------------------------------
+
+const DB_PATH =
+  process.env["DB_PATH"] ?? join(process.cwd(), "db/a2a-channels.db");
+const DEFAULT_ECHO_AGENT_URL =
+  process.env["ECHO_AGENT_URL"] ?? "http://localhost:3001";
+
+const storeProvider = new SQLiteStoreProvider(DB_PATH);
+seedDefaults(storeProvider, DEFAULT_ECHO_AGENT_URL);
+
+const store = createGatewayStore(storeProvider, DEFAULT_ECHO_AGENT_URL);
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -57,17 +59,20 @@ const transport = new A2ATransport();
 
 const runtime = buildOpenClawPluginRuntime({
   transport,
-  getAgentUrl: getAgentUrlForAccount,
-  getConfig: buildOpenClawConfig,
+  getAgentUrl: (accountId) => store.getAgentUrlForAccount(accountId),
+  getConfig: () => store.buildOpenClawConfig(),
 });
 
-const openclawHost = new OpenClawPluginHost(runtime, buildOpenClawConfig);
+const openclawHost = new OpenClawPluginHost(runtime, () =>
+  store.buildOpenClawConfig(),
+);
 
 registerAllPlugins(openclawHost);
 
-const monitorManager = new MonitorManager([
-  new OpenClawChannelProvider(openclawHost),
-]);
+const monitorManager = new MonitorManager(
+  [new OpenClawChannelProvider(openclawHost)],
+  () => store.listChannelBindings(),
+);
 
 // ---------------------------------------------------------------------------
 // Static assets
@@ -105,10 +110,10 @@ app.get("/", async (c) => {
 });
 
 // ── Channel bindings ─────────────────────────────────────────────────────────
-app.get("/api/channels", (c) => c.json(listChannelBindings()));
+app.get("/api/channels", (c) => c.json(store.listChannelBindings()));
 
 app.get("/api/channels/:id", (c) => {
-  const binding = getChannelBinding(c.req.param("id"));
+  const binding = store.getChannelBinding(c.req.param("id"));
   return binding ? c.json(binding) : c.json({ error: "Not found" }, 404);
 });
 
@@ -125,7 +130,7 @@ app.post("/api/channels", async (c) => {
       400,
     );
   }
-  const binding = createChannelBinding({
+  const binding = store.createChannelBinding({
     name: String(body["name"]),
     channelType: (body["channelType"] as string | undefined) ?? "feishu",
     channelConfig: body["channelConfig"] as Record<string, unknown>,
@@ -145,7 +150,7 @@ app.post("/api/channels", async (c) => {
 
 app.patch("/api/channels/:id", async (c) => {
   const id = c.req.param("id");
-  if (!getChannelBinding(id))
+  if (!store.getChannelBinding(id))
     return c.json({ error: `Channel ${id} not found` }, 404);
   let body: Record<string, unknown>;
   try {
@@ -153,7 +158,7 @@ app.patch("/api/channels/:id", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const updated = updateChannelBinding(id, body);
+  const updated = store.updateChannelBinding(id, body);
   if (!updated) return c.json({ error: "Not found" }, 404);
   monitorManager
     .restartMonitor(updated.channelType, updated.accountId)
@@ -165,7 +170,7 @@ app.patch("/api/channels/:id", async (c) => {
 
 app.delete("/api/channels/:id", (c) => {
   const id = c.req.param("id");
-  if (!deleteChannelBinding(id))
+  if (!store.deleteChannelBinding(id))
     return c.json({ error: `Channel ${id} not found` }, 404);
   monitorManager
     .syncMonitors()
@@ -176,10 +181,10 @@ app.delete("/api/channels/:id", (c) => {
 });
 
 // ── Agent configs ─────────────────────────────────────────────────────────────
-app.get("/api/agents", (c) => c.json(listAgentConfigs()));
+app.get("/api/agents", (c) => c.json(store.listAgentConfigs()));
 
 app.get("/api/agents/:id", (c) => {
-  const agent = getAgentConfig(c.req.param("id"));
+  const agent = store.getAgentConfig(c.req.param("id"));
   return agent ? c.json(agent) : c.json({ error: "Not found" }, 404);
 });
 
@@ -193,7 +198,7 @@ app.post("/api/agents", async (c) => {
   if (!body["name"] || !body["url"])
     return c.json({ error: "Missing required fields: name, url" }, 400);
   return c.json(
-    createAgentConfig({
+    store.createAgentConfig({
       name: String(body["name"]),
       url: String(body["url"]),
       description: body["description"] as string | undefined,
@@ -204,7 +209,7 @@ app.post("/api/agents", async (c) => {
 
 app.patch("/api/agents/:id", async (c) => {
   const id = c.req.param("id");
-  if (!getAgentConfig(id))
+  if (!store.getAgentConfig(id))
     return c.json({ error: `Agent ${id} not found` }, 404);
   let body: Record<string, unknown>;
   try {
@@ -212,13 +217,13 @@ app.patch("/api/agents/:id", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const updated = updateAgentConfig(id, body);
+  const updated = store.updateAgentConfig(id, body);
   return updated ? c.json(updated) : c.json({ error: "Not found" }, 404);
 });
 
 app.delete("/api/agents/:id", (c) => {
   const id = c.req.param("id");
-  return deleteAgentConfig(id)
+  return store.deleteAgentConfig(id)
     ? c.json({ deleted: true })
     : c.json({ error: `Agent ${id} not found` }, 404);
 });

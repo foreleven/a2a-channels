@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { AgentConfig } from "@a2a-channels/core";
-import type { AgentStore } from "@a2a-channels/core";
+import type { AgentRepository } from "@a2a-channels/core";
 import type { Db } from "./db.js";
 
 interface AgentRow {
@@ -21,7 +21,7 @@ function rowToAgent(row: AgentRow): AgentConfig {
   };
 }
 
-export function createAgentStore(db: Db): AgentStore {
+export function createAgentStore(db: Db): AgentRepository {
   return {
     list(): AgentConfig[] {
       const rows = db

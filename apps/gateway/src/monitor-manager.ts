@@ -8,8 +8,7 @@
  * in apps/gateway/src/register-plugins.ts.
  */
 
-import type { ChannelProvider } from "@a2a-channels/core";
-import { listChannelBindings } from "./store/index.js";
+import type { ChannelBinding, ChannelProvider } from "@a2a-channels/core";
 
 interface MonitorHandle {
   abortController: AbortController;
@@ -22,6 +21,7 @@ export class MonitorManager {
 
   constructor(
     private readonly providers: readonly ChannelProvider[],
+    private readonly listBindings: () => ChannelBinding[],
   ) {
     // console.log("[monitor] providers=", this.providers);
   }
@@ -83,7 +83,7 @@ export class MonitorManager {
    * Stops monitors for removed / disabled bindings; starts monitors for new ones.
    */
   async syncMonitors(): Promise<void> {
-    const bindings = listChannelBindings().filter((b) => b.enabled);
+    const bindings = this.listBindings().filter((b) => b.enabled);
     console.log(
       `[monitor] syncMonitors: ${bindings.length} enabled binding(s)`,
     );
