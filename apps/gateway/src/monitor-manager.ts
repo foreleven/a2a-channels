@@ -21,7 +21,7 @@ export class MonitorManager {
 
   constructor(
     private readonly providers: readonly ChannelProvider[],
-    private readonly listBindings: () => ChannelBinding[],
+    private readonly listBindings: () => ChannelBinding[] | Promise<ChannelBinding[]>,
   ) {
     // console.log("[monitor] providers=", this.providers);
   }
@@ -83,7 +83,7 @@ export class MonitorManager {
    * Stops monitors for removed / disabled bindings; starts monitors for new ones.
    */
   async syncMonitors(): Promise<void> {
-    const bindings = this.listBindings().filter((b) => b.enabled);
+    const bindings = (await this.listBindings()).filter((b) => b.enabled);
     console.log(
       `[monitor] syncMonitors: ${bindings.length} enabled binding(s)`,
     );
