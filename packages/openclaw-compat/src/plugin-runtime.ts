@@ -94,30 +94,42 @@ export class OpenClawPluginRuntime extends EventEmitter {
   // Typed event emitter overloads
   // -------------------------------------------------------------------------
 
-  on<K extends keyof RuntimeEventMap>(
+  override on<K extends keyof RuntimeEventMap>(
     event: K,
     listener: RuntimeEventMap[K],
   ): this;
-  on(event: string | symbol, listener: (...args: any[]) => void): this;
-  on(event: string | symbol, listener: (...args: any[]) => void): this {
+  override on(
+    event: string | symbol,
+    listener: (...args: any[]) => void,
+  ): this;
+  override on(
+    event: string | symbol,
+    listener: (...args: any[]) => void,
+  ): this {
     return super.on(event, listener);
   }
 
-  off<K extends keyof RuntimeEventMap>(
+  override off<K extends keyof RuntimeEventMap>(
     event: K,
     listener: RuntimeEventMap[K],
   ): this;
-  off(event: string | symbol, listener: (...args: any[]) => void): this;
-  off(event: string | symbol, listener: (...args: any[]) => void): this {
+  override off(
+    event: string | symbol,
+    listener: (...args: any[]) => void,
+  ): this;
+  override off(
+    event: string | symbol,
+    listener: (...args: any[]) => void,
+  ): this {
     return super.off(event, listener);
   }
 
-  emit<K extends keyof RuntimeEventMap>(
+  override emit<K extends keyof RuntimeEventMap>(
     event: K,
     ...args: Parameters<RuntimeEventMap[K]>
   ): boolean;
-  emit(event: string | symbol, ...args: any[]): boolean;
-  emit(event: string | symbol, ...args: any[]): boolean {
+  override emit(event: string | symbol, ...args: any[]): boolean;
+  override emit(event: string | symbol, ...args: any[]): boolean {
     return super.emit(event, ...args);
   }
 
