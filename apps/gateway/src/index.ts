@@ -243,6 +243,8 @@ console.log(`🚀 A2A Channels Gateway starting on http://localhost:${PORT}`);
 
 await initStore();
 await seedDefaults(DEFAULT_ECHO_AGENT_URL);
+// Re-populate cache in case seedDefaults created new channel bindings.
+await initStore();
 
 const server = serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`✅ Gateway listening on http://localhost:${PORT}`);
