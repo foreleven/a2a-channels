@@ -11,23 +11,27 @@ import * as textRuntimeSdk from "openclaw/plugin-sdk/text-runtime";
 
 import type { PluginRuntime } from "openclaw/plugin-sdk";
 
+import type { ChannelReplyEvent } from "../plugin-runtime.js";
+
 type PluginRuntimeChannel = PluginRuntime["channel"];
 
 /**
  * Build the `channel` surface of a `PluginRuntime`.
  *
  * Real text/chunk/routing/mention helpers are wired to the actual openclaw
- * SDK implementations.  The reply dispatch methods are intercepted so that
- * messages are forwarded to the bound A2A / ACP agent.
- *
- * @param dispatch  The function that forwards an inbound context to the agent
- *   and returns its reply, or `null` when the message should be ignored.
+ * SDK implementations. The reply dispatch methods are intercepted and turned
+ * into explicit channel reply events handled by the injected runtime owner.
  */
 export function buildChannelCompat(
-  dispatch: (ctx: Record<string, unknown>) => Promise<{ text: string } | null>,
+  handleChannelReplyEvent: (
+    event: ChannelReplyEvent,
+  ) => Promise<
+    Awaited<
+      ReturnType<PluginRuntime["channel"]["reply"]["dispatchReplyFromConfig"]>
+    >
+  >,
 ): PluginRuntimeChannel {
   return {
-    // -- Text helpers (real implementations from openclaw SDK) --
     text: {
       chunkByNewline: (text: string, limit?: number) => {
         if (!limit) return text.split("\n");
@@ -57,78 +61,31 @@ export function buildChannelCompat(
       convertMarkdownTables: textRuntimeSdk.convertMarkdownTables,
     },
 
-    // -- Reply pipeline --
     reply: {
-      /**
-       * PRIMARY DISPATCH: called by openclaw-lark for every normal inbound message.
-       * Forwards to the bound A2A / ACP agent and delivers the reply.
-       */
-      dispatchReplyFromConfig: async (params: {
-        ctx: Record<string, unknown>;
-        cfg: unknown;
-        dispatcher: {
-          sendFinalReply: (payload: { text: string }) => boolean;
-          waitForIdle: () => Promise<void>;
-          markComplete: () => void;
-          getQueuedCounts: () => Record<string, number>;
-          getFailedCounts: () => Record<string, number>;
-        };
-        replyOptions?: unknown;
-      }) => {
-        console.log(
-          `[runtime] dispatchReplyFromConfig`,
-          params.ctx,
-          params.cfg,
-          params.dispatcher,
-          params.replyOptions,
-        );
-        const response = await dispatch(params.ctx);
-        if (!response) {
-          params.dispatcher.markComplete();
-          return {
-            queuedFinal: false,
-            counts: { tool: 0, block: 0, final: 0 },
-          };
-        }
-        params.dispatcher.sendFinalReply({ text: response.text });
-        await params.dispatcher.waitForIdle();
-        params.dispatcher.markComplete();
-        return {
-          queuedFinal: false,
-          counts: { tool: 0, block: 0, final: 1 },
-        };
+      dispatchReplyFromConfig: async (
+        params: Parameters<
+          PluginRuntimeChannel["reply"]["dispatchReplyFromConfig"]
+        >[0],
+      ) => {
+        return handleChannelReplyEvent({
+          type: "channel.reply.dispatch",
+          ctx: params.ctx,
+          cfg: params.cfg,
+          dispatcher: params.dispatcher,
+          replyOptions: params.replyOptions,
+        });
       },
 
-      /**
-       * BUFFERED DISPATCH: used by openclaw-lark for comment / drive replies.
-       */
       dispatchReplyWithBufferedBlockDispatcher: async (
         params: Parameters<
           PluginRuntimeChannel["reply"]["dispatchReplyWithBufferedBlockDispatcher"]
         >[0],
       ) => {
-        const response = await dispatch(params.ctx);
-        if (!response)
-          return {
-            queuedFinal: false,
-            counts: { tool: 0, block: 0, final: 0 },
-          };
-        try {
-          await params.dispatcherOptions.deliver(
-            { text: response.text },
-            { kind: "final" },
-          );
-          return {
-            queuedFinal: false,
-            counts: { tool: 0, block: 0, final: 1 },
-          };
-        } catch (error) {
-          params.dispatcherOptions.onError?.(error, { kind: "final" });
-          return {
-            queuedFinal: false,
-            counts: { tool: 0, block: 0, final: 0 },
-          };
-        }
+        return handleChannelReplyEvent({
+          type: "channel.reply.buffered.dispatch",
+          ctx: params.ctx,
+          dispatcherOptions: params.dispatcherOptions,
+        });
       },
 
       createReplyDispatcherWithTyping:
@@ -169,7 +126,6 @@ export function buildChannelCompat(
         try {
           return (await params.run()) as T;
         } finally {
-          // Ensure dispatcher reservations are always released on every exit path.
           params.dispatcher.markComplete();
           try {
             await params.dispatcher.waitForIdle();
@@ -180,13 +136,11 @@ export function buildChannelCompat(
       },
     },
 
-    // -- Routing --
     routing: {
       buildAgentSessionKey: routingSdk.buildAgentSessionKey,
       resolveAgentRoute: routingSdk.resolveAgentRoute,
     },
 
-    // -- Stubs --
     pairing: {
       buildPairingReply: (
         params: Parameters<
@@ -217,7 +171,6 @@ export function buildChannelCompat(
           PluginRuntimeChannel["pairing"]["upsertPairingRequest"]
         >[0],
       ) => {
-        // TODO: implement pairing request storage and expiration logic
         return {
           code: "",
           created: true,

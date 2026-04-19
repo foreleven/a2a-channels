@@ -4,5 +4,9 @@ export type {
   PluginRuntimeOptions,
   MessageInboundEvent,
   MessageOutboundEvent,
+  ChannelReplyDispatchEvent,
+  ChannelReplyBufferedDispatchEvent,
+  ChannelReplyEvent,
+  ChannelReplyDispatchResult,
   RuntimeEventMap,
 } from "./plugin-runtime.js";

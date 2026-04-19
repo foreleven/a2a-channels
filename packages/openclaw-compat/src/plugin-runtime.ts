@@ -2,14 +2,12 @@
  * OpenClaw-compatible runtime surface for community channel plugins.
  *
  * Only the subset used by @larksuite/openclaw-lark is implemented.
- * Reply dispatch is intercepted and forwarded to the configured agent
- * via the injected AgentTransport, keeping this package free of any
- * direct dependency on a specific protocol SDK or store implementation.
+ * Channel reply events are constructed here and delegated to an injected
+ * handler so dispatch ownership can live outside the runtime itself.
  */
 
 import { EventEmitter } from "node:events";
 
-import type { AgentClientHandle } from "@a2a-channels/core";
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
 import { buildAgentCompat } from "./compatibilities/agent.js";
@@ -28,35 +26,31 @@ import { buildTasksCompat } from "./compatibilities/tasks.js";
 
 export type ConfigProvider = PluginRuntime["config"];
 
+type ChannelReplyDispatchParams = Parameters<
+  PluginRuntime["channel"]["reply"]["dispatchReplyFromConfig"]
+>[0];
+type ChannelReplyBufferedDispatchParams = Parameters<
+  PluginRuntime["channel"]["reply"]["dispatchReplyWithBufferedBlockDispatcher"]
+>[0];
+export type ChannelReplyDispatchResult = Awaited<
+  ReturnType<PluginRuntime["channel"]["reply"]["dispatchReplyFromConfig"]>
+>;
+
 // ---------------------------------------------------------------------------
 // Runtime options
 // ---------------------------------------------------------------------------
 
 export interface PluginRuntimeOptions {
   config: ConfigProvider;
-  /**
-   * Resolve the pre-initialized agent client for the given agent URL.
-   * Injected by the gateway so this package stays protocol-agnostic.
-   */
-  getAgentClient: (
-    agentUrl: string,
-  ) => AgentClientHandle | Promise<AgentClientHandle>;
-
-  /**
-   * Resolve the agent URL for the given channel account.
-   * Injected by the gateway so this package has no store dependency.
-   */
-  getAgentUrl: (
-    channelType: string | undefined,
-    accountId: string | undefined,
-  ) => string | Promise<string>;
+  handleChannelReplyEvent: (
+    event: ChannelReplyEvent,
+  ) => ChannelReplyDispatchResult | Promise<ChannelReplyDispatchResult>;
 }
 
 // ---------------------------------------------------------------------------
 // Event types
 // ---------------------------------------------------------------------------
 
-/** Emitted when an inbound message from the channel is about to be forwarded to the agent. */
 export interface MessageInboundEvent {
   channelType: string | undefined;
   accountId: string | undefined;
@@ -65,7 +59,6 @@ export interface MessageInboundEvent {
   agentUrl: string;
 }
 
-/** Emitted when the agent reply has been received and is about to be sent back to the channel. */
 export interface MessageOutboundEvent {
   channelType: string | undefined;
   accountId: string | undefined;
@@ -73,6 +66,24 @@ export interface MessageOutboundEvent {
   replyText: string;
   agentUrl: string;
 }
+
+export interface ChannelReplyDispatchEvent {
+  type: "channel.reply.dispatch";
+  ctx: ChannelReplyDispatchParams["ctx"];
+  cfg: ChannelReplyDispatchParams["cfg"];
+  dispatcher: ChannelReplyDispatchParams["dispatcher"];
+  replyOptions?: ChannelReplyDispatchParams["replyOptions"];
+}
+
+export interface ChannelReplyBufferedDispatchEvent {
+  type: "channel.reply.buffered.dispatch";
+  ctx: ChannelReplyBufferedDispatchParams["ctx"];
+  dispatcherOptions: ChannelReplyBufferedDispatchParams["dispatcherOptions"];
+}
+
+export type ChannelReplyEvent =
+  | ChannelReplyDispatchEvent
+  | ChannelReplyBufferedDispatchEvent;
 
 export interface RuntimeEventMap {
   "message:inbound": (event: MessageInboundEvent) => void;
@@ -84,29 +95,13 @@ export interface RuntimeEventMap {
 // ---------------------------------------------------------------------------
 
 /**
- * Class-based OpenClaw plugin runtime that emits lifecycle events so that
- * external observers (e.g. MonitorManager) can record message traffic.
- *
- * Use `runtime.asPluginRuntime()` when passing it to `OpenClawPluginHost`.
+ * Class-based OpenClaw plugin runtime that emits lifecycle events and forwards
+ * channel reply events to the injected handler.
  */
 export class OpenClawPluginRuntime extends EventEmitter {
-  private readonly getAgentClient: (
-    agentUrl: string,
-  ) => AgentClientHandle | Promise<AgentClientHandle>;
-  private readonly getAgentUrl: (
-    channelType: string | undefined,
-    accountId: string | undefined,
-  ) => string | Promise<string>;
-
   constructor(private readonly options: PluginRuntimeOptions) {
     super();
-    this.getAgentClient = options.getAgentClient;
-    this.getAgentUrl = options.getAgentUrl;
   }
-
-  // -------------------------------------------------------------------------
-  // Typed event emitter overloads
-  // -------------------------------------------------------------------------
 
   override on<K extends keyof RuntimeEventMap>(
     event: K,
@@ -144,66 +139,12 @@ export class OpenClawPluginRuntime extends EventEmitter {
     return super.emit(event, ...args);
   }
 
-  // -------------------------------------------------------------------------
-  // Internal dispatch
-  // -------------------------------------------------------------------------
-
-  private async dispatch(
-    ctx: Record<string, unknown>,
-  ): Promise<{ text: string } | null> {
-    const userMessage =
-      (ctx["BodyForAgent"] as string | undefined) ??
-      (ctx["Body"] as string | undefined) ??
-      (ctx["RawBody"] as string | undefined) ??
-      "";
-
-    if (!userMessage.trim()) return null;
-
-    const channelType =
-      (ctx["ChannelType"] as string | undefined) ??
-      (ctx["Channel"] as string | undefined) ??
-      (ctx["Provider"] as string | undefined);
-    const accountId = ctx["AccountId"] as string | undefined;
-    const sessionKey = ctx["SessionKey"] as string | undefined;
-    const agentUrl = await this.getAgentUrl(channelType, accountId);
-    const agentClient = await this.getAgentClient(agentUrl);
-
-    this.emit("message:inbound", {
-      channelType,
-      accountId,
-      sessionKey,
-      userMessage,
-      agentUrl,
-    });
-
-    const result = await agentClient.send({
-      userMessage,
-      contextId: sessionKey,
-      accountId,
-    });
-
-    if (result) {
-      this.emit("message:outbound", {
-        channelType,
-        accountId,
-        sessionKey,
-        replyText: result.text,
-        agentUrl,
-      });
-    }
-
-    return result;
+  async handleChannelReplyEvent(
+    event: ChannelReplyEvent,
+  ): Promise<ChannelReplyDispatchResult> {
+    return this.options.handleChannelReplyEvent(event);
   }
 
-  // -------------------------------------------------------------------------
-  // PluginRuntime shape
-  // -------------------------------------------------------------------------
-
-  /**
-   * Returns a `PluginRuntime` facade backed by this instance for use with
-   * `OpenClawPluginHost`. The returned object matches the expected interface
-   * even though TypeScript cannot verify it statically.
-   */
   asPluginRuntime(): PluginRuntime {
     return this._buildPluginRuntime();
   }
@@ -213,9 +154,6 @@ export class OpenClawPluginRuntime extends EventEmitter {
   }
 
   private _buildPluginRuntime(): PluginRuntime {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const self = this;
-
     return {
       version: "1.0.0",
       config: this.options.config,
@@ -284,7 +222,7 @@ export class OpenClawPluginRuntime extends EventEmitter {
         getSession: async () => ({ messages: [] }),
         deleteSession: async () => {},
       },
-      channel: buildChannelCompat((ctx) => self.dispatch(ctx)),
+      channel: buildChannelCompat((event) => this.handleChannelReplyEvent(event)),
     } as PluginRuntime;
   }
 }

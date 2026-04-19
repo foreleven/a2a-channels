@@ -12,7 +12,7 @@ import {
   OpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
 
-import { MonitorManager } from "../monitor-manager.js";
+import { ConnectionManager } from "../connection-manager.js";
 import { registerAllPlugins } from "../register-plugins.js";
 import {
   createAgentClientHandle,
@@ -37,10 +37,9 @@ export class RelayRuntime {
   readonly transportRegistry: TransportRegistry;
   readonly runtime: OpenClawPluginRuntime;
   readonly pluginHost: OpenClawPluginHost;
-  readonly monitorManager: MonitorManager;
+  readonly connectionManager: ConnectionManager;
 
   private bindingsById = new Map<string, ChannelBinding>();
-  private bindingsByKeys = new Map<string, string>();
   private agentsById = new Map<string, AgentConfig>();
   private agentsByUrl = new Map<string, AgentConfig>();
   private clients = new Map<string, AgentClientHandle>();
@@ -57,12 +56,6 @@ export class RelayRuntime {
     this.bindingsById = new Map(
       options.bindings.map((binding) => [binding.id, binding]),
     );
-    this.bindingsByKeys = new Map(
-      options.bindings.map((binding) => [
-        this.bindingKey(binding.channelType, binding.accountId),
-        binding.agentUrl,
-      ]),
-    );
     this.agentsById = new Map(options.agents.map((agent) => [agent.id, agent]));
     this.agentsByUrl = new Map(
       options.agents.map((agent) => [agent.url, agent]),
@@ -73,6 +66,8 @@ export class RelayRuntime {
       this.transportRegistry.register(transport);
     }
 
+    let connectionManager!: ConnectionManager;
+
     this.runtime = new OpenClawPluginRuntime({
       config: {
         loadConfig: () => {
@@ -82,19 +77,18 @@ export class RelayRuntime {
           throw Error("Not implemented");
         },
       },
-      getAgentClient: (agentUrl) => this.getAgentClient(agentUrl),
-      getAgentUrl: (channelType, accountId) =>
-        this.getAgentUrlForChannelAccount(channelType, accountId),
+      handleChannelReplyEvent: (event) => connectionManager.handleEvent(event),
     });
 
     this.pluginHost = new OpenClawPluginHost(this.runtime);
-    this.monitorManager = new MonitorManager(
-      this.runtime,
+    connectionManager = new ConnectionManager(
       this.pluginHost,
-      () => {
-        return options.bindings;
-      },
+      () => this.listEnabledBindings(),
+      (agentUrl) => this.getAgentClient(agentUrl),
+      (event) => this.runtime.emit("message:inbound", event),
+      (event) => this.runtime.emit("message:outbound", event),
     );
+    this.connectionManager = connectionManager;
   }
 
   static async load(): Promise<RelayRuntime> {
@@ -113,11 +107,11 @@ export class RelayRuntime {
     this.clients = this.buildAgentClients(this.options.agents);
     await startAgentClients(this.clients.values());
     registerAllPlugins(this.pluginHost);
-    await this.monitorManager.syncMonitors();
+    await this.connectionManager.syncConnections();
   }
 
   async shutdown(): Promise<void> {
-    await this.monitorManager.stopAllMonitors();
+    await this.connectionManager.stopAllConnections();
     await stopAgentClients(this.clients.values());
   }
 
@@ -130,17 +124,19 @@ export class RelayRuntime {
     this.bindingsById.set(binding.id, binding);
     this.openClawConfig = buildOpenClawConfigFromBindings(this.listBindings());
 
-    await this.monitorManager.restartMonitor(binding);
+    await this.connectionManager.restartConnection(binding);
   }
 
   async applyBindingDelete(bindingId: string): Promise<void> {
-    if (!this.bindingsById.delete(bindingId)) {
+    const existing = this.bindingsById.get(bindingId);
+    if (!existing) {
       return;
     }
 
+    this.bindingsById.delete(bindingId);
     this.openClawConfig = buildOpenClawConfigFromBindings(this.listBindings());
 
-    await this.monitorManager.stopMonitor(bindingId);
+    await this.connectionManager.stopConnection(bindingId);
   }
 
   async applyAgentUpsert(agent: AgentConfig): Promise<void> {
@@ -212,23 +208,6 @@ export class RelayRuntime {
     );
   }
 
-  private async getAgentUrlForChannelAccount(
-    channelType: string | undefined,
-    accountId: string | undefined,
-  ): Promise<string> {
-    const bindingKey = this.bindingKey(
-      channelType ?? "feishu",
-      accountId ?? "default",
-    );
-    const url = this.bindingsByKeys.get(bindingKey);
-    if (!url) {
-      throw new Error(
-        `No enabled agent URL found for channelType=${channelType} accountId=${accountId}`,
-      );
-    }
-    return url;
-  }
-
   private async getAgentClient(agentUrl: string): Promise<AgentClientHandle> {
     return (
       this.clients.get(agentUrl) ??
@@ -266,19 +245,6 @@ export class RelayRuntime {
     );
     return false;
   }
-
-  // private rebuildEnabledBindingIndex(bindings: Iterable<ChannelBinding>): void {
-  //   this.enabledAgentUrlsByBindingKey = new Map(
-  //     Array.from(bindings)
-  //       .filter(
-  //         (binding) => binding.enabled && hasValidFeishuCredentials(binding),
-  //       )
-  //       .map((binding) => [
-  //         this.bindingKey(binding.channelType, binding.accountId),
-  //         binding.agentUrl,
-  //       ]),
-  //   );
-  // }
 
   private bindingKey(channelType: string, accountId: string): string {
     return `${channelType}:${accountId}`;
