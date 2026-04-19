@@ -32,8 +32,12 @@ interface HostLogger {
 /**
  * Runtime environment passed to a channel plugin when starting an account.
  * Mirrors the env object a real OpenClaw host normally provides.
+ *
+ * This is intentionally kept internal — external callers should use
+ * {@link OpenClawPluginHost.startChannelAccount} which creates this
+ * automatically for the given channel/account pair.
  */
-export interface GatewayRuntimeEnv {
+interface GatewayRuntimeEnv {
   log: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
   exit: (code: number) => void;
@@ -122,12 +126,19 @@ export class OpenClawPluginHost {
 
   /**
    * Start the gateway account for a registered channel type.
-   * Called by channel runners once they have a live AbortSignal.
+   *
+   * This is the entry point called by {@link OpenClawChannelProvider} when
+   * the monitor manager activates a channel binding.  It:
+   *   1. Resolves the registered channel plugin for `channelType`.
+   *   2. Creates a scoped logging environment for the account.
+   *   3. Delegates to the plugin's `gateway.startAccount()` hook.
+   *
+   * The returned Promise settles when the account connection ends
+   * (normally or via the `abortSignal`).
    */
   async startChannelAccount(
     channelType: string,
     accountId: string,
-    runtimeEnv: GatewayRuntimeEnv,
     abortSignal: AbortSignal,
   ): Promise<void> {
     const channel = this.resolveChannel(channelType);
@@ -137,6 +148,12 @@ export class OpenClawPluginHost {
           `Did you forget to call the channel's register function before starting accounts?`,
       );
     }
+
+    const runtimeEnv: GatewayRuntimeEnv = {
+      log:   (...args: unknown[]) => console.log(`[${channelType}:${accountId}]`, ...args),
+      error: (...args: unknown[]) => console.error(`[${channelType}:${accountId}]`, ...args),
+      exit:  (code: number) => process.exit(code),
+    };
 
     await channel.gateway.startAccount({
       cfg: this.getConfig(),
