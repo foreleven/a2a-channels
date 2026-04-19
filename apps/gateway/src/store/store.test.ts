@@ -50,7 +50,7 @@ function pushSchema(): void {
   );
 }
 
-/** Delete all rows from the `channel_bindings` and `agents` tables and refresh the in-memory cache. */
+/** Delete all rows from the `channel_bindings` and `agents` tables. */
 async function resetDB(): Promise<void> {
   await prisma.channelBinding.deleteMany();
   await prisma.agent.deleteMany();
@@ -183,40 +183,40 @@ describe("ChannelBinding CRUD", () => {
     assert.equal(fetched, null);
   });
 
-  test("create immediately reflects in the in-memory cache", async () => {
+  test("create immediately reflects in DB-backed routing", async () => {
     const binding = await createChannelBinding({
       ...FEISHU_BINDING_DATA,
-      accountId: "cache-test",
-      agentUrl: "http://cache-agent:4000",
+      accountId: "routing-test",
+      agentUrl: "http://routing-agent:4000",
     });
 
-    const url = getAgentUrlForBinding(binding.id, "http://default");
+    const url = await getAgentUrlForBinding(binding.id, "http://default");
     assert.equal(url, binding.agentUrl);
   });
 
-  test("update immediately reflects in the in-memory cache", async () => {
+  test("update immediately reflects in DB-backed routing", async () => {
     const binding = await createChannelBinding({
       ...FEISHU_BINDING_DATA,
-      accountId: "cache-update",
+      accountId: "routing-update",
       agentUrl: "http://old-agent:4000",
     });
     await updateChannelBinding(binding.id, {
       agentUrl: "http://new-agent:4000",
     });
 
-    const url = getAgentUrlForBinding(binding.id, "http://default");
+    const url = await getAgentUrlForBinding(binding.id, "http://default");
     assert.equal(url, "http://new-agent:4000");
   });
 
-  test("delete immediately reflects in the in-memory cache", async () => {
+  test("delete immediately reflects in DB-backed routing", async () => {
     const binding = await createChannelBinding({
       ...FEISHU_BINDING_DATA,
-      accountId: "cache-delete",
+      accountId: "routing-delete",
       agentUrl: "http://to-delete:4000",
     });
     await deleteChannelBinding(binding.id);
 
-    const url = getAgentUrlForBinding(binding.id, "http://fallback");
+    const url = await getAgentUrlForBinding(binding.id, "http://fallback");
     assert.equal(url, "http://fallback");
   });
   test("rejects creating a second enabled binding for the same channel/account", async () => {
@@ -378,22 +378,19 @@ describe("Agent CRUD", () => {
     assert.equal(fetched.name, "DB Persisted Agent");
   });
 
-  test("update handles URL change in the in-memory cache", async () => {
+  test("update handles URL change in DB-backed protocol lookup", async () => {
     const created = await createAgentConfig({
       ...AGENT_DATA,
       url: "http://old-url:3001",
       protocol: "acp",
     });
 
-    // Old URL is in cache
-    assert.equal(getAgentProtocolForUrl("http://old-url:3001"), "acp");
+    assert.equal(await getAgentProtocolForUrl("http://old-url:3001"), "acp");
 
     await updateAgentConfig(created.id, { url: "http://new-url:3001" });
 
-    // Old URL should no longer be in cache
-    assert.equal(getAgentProtocolForUrl("http://old-url:3001"), "a2a");
-    // New URL should be in cache
-    assert.equal(getAgentProtocolForUrl("http://new-url:3001"), "acp");
+    assert.equal(await getAgentProtocolForUrl("http://old-url:3001"), "a2a");
+    assert.equal(await getAgentProtocolForUrl("http://new-url:3001"), "acp");
   });
 
   test("delete returns false for an unknown id", async () => {
@@ -410,15 +407,15 @@ describe("Agent CRUD", () => {
     assert.equal(fetched, null);
   });
 
-  test("delete removes the agent URL from the in-memory cache", async () => {
+  test("delete removes the agent URL from DB-backed protocol lookup", async () => {
     const created = await createAgentConfig({
       ...AGENT_DATA,
       protocol: "acp",
     });
-    assert.equal(getAgentProtocolForUrl(created.url), "acp");
+    assert.equal(await getAgentProtocolForUrl(created.url), "acp");
 
     await deleteAgentConfig(created.id);
-    assert.equal(getAgentProtocolForUrl(created.url), "a2a");
+    assert.equal(await getAgentProtocolForUrl(created.url), "a2a");
   });
 });
 
@@ -431,8 +428,8 @@ describe("agent URL routing", () => {
 
   const DEFAULT_URL = "http://default-agent:3001";
 
-  test("getAgentUrlForBinding returns the default URL when the binding is missing", () => {
-    const url = getAgentUrlForBinding("missing-binding", DEFAULT_URL);
+  test("getAgentUrlForBinding returns the default URL when the binding is missing", async () => {
+    const url = await getAgentUrlForBinding("missing-binding", DEFAULT_URL);
     assert.equal(url, DEFAULT_URL);
   });
 
@@ -442,7 +439,7 @@ describe("agent URL routing", () => {
       agentUrl: "http://binding-agent:4000",
     });
 
-    const url = getAgentUrlForBinding(binding.id, DEFAULT_URL);
+    const url = await getAgentUrlForBinding(binding.id, DEFAULT_URL);
     assert.equal(url, "http://binding-agent:4000");
   });
 
@@ -453,7 +450,7 @@ describe("agent URL routing", () => {
       enabled: false,
     });
 
-    const url = getAgentUrlForBinding(binding.id, DEFAULT_URL);
+    const url = await getAgentUrlForBinding(binding.id, DEFAULT_URL);
     assert.equal(url, DEFAULT_URL);
   });
 
@@ -464,7 +461,7 @@ describe("agent URL routing", () => {
       agentUrl: "http://exact-agent:4000",
     });
 
-    const url = getAgentUrlForChannelAccount(
+    const url = await getAgentUrlForChannelAccount(
       "feishu",
       "exact-match",
       DEFAULT_URL,
@@ -479,7 +476,7 @@ describe("agent URL routing", () => {
       agentUrl: "http://other-agent:4000",
     });
 
-    const url = getAgentUrlForChannelAccount(
+    const url = await getAgentUrlForChannelAccount(
       "feishu",
       "no-match-account",
       DEFAULT_URL,
@@ -495,7 +492,7 @@ describe("agent URL routing", () => {
       enabled: false,
     });
 
-    const url = getAgentUrlForChannelAccount(
+    const url = await getAgentUrlForChannelAccount(
       "feishu",
       "disabled-account",
       DEFAULT_URL,
@@ -510,7 +507,7 @@ describe("agent URL routing", () => {
       agentUrl: "http://default-binding-agent:4000",
     });
 
-    const url = getAgentUrlForChannelAccount(undefined, undefined, DEFAULT_URL);
+    const url = await getAgentUrlForChannelAccount(undefined, undefined, DEFAULT_URL);
     assert.equal(url, "http://default-binding-agent:4000");
   });
 
@@ -530,11 +527,11 @@ describe("agent URL routing", () => {
     });
 
     assert.equal(
-      getAgentUrlForChannelAccount("feishu", "shared", DEFAULT_URL),
+      await getAgentUrlForChannelAccount("feishu", "shared", DEFAULT_URL),
       "http://feishu-agent:4000",
     );
     assert.equal(
-      getAgentUrlForChannelAccount("slack", "shared", DEFAULT_URL),
+      await getAgentUrlForChannelAccount("slack", "shared", DEFAULT_URL),
       "http://slack-agent:4000",
     );
   });
@@ -547,19 +544,19 @@ describe("agent URL routing", () => {
 describe("getAgentProtocolForUrl", () => {
   beforeEach(resetDB);
 
-  test("returns 'a2a' when the agent URL is not in the cache", () => {
-    const protocol = getAgentProtocolForUrl("http://unknown:3001");
+  test("returns 'a2a' when the agent URL is not in the database", async () => {
+    const protocol = await getAgentProtocolForUrl("http://unknown:3001");
     assert.equal(protocol, "a2a");
   });
 
-  test("returns the stored protocol for a cached agent", async () => {
+  test("returns the stored protocol for an agent", async () => {
     await createAgentConfig({
       name: "ACP Agent",
       url: "http://acp-agent:3001",
       protocol: "acp",
     });
 
-    const protocol = getAgentProtocolForUrl("http://acp-agent:3001");
+    const protocol = await getAgentProtocolForUrl("http://acp-agent:3001");
     assert.equal(protocol, "acp");
   });
 
@@ -571,7 +568,7 @@ describe("getAgentProtocolForUrl", () => {
     });
     await deleteAgentConfig(agent.id);
 
-    const protocol = getAgentProtocolForUrl("http://temp:3001");
+    const protocol = await getAgentProtocolForUrl("http://temp:3001");
     assert.equal(protocol, "a2a");
   });
 });
@@ -583,8 +580,8 @@ describe("getAgentProtocolForUrl", () => {
 describe("buildOpenClawConfig", () => {
   beforeEach(resetDB);
 
-  test("returns an empty feishu config when there are no bindings", () => {
-    const config = buildOpenClawConfig();
+  test("returns an empty feishu config when there are no bindings", async () => {
+    const config = await buildOpenClawConfig();
 
     assert.deepEqual(config.channels, {
       feishu: {},
@@ -609,7 +606,7 @@ describe("buildOpenClawConfig", () => {
       enabled: true,
     });
 
-    const config = buildOpenClawConfig();
+    const config = await buildOpenClawConfig();
     const feishu = config.channels as Record<string, unknown>;
     const feishuConfig = feishu["feishu"] as Record<string, unknown>;
 
@@ -634,7 +631,7 @@ describe("buildOpenClawConfig", () => {
       enabled: true,
     });
 
-    const config = buildOpenClawConfig();
+    const config = await buildOpenClawConfig();
     const feishu = (config.channels as Record<string, unknown>)[
       "feishu"
     ] as Record<string, unknown>;
@@ -658,7 +655,7 @@ describe("buildOpenClawConfig", () => {
       enabled: false,
     });
 
-    const config = buildOpenClawConfig();
+    const config = await buildOpenClawConfig();
     const feishu = (config.channels as Record<string, unknown>)[
       "feishu"
     ] as Record<string, unknown>;
@@ -679,7 +676,7 @@ describe("buildOpenClawConfig", () => {
       enabled: true,
     });
 
-    const config = buildOpenClawConfig();
+    const config = await buildOpenClawConfig();
     const feishu = (config.channels as Record<string, unknown>)[
       "feishu"
     ] as Record<string, unknown>;
@@ -700,7 +697,7 @@ describe("buildOpenClawConfig", () => {
       enabled: true,
     });
 
-    const config = buildOpenClawConfig();
+    const config = await buildOpenClawConfig();
     const feishu = (config.channels as Record<string, unknown>)[
       "feishu"
     ] as Record<string, unknown>;
@@ -721,7 +718,7 @@ describe("seedDefaults", () => {
   const ECHO_URL = "http://localhost:3001";
 
   test("creates the echo agent when the agents table is empty", async () => {
-    await seedDefaults(ECHO_URL);
+    await seedDefaults();
 
     const agents = await listAgentConfigs();
     assert.equal(agents.length, 1);
@@ -731,8 +728,8 @@ describe("seedDefaults", () => {
   });
 
   test("does not duplicate the echo agent on repeated calls", async () => {
-    await seedDefaults(ECHO_URL);
-    await seedDefaults(ECHO_URL);
+    await seedDefaults();
+    await seedDefaults();
 
     const agents = await listAgentConfigs();
     assert.equal(agents.length, 1);
@@ -745,16 +742,16 @@ describe("seedDefaults", () => {
       protocol: "a2a",
     });
 
-    await seedDefaults(ECHO_URL);
+    await seedDefaults();
 
     const agents = await listAgentConfigs();
     assert.equal(agents.length, 1);
     assert.equal(agents[0]?.url, "http://existing:4000");
   });
 
-  test("adds echo agent URL to the in-memory protocol cache", async () => {
-    await seedDefaults(ECHO_URL);
-    const protocol = getAgentProtocolForUrl(ECHO_URL);
+  test("seeded echo agent is available to protocol lookup", async () => {
+    await seedDefaults();
+    const protocol = await getAgentProtocolForUrl(ECHO_URL);
     assert.equal(protocol, "a2a");
   });
 
@@ -764,7 +761,7 @@ describe("seedDefaults", () => {
     process.env["FEISHU_ACCOUNT_ID"] = "seed-account";
 
     try {
-      await seedDefaults(ECHO_URL);
+      await seedDefaults();
 
       const bindings = await listChannelBindings();
       const feishuBinding = bindings.find(
@@ -788,8 +785,8 @@ describe("seedDefaults", () => {
     process.env["FEISHU_ACCOUNT_ID"] = "dup-account";
 
     try {
-      await seedDefaults(ECHO_URL);
-      await seedDefaults(ECHO_URL);
+      await seedDefaults();
+      await seedDefaults();
 
       const bindings = await listChannelBindings();
       const feishuBindings = bindings.filter(
@@ -809,7 +806,7 @@ describe("seedDefaults", () => {
     delete process.env["FEISHU_ACCOUNT_ID"];
 
     try {
-      await seedDefaults(ECHO_URL);
+      await seedDefaults();
 
       const bindings = await listChannelBindings();
       const feishuBinding = bindings.find(
@@ -830,7 +827,7 @@ describe("seedDefaults", () => {
 describe("initStore", () => {
   beforeEach(resetDB);
 
-  test("populates the channel cache from the database", async () => {
+  test("direct channel rows are available through DB-backed routing", async () => {
     // Insert a binding directly via prisma, bypass store functions
     await prisma.channelBinding.create({
       data: {
@@ -843,18 +840,15 @@ describe("initStore", () => {
       },
     });
 
-    // Re-init to pick up the direct insert
-    await initStore();
-
     const bindings = await listChannelBindings();
     const binding = bindings.find((b) => b.accountId === "direct");
     assert.ok(binding);
 
-    const url = getAgentUrlForBinding(binding.id, "http://fallback");
+    const url = await getAgentUrlForBinding(binding.id, "http://fallback");
     assert.equal(url, "http://direct:4000");
   });
 
-  test("populates the agent protocol cache from the database", async () => {
+  test("direct agent rows are available through DB-backed protocol lookup", async () => {
     // Insert directly via prisma
     await prisma.agent.create({
       data: {
@@ -864,9 +858,7 @@ describe("initStore", () => {
       },
     });
 
-    await initStore();
-
-    const protocol = getAgentProtocolForUrl("http://direct-agent:4000");
+    const protocol = await getAgentProtocolForUrl("http://direct-agent:4000");
     assert.equal(protocol, "acp");
   });
 });

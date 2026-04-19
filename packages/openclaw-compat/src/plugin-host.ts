@@ -15,20 +15,19 @@
  *   host.setRuntime(buildRuntime()); // shared runtime injected once
  */
 
-import type { OpenClawPluginApi, PluginRuntime } from "openclaw/plugin-sdk";
+import type {
+  ChannelAccountSnapshot,
+  ChannelPlugin,
+  OpenClawPluginApi,
+  PluginRuntime,
+} from "openclaw/plugin-sdk";
 import type { ChannelBinding } from "@a2a-channels/core";
+import type { ChannelLogSink } from "openclaw/plugin-sdk/channel-runtime";
+import type { OpenClawPluginRuntime } from "./plugin-runtime";
 
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
-
-/** Minimal logger interface shared between the host and registered plugins. */
-interface HostLogger {
-  debug: (msg: string, meta?: unknown) => void;
-  info: (msg: string, meta?: unknown) => void;
-  warn: (msg: string, meta?: unknown) => void;
-  error: (msg: string, meta?: unknown) => void;
-}
 
 /**
  * Runtime environment passed to a channel plugin when starting an account.
@@ -44,49 +43,23 @@ interface GatewayRuntimeEnv {
   exit: (code: number) => void;
 }
 
-interface ChannelGatewayController {
-  startAccount?: (ctx: {
-    cfg: Record<string, unknown>;
-    accountId: string;
-    runtime: GatewayRuntimeEnv;
-    abortSignal: AbortSignal;
-    setStatus: (status: Record<string, unknown>) => void;
-    log?: HostLogger;
-  }) => Promise<void>;
-  stopAccount?: (ctx: {
-    cfg: Record<string, unknown>;
-    accountId: string;
-    runtime: GatewayRuntimeEnv;
-    log?: HostLogger;
-  }) => Promise<void>;
-}
-
-interface RegisteredChannelPlugin {
-  id: string;
-  meta?: { aliases?: string[] };
-  gateway?: ChannelGatewayController;
-}
-
 // ---------------------------------------------------------------------------
 // Logger
 // ---------------------------------------------------------------------------
 
-const logger: HostLogger = {
-  debug: (msg, meta) => console.debug("[openclaw-host]", msg, meta ?? ""),
-  info: (msg, meta) => console.info("[openclaw-host]", msg, meta ?? ""),
-  warn: (msg, meta) => console.warn("[openclaw-host]", msg, meta ?? ""),
-  error: (msg, meta) => console.error("[openclaw-host]", msg, meta ?? ""),
+const logger: ChannelLogSink = {
+  debug: (msg) => console.debug("[openclaw-host]", msg),
+  info: (msg) => console.info("[openclaw-host]", msg),
+  warn: (msg) => console.warn("[openclaw-host]", msg),
+  error: (msg) => console.error("[openclaw-host]", msg),
 };
-
-type PluginHookName = Parameters<OpenClawPluginApi["on"]>[0];
-type PluginHookHandlerMap = Parameters<OpenClawPluginApi["on"]>[1];
 
 // ---------------------------------------------------------------------------
 // OpenClawPluginHost
 // ---------------------------------------------------------------------------
 
 export class OpenClawPluginHost {
-  private readonly channels = new Map<string, RegisteredChannelPlugin>();
+  private readonly channels = new Map<string, ChannelPlugin>();
   private readonly hookHandlers = new Map<
     string,
     Array<(...args: any[]) => unknown>
@@ -97,10 +70,7 @@ export class OpenClawPluginHost {
    *   channel config.  Injected by the gateway so this package has no
    *   dependency on the store implementation.
    */
-  constructor(
-    private readonly runtime: PluginRuntime,
-    private readonly getConfig: () => Record<string, unknown>,
-  ) {}
+  constructor(private readonly runtime: OpenClawPluginRuntime) {}
 
   // -------------------------------------------------------------------------
   // Public API
@@ -121,7 +91,7 @@ export class OpenClawPluginHost {
    *
    *   host.registerPlugin((api) => larkPlugin.register(api));
    */
-  registerPlugin(loader: (api: unknown) => void): void {
+  registerPlugin(loader: (api: OpenClawPluginApi) => void): void {
     loader(this.buildPluginApi());
   }
 
@@ -151,18 +121,26 @@ export class OpenClawPluginHost {
     }
 
     const runtimeEnv: GatewayRuntimeEnv = {
-      log:   (...args: unknown[]) => console.log(`[${channelType}:${accountId}:${bindingId}]`, ...args),
-      error: (...args: unknown[]) => console.error(`[${channelType}:${accountId}:${bindingId}]`, ...args),
-      exit:  (code: number) => process.exit(code),
+      log: (...args: unknown[]) =>
+        console.log(`[${channelType}:${accountId}:${bindingId}]`, ...args),
+      error: (...args: unknown[]) =>
+        console.error(`[${channelType}:${accountId}:${bindingId}]`, ...args),
+      exit: (code: number) => process.exit(code),
     };
 
     await channel.gateway.startAccount({
-      cfg: this.getConfig(),
+      cfg: this.runtime.getConfig(),
       accountId,
+      account: binding.channelConfig,
       runtime: runtimeEnv,
       abortSignal,
+      getStatus: (): ChannelAccountSnapshot => {
+        return { accountId };
+      },
       setStatus: (status) =>
-        logger.info(`status [${channel.id}:${accountId}:${bindingId}]`, status),
+        logger.info(
+          `account[${channel.id}:${accountId}:${bindingId}] status=${status}`,
+        ),
       log: logger,
     });
   }
@@ -171,9 +149,7 @@ export class OpenClawPluginHost {
   // Private helpers
   // -------------------------------------------------------------------------
 
-  private resolveChannel(
-    channelType: string,
-  ): RegisteredChannelPlugin | undefined {
+  private resolveChannel(channelType: string): ChannelPlugin | undefined {
     const exact = this.channels.get(channelType);
     if (exact) return exact;
     for (const channel of this.channels.values()) {
@@ -191,6 +167,7 @@ export class OpenClawPluginHost {
    */
   private buildPluginApi(): OpenClawPluginApi {
     const host = this;
+    const config = host.runtime.getConfig();
 
     const on: OpenClawPluginApi["on"] = (event, handler) => {
       const existing = host.hookHandlers.get(event) ?? [];
@@ -209,10 +186,10 @@ export class OpenClawPluginHost {
 
       // ---- Live getters ---------------------------------------------------
       get config() {
-        return host.getConfig();
+        return config;
       },
       get runtime() {
-        return host.runtime!;
+        return host.runtime.asPluginRuntime();
       },
       pluginConfig: {},
 
@@ -224,13 +201,12 @@ export class OpenClawPluginHost {
       registerChannel: (
         registration: Parameters<OpenClawPluginApi["registerChannel"]>[0],
       ) => {
-        const channel = (
+        const channel =
           typeof registration === "object" &&
           registration !== null &&
           "plugin" in registration
             ? registration.plugin
-            : registration
-        ) as RegisteredChannelPlugin | undefined;
+            : registration;
 
         if (!channel?.id) {
           throw new Error(
@@ -238,10 +214,9 @@ export class OpenClawPluginHost {
           );
         }
         host.channels.set(channel.id, channel);
-        logger.info("channel registered", {
-          id: channel.id,
-          aliases: channel.meta?.aliases ?? [],
-        });
+        logger.info(
+          `channel registered: id=[${channel.id}] alias=[${channel.meta.aliases}]`,
+        );
       },
 
       /** Subscribe to host lifecycle events. */

@@ -18,6 +18,14 @@ export interface AgentResponse {
   text: string;
 }
 
+export interface AgentClientHandle {
+  readonly agentUrl: string;
+  readonly protocol: string;
+  send(request: AgentRequest): Promise<AgentResponse>;
+  start?(): Promise<void>;
+  stop?(): Promise<void>;
+}
+
 export interface AgentTransport {
   /** Short protocol identifier, e.g. "a2a" or "acp". */
   readonly protocol: string;

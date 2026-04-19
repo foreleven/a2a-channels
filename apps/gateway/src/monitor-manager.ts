@@ -16,6 +16,7 @@ import type { ChannelBinding, ChannelProvider } from "@a2a-channels/core";
 import type {
   MessageInboundEvent,
   MessageOutboundEvent,
+  OpenClawPluginHost,
   OpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
 
@@ -29,11 +30,13 @@ export class MonitorManager {
   private readonly monitors = new Map<string, MonitorHandle>();
 
   constructor(
-    private readonly providers: readonly ChannelProvider[],
-    private readonly listBindings: () => ChannelBinding[] | Promise<ChannelBinding[]>,
-    runtime?: OpenClawPluginRuntime,
+    private readonly runtime: OpenClawPluginRuntime,
+    private readonly host: OpenClawPluginHost,
+    private readonly listBindings: () =>
+      | ChannelBinding[]
+      | Promise<ChannelBinding[]>,
   ) {
-    if (runtime) {
+    if (this.runtime) {
       runtime.on("message:inbound", (event: MessageInboundEvent) => {
         console.log(
           `[monitor] message:inbound channel=${event.channelType ?? "-"} accountId=${event.accountId ?? "-"} agent=${event.agentUrl} text=${JSON.stringify(event.userMessage)}`,
@@ -51,38 +54,31 @@ export class MonitorManager {
   // Private helpers
   // -------------------------------------------------------------------------
 
-  private resolveProvider(channelType: string): ChannelProvider | undefined {
-    return this.providers.find((p) => p.supports(channelType));
-  }
-
   private async startMonitor(binding: ChannelBinding): Promise<void> {
-    const provider = this.resolveProvider(binding.channelType);
-    if (!provider) {
-      console.warn(
-        `[monitor] no provider for "${binding.channelType}"; skipping binding ${binding.id}`,
-      );
-      return;
-    }
-
     const existing = this.monitors.get(binding.id);
     if (existing) {
-      console.log(`[monitor] stopping existing monitor for binding ${binding.id}`);
+      console.log(
+        `[monitor] stopping existing monitor for binding ${binding.id}`,
+      );
       existing.abortController.abort();
       await existing.promise.catch(() => {});
       this.monitors.delete(binding.id);
     }
 
     const abortController = new AbortController();
-    const runner = provider.createAccountRunner(binding);
 
     console.log(
       `[monitor] starting binding ${binding.id} for ${binding.channelType}:${binding.accountId}`,
+      binding,
     );
-    const promise = runner.run(abortController.signal).catch((err: unknown) => {
-      if ((err as { name?: string })?.name !== "AbortError") {
-        console.error(`[monitor] binding ${binding.id} error:`, String(err));
-      }
-    });
+
+    const promise = this.host
+      .startChannelBinding(binding, abortController.signal)
+      .catch((err: unknown) => {
+        if ((err as { name?: string })?.name !== "AbortError") {
+          console.error(`[monitor] binding ${binding.id} error:`, String(err));
+        }
+      });
 
     this.monitors.set(binding.id, { abortController, binding, promise });
   }

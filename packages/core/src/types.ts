@@ -29,3 +29,27 @@ export interface AgentConfig {
   description?: string;
   createdAt: string;
 }
+
+export interface OpenClawFeishuAccountConfig {
+  bindingId?: string;
+  agentUrl?: string;
+  appId?: string;
+  appSecret?: string;
+  verificationToken?: string;
+  encryptKey?: string;
+  enabled?: boolean;
+  allowFrom?: string[];
+  replyMode?: string;
+  dmPolicy?: string;
+  groupPolicy?: string;
+  accounts?: Record<string, OpenClawFeishuAccountConfig>;
+}
+
+export interface OpenClawConfig extends Record<string, unknown> {
+  channels: {
+    feishu: OpenClawFeishuAccountConfig;
+    feishu_doc: Record<string, unknown>;
+    [channelType: string]: unknown;
+  };
+  agents: Record<string, unknown>;
+}

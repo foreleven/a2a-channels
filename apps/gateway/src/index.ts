@@ -24,15 +24,7 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 
-import { A2ATransport, ACPTransport } from "@a2a-channels/agent-transport";
-import { TransportRegistry } from "@a2a-channels/core";
-import {
-  OpenClawChannelProvider,
-  OpenClawPluginHost,
-  OpenClawPluginRuntime,
-} from "@a2a-channels/openclaw-compat";
-
-import { registerAllPlugins } from "./register-plugins.js";
+import { RelayRuntime } from "./runtime/relay-runtime.js";
 import {
   DuplicateEnabledBindingError,
   initStore,
@@ -47,49 +39,10 @@ import {
   createAgentConfig,
   updateAgentConfig,
   deleteAgentConfig,
-  getAgentUrlForChannelAccount,
-  getAgentProtocolForUrl,
-  buildOpenClawConfig,
 } from "./store/index.js";
-import { MonitorManager } from "./monitor-manager.js";
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-const DEFAULT_ECHO_AGENT_URL =
-  process.env["ECHO_AGENT_URL"] ?? "http://localhost:3001";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
-// ---------------------------------------------------------------------------
-
-const transportRegistry = new TransportRegistry()
-  .register(new A2ATransport())
-  .register(new ACPTransport());
-
-const runtime = new OpenClawPluginRuntime({
-  transportRegistry,
-  getAgentUrl: (channelType, accountId) =>
-    getAgentUrlForChannelAccount(channelType, accountId, DEFAULT_ECHO_AGENT_URL),
-  getAgentProtocol: (agentUrl) => getAgentProtocolForUrl(agentUrl),
-  getConfig: () => buildOpenClawConfig(),
-});
-
-const openclawHost = new OpenClawPluginHost(runtime.asPluginRuntime(), () =>
-  buildOpenClawConfig(),
-);
-
-registerAllPlugins(openclawHost);
-
-const monitorManager = new MonitorManager(
-  [new OpenClawChannelProvider(openclawHost)],
-  () => listChannelBindings(),
-  runtime,
-);
-
-// ---------------------------------------------------------------------------
-// Static assets
 // ---------------------------------------------------------------------------
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -102,11 +55,23 @@ const PORT = Number(process.env["PORT"] ?? 7890);
 
 const app = new Hono();
 
+await initStore();
+await seedDefaults();
+
+const relay = await RelayRuntime.load();
+await relay.bootstrap();
+
 function channelMutationErrorResponse(c: Context, err: unknown) {
   if (err instanceof DuplicateEnabledBindingError) {
     return c.json({ error: err.message }, 409);
   }
   throw err;
+}
+
+function applyRelayMutation(operation: Promise<unknown>, action: string): void {
+  operation.catch((err: unknown) =>
+    console.error(`[gateway] failed to ${action}:`, err),
+  );
 }
 
 // ── CORS – allow requests from the Next.js admin UI ──────────────────────────
@@ -164,13 +129,7 @@ app.post("/api/channels", async (c) => {
   } catch (err) {
     return channelMutationErrorResponse(c, err);
   }
-  if (binding.enabled) {
-    monitorManager
-      .restartMonitor(binding)
-      .catch((err: unknown) =>
-        console.error("[gateway] failed to start monitor:", err),
-      );
-  }
+  applyRelayMutation(relay.applyBindingUpsert(binding), "apply binding create");
   return c.json(binding, 201);
 });
 
@@ -191,12 +150,7 @@ app.patch("/api/channels/:id", async (c) => {
     return channelMutationErrorResponse(c, err);
   }
   if (!updated) return c.json({ error: "Not found" }, 404);
-  const monitorAction = updated.enabled
-    ? monitorManager.restartMonitor(updated)
-    : monitorManager.stopMonitor(id);
-  monitorAction.catch((err: unknown) =>
-    console.error("[gateway] failed to update monitor:", err),
-  );
+  applyRelayMutation(relay.applyBindingUpsert(updated), "apply binding update");
   return c.json(updated);
 });
 
@@ -204,11 +158,7 @@ app.delete("/api/channels/:id", async (c) => {
   const id = c.req.param("id");
   if (!(await deleteChannelBinding(id)))
     return c.json({ error: `Channel ${id} not found` }, 404);
-  monitorManager
-    .stopMonitor(id)
-    .catch((err: unknown) =>
-      console.error("[gateway] failed to stop monitor:", err),
-    );
+  applyRelayMutation(relay.applyBindingDelete(id), "apply binding delete");
   return c.json({ deleted: true });
 });
 
@@ -229,15 +179,14 @@ app.post("/api/agents", async (c) => {
   }
   if (!body["name"] || !body["url"])
     return c.json({ error: "Missing required fields: name, url" }, 400);
-  return c.json(
-    await createAgentConfig({
-      name: String(body["name"]),
-      url: String(body["url"]),
-      protocol: (body["protocol"] as string | undefined) ?? "a2a",
-      description: body["description"] as string | undefined,
-    }),
-    201,
-  );
+  const agent = await createAgentConfig({
+    name: String(body["name"]),
+    url: String(body["url"]),
+    protocol: (body["protocol"] as string | undefined) ?? "a2a",
+    description: body["description"] as string | undefined,
+  });
+  applyRelayMutation(relay.applyAgentUpsert(agent), "apply agent create");
+  return c.json(agent, 201);
 });
 
 app.patch("/api/agents/:id", async (c) => {
@@ -251,14 +200,17 @@ app.patch("/api/agents/:id", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
   const updated = await updateAgentConfig(id, body);
-  return updated ? c.json(updated) : c.json({ error: "Not found" }, 404);
+  if (!updated) return c.json({ error: "Not found" }, 404);
+  applyRelayMutation(relay.applyAgentUpsert(updated), "apply agent update");
+  return c.json(updated);
 });
 
 app.delete("/api/agents/:id", async (c) => {
   const id = c.req.param("id");
-  return (await deleteAgentConfig(id))
-    ? c.json({ deleted: true })
-    : c.json({ error: `Agent ${id} not found` }, 404);
+  if (!(await deleteAgentConfig(id)))
+    return c.json({ error: `Agent ${id} not found` }, 404);
+  applyRelayMutation(relay.applyAgentDelete(id), "apply agent delete");
+  return c.json({ deleted: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -267,26 +219,15 @@ app.delete("/api/agents/:id", async (c) => {
 
 console.log(`🚀 A2A Channels Gateway starting on http://localhost:${PORT}`);
 
-await initStore();
-await seedDefaults(DEFAULT_ECHO_AGENT_URL);
-// Re-populate cache in case seedDefaults created new channel bindings.
-await initStore();
-
 const server = serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`✅ Gateway listening on http://localhost:${PORT}`);
   console.log(`   Web UI: http://localhost:${PORT}/`);
   console.log(`   API:    http://localhost:${PORT}/api/channels`);
 });
 
-monitorManager
-  .syncMonitors()
-  .catch((err: unknown) =>
-    console.error("[gateway] initial monitor sync failed:", err),
-  );
-
 process.on("SIGINT", async () => {
   console.log("\n[gateway] shutting down…");
-  await monitorManager.stopAllMonitors();
+  await relay.shutdown();
   server.close();
   process.exit(0);
 });

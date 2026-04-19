@@ -9,12 +9,11 @@
 
 import { EventEmitter } from "node:events";
 
-import type { TransportRegistry } from "@a2a-channels/core";
-import type { PluginRuntime } from "openclaw/plugin-sdk";
+import type { AgentClientHandle } from "@a2a-channels/core";
+import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
 import { buildAgentCompat } from "./compatibilities/agent.js";
 import { buildChannelCompat } from "./compatibilities/channel.js";
-import { buildConfigCompat } from "./compatibilities/config.js";
 import {
   buildImageGenerationCompat,
   buildVideoGenerationCompat,
@@ -27,17 +26,21 @@ import {
 import { buildSystemCompat } from "./compatibilities/system.js";
 import { buildTasksCompat } from "./compatibilities/tasks.js";
 
+export type ConfigProvider = PluginRuntime["config"];
+
 // ---------------------------------------------------------------------------
 // Runtime options
 // ---------------------------------------------------------------------------
 
 export interface PluginRuntimeOptions {
+  config: ConfigProvider;
   /**
-   * Registry holding all registered transport implementations (A2A, ACP, …).
-   * The runtime resolves the correct transport per-message based on the agent's
-   * configured protocol.
+   * Resolve the pre-initialized agent client for the given agent URL.
+   * Injected by the gateway so this package stays protocol-agnostic.
    */
-  transportRegistry: TransportRegistry;
+  getAgentClient: (
+    agentUrl: string,
+  ) => AgentClientHandle | Promise<AgentClientHandle>;
 
   /**
    * Resolve the agent URL for the given channel account.
@@ -46,20 +49,7 @@ export interface PluginRuntimeOptions {
   getAgentUrl: (
     channelType: string | undefined,
     accountId: string | undefined,
-  ) => string;
-
-  /**
-   * Resolve the transport protocol for the agent at the given URL.
-   * Returns "a2a" when the agent URL is not found in the store.
-   * Injected by the gateway.
-   */
-  getAgentProtocol: (agentUrl: string) => string;
-
-  /**
-   * Return the current OpenClaw-compatible channel configuration.
-   * Injected by the gateway.
-   */
-  getConfig: () => Record<string, unknown>;
+  ) => string | Promise<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,20 +90,18 @@ export interface RuntimeEventMap {
  * Use `runtime.asPluginRuntime()` when passing it to `OpenClawPluginHost`.
  */
 export class OpenClawPluginRuntime extends EventEmitter {
-  private readonly transportRegistry: TransportRegistry;
+  private readonly getAgentClient: (
+    agentUrl: string,
+  ) => AgentClientHandle | Promise<AgentClientHandle>;
   private readonly getAgentUrl: (
     channelType: string | undefined,
     accountId: string | undefined,
-  ) => string;
-  private readonly getAgentProtocol: (agentUrl: string) => string;
-  private readonly getConfig: () => Record<string, unknown>;
+  ) => string | Promise<string>;
 
-  constructor(options: PluginRuntimeOptions) {
+  constructor(private readonly options: PluginRuntimeOptions) {
     super();
-    this.transportRegistry = options.transportRegistry;
+    this.getAgentClient = options.getAgentClient;
     this.getAgentUrl = options.getAgentUrl;
-    this.getAgentProtocol = options.getAgentProtocol;
-    this.getConfig = options.getConfig;
   }
 
   // -------------------------------------------------------------------------
@@ -174,12 +162,11 @@ export class OpenClawPluginRuntime extends EventEmitter {
     const channelType =
       (ctx["ChannelType"] as string | undefined) ??
       (ctx["Channel"] as string | undefined) ??
-      (ctx["channel"] as string | undefined);
+      (ctx["Provider"] as string | undefined);
     const accountId = ctx["AccountId"] as string | undefined;
     const sessionKey = ctx["SessionKey"] as string | undefined;
-    const agentUrl = this.getAgentUrl(channelType, accountId);
-    const protocol = this.getAgentProtocol(agentUrl);
-    const transport = this.transportRegistry.resolve(protocol);
+    const agentUrl = await this.getAgentUrl(channelType, accountId);
+    const agentClient = await this.getAgentClient(agentUrl);
 
     this.emit("message:inbound", {
       channelType,
@@ -189,7 +176,7 @@ export class OpenClawPluginRuntime extends EventEmitter {
       agentUrl,
     });
 
-    const result = await transport.send(agentUrl, {
+    const result = await agentClient.send({
       userMessage,
       contextId: sessionKey,
       accountId,
@@ -221,13 +208,17 @@ export class OpenClawPluginRuntime extends EventEmitter {
     return this._buildPluginRuntime();
   }
 
+  getConfig(): OpenClawConfig {
+    return this.options.config.loadConfig();
+  }
+
   private _buildPluginRuntime(): PluginRuntime {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
 
     return {
       version: "1.0.0",
-      config: buildConfigCompat(self.getConfig),
+      config: this.options.config,
       agent: buildAgentCompat(),
       system: buildSystemCompat(),
       media: buildMediaCompat(),
