@@ -97,6 +97,7 @@ export class AgentConfigAggregate {
         name: changes.name,
         url: changes.url,
         protocol: changes.protocol,
+        // `undefined` means "not included in changes", `null` means "clear the field".
         description:
           changes.description === undefined ? undefined : (changes.description ?? null),
       },

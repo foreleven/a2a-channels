@@ -95,7 +95,7 @@ export class AgentConfigProjection {
         ...(c.name !== undefined && { name: c.name }),
         ...(c.url !== undefined && { url: c.url }),
         ...(c.protocol !== undefined && { protocol: c.protocol }),
-        ...("description" in c && { description: c.description }),
+        ...(c.description !== undefined && { description: c.description }),
       },
     });
   }

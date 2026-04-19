@@ -27,7 +27,9 @@ import { serve } from "@hono/node-server";
 
 import { DomainEventBus } from "./domain/event-bus.js";
 import { ChannelBindingService } from "./domain/channel-binding-service.js";
+import type { UpdateChannelBindingData } from "./domain/channel-binding-service.js";
 import { AgentService } from "./domain/agent-service.js";
+import type { UpdateAgentData } from "./domain/agent-service.js";
 import { DuplicateEnabledBindingError } from "./services/channel-bindings.js";
 import { PrismaEventStore } from "./infra/prisma-event-store.js";
 import { EventSourcedChannelBindingRepository } from "./infra/channel-binding-repo.js";
@@ -154,7 +156,7 @@ app.patch("/api/channels/:id", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
   try {
-    const updated = await channelBindingService.update(id, body as Parameters<ChannelBindingService["update"]>[1]);
+    const updated = await channelBindingService.update(id, body as UpdateChannelBindingData);
     if (!updated) return c.json({ error: `Channel ${id} not found` }, 404);
     return c.json(updated);
   } catch (err) {
@@ -203,7 +205,7 @@ app.patch("/api/agents/:id", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const updated = await agentService.update(id, body as Parameters<AgentService["update"]>[1]);
+  const updated = await agentService.update(id, body as UpdateAgentData);
   if (!updated) return c.json({ error: `Agent ${id} not found` }, 404);
   return c.json(updated);
 });

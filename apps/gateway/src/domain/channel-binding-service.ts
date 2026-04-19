@@ -23,6 +23,9 @@ export { DuplicateEnabledBindingError };
 /** Re-exported so the HTTP layer has a single import source. */
 export type { ChannelBindingSnapshot };
 
+export type CreateChannelBindingData = Omit<ChannelBindingSnapshot, "id" | "createdAt">;
+export type UpdateChannelBindingData = Partial<Omit<ChannelBindingSnapshot, "id" | "createdAt">>;
+
 export class ChannelBindingService {
   constructor(
     private readonly repo: ChannelBindingRepository,
@@ -46,7 +49,7 @@ export class ChannelBindingService {
   // Commands
   // -------------------------------------------------------------------------
 
-  async create(data: Omit<ChannelBindingSnapshot, "id" | "createdAt">): Promise<ChannelBindingSnapshot> {
+  async create(data: CreateChannelBindingData): Promise<ChannelBindingSnapshot> {
     await this.assertNoDuplicateEnabled(
       data.channelType,
       data.accountId,
@@ -60,7 +63,7 @@ export class ChannelBindingService {
 
   async update(
     id: string,
-    changes: Partial<Omit<ChannelBindingSnapshot, "id" | "createdAt">>,
+    changes: UpdateChannelBindingData,
   ): Promise<ChannelBindingSnapshot | null> {
     const agg = await this.repo.findById(id);
     if (!agg) return null;

@@ -14,6 +14,9 @@ import type { AgentConfigRepository } from "@a2a-channels/domain";
 
 export type { AgentConfigSnapshot };
 
+export type RegisterAgentData = Omit<AgentConfigSnapshot, "id" | "createdAt">;
+export type UpdateAgentData = Partial<Omit<AgentConfigSnapshot, "id" | "createdAt">>;
+
 export class AgentService {
   constructor(private readonly repo: AgentConfigRepository) {}
 
@@ -35,7 +38,7 @@ export class AgentService {
   // Commands
   // -------------------------------------------------------------------------
 
-  async register(data: Omit<AgentConfigSnapshot, "id" | "createdAt">): Promise<AgentConfigSnapshot> {
+  async register(data: RegisterAgentData): Promise<AgentConfigSnapshot> {
     const agg = AgentConfigAggregate.register({ id: randomUUID(), ...data });
     await this.repo.save(agg);
     return agg.snapshot();
@@ -43,7 +46,7 @@ export class AgentService {
 
   async update(
     id: string,
-    changes: Partial<Omit<AgentConfigSnapshot, "id" | "createdAt">>,
+    changes: UpdateAgentData,
   ): Promise<AgentConfigSnapshot | null> {
     const agg = await this.repo.findById(id);
     if (!agg) return null;
