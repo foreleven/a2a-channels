@@ -1,11 +1,8 @@
+import type { ChannelBinding } from "./types.js";
+
 /**
  * Channel provider contracts used by the gateway monitor lifecycle manager.
  */
-
-export interface ChannelBindingRef {
-  accountId: string;
-  channelType: string;
-}
 
 export interface ChannelAccountRunner {
   /**
@@ -25,5 +22,5 @@ export interface ChannelProvider {
    */
   supports(channelType: string): boolean;
 
-  createAccountRunner(binding: ChannelBindingRef): ChannelAccountRunner;
+  createAccountRunner(binding: ChannelBinding): ChannelAccountRunner;
 }

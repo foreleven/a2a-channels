@@ -20,7 +20,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 
@@ -34,6 +34,7 @@ import {
 
 import { registerAllPlugins } from "./register-plugins.js";
 import {
+  DuplicateEnabledBindingError,
   initStore,
   seedDefaults,
   listChannelBindings,
@@ -46,7 +47,7 @@ import {
   createAgentConfig,
   updateAgentConfig,
   deleteAgentConfig,
-  getAgentUrlForAccount,
+  getAgentUrlForChannelAccount,
   getAgentProtocolForUrl,
   buildOpenClawConfig,
 } from "./store/index.js";
@@ -69,8 +70,8 @@ const transportRegistry = new TransportRegistry()
 
 const runtime = new OpenClawPluginRuntime({
   transportRegistry,
-  getAgentUrl: (accountId) =>
-    getAgentUrlForAccount(accountId, DEFAULT_ECHO_AGENT_URL),
+  getAgentUrl: (channelType, accountId) =>
+    getAgentUrlForChannelAccount(channelType, accountId, DEFAULT_ECHO_AGENT_URL),
   getAgentProtocol: (agentUrl) => getAgentProtocolForUrl(agentUrl),
   getConfig: () => buildOpenClawConfig(),
 });
@@ -100,6 +101,13 @@ const PORT = Number(process.env["PORT"] ?? 7890);
 // ---------------------------------------------------------------------------
 
 const app = new Hono();
+
+function channelMutationErrorResponse(c: Context, err: unknown) {
+  if (err instanceof DuplicateEnabledBindingError) {
+    return c.json({ error: err.message }, 409);
+  }
+  throw err;
+}
 
 // ── CORS – allow requests from the Next.js admin UI ──────────────────────────
 const CORS_ORIGIN = process.env["CORS_ORIGIN"] ?? "http://localhost:3000";
@@ -143,17 +151,22 @@ app.post("/api/channels", async (c) => {
       400,
     );
   }
-  const binding = await createChannelBinding({
-    name: String(body["name"]),
-    channelType: (body["channelType"] as string | undefined) ?? "feishu",
-    channelConfig: body["channelConfig"] as Record<string, unknown>,
-    accountId: (body["accountId"] as string | undefined) ?? "default",
-    agentUrl: String(body["agentUrl"]),
-    enabled: (body["enabled"] as boolean | undefined) ?? true,
-  });
+  let binding;
+  try {
+    binding = await createChannelBinding({
+      name: String(body["name"]),
+      channelType: (body["channelType"] as string | undefined) ?? "feishu",
+      channelConfig: body["channelConfig"] as Record<string, unknown>,
+      accountId: (body["accountId"] as string | undefined) ?? "default",
+      agentUrl: String(body["agentUrl"]),
+      enabled: (body["enabled"] as boolean | undefined) ?? true,
+    });
+  } catch (err) {
+    return channelMutationErrorResponse(c, err);
+  }
   if (binding.enabled) {
     monitorManager
-      .restartMonitor(binding.channelType, binding.accountId)
+      .restartMonitor(binding)
       .catch((err: unknown) =>
         console.error("[gateway] failed to start monitor:", err),
       );
@@ -171,13 +184,19 @@ app.patch("/api/channels/:id", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const updated = await updateChannelBinding(id, body);
+  let updated;
+  try {
+    updated = await updateChannelBinding(id, body);
+  } catch (err) {
+    return channelMutationErrorResponse(c, err);
+  }
   if (!updated) return c.json({ error: "Not found" }, 404);
-  monitorManager
-    .restartMonitor(updated.channelType, updated.accountId)
-    .catch((err: unknown) =>
-      console.error("[gateway] failed to restart monitor:", err),
-    );
+  const monitorAction = updated.enabled
+    ? monitorManager.restartMonitor(updated)
+    : monitorManager.stopMonitor(id);
+  monitorAction.catch((err: unknown) =>
+    console.error("[gateway] failed to update monitor:", err),
+  );
   return c.json(updated);
 });
 
@@ -186,9 +205,9 @@ app.delete("/api/channels/:id", async (c) => {
   if (!(await deleteChannelBinding(id)))
     return c.json({ error: `Channel ${id} not found` }, 404);
   monitorManager
-    .syncMonitors()
+    .stopMonitor(id)
     .catch((err: unknown) =>
-      console.error("[gateway] failed to sync monitors:", err),
+      console.error("[gateway] failed to stop monitor:", err),
     );
   return c.json({ deleted: true });
 });

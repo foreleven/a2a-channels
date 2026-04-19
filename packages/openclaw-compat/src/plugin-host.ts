@@ -16,6 +16,7 @@
  */
 
 import type { OpenClawPluginApi, PluginRuntime } from "openclaw/plugin-sdk";
+import type { ChannelBinding } from "@a2a-channels/core";
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -136,11 +137,11 @@ export class OpenClawPluginHost {
    * The returned Promise settles when the account connection ends
    * (normally or via the `abortSignal`).
    */
-  async startChannelAccount(
-    channelType: string,
-    accountId: string,
+  async startChannelBinding(
+    binding: ChannelBinding,
     abortSignal: AbortSignal,
   ): Promise<void> {
+    const { id: bindingId, channelType, accountId } = binding;
     const channel = this.resolveChannel(channelType);
     if (!channel?.gateway?.startAccount) {
       throw new Error(
@@ -150,8 +151,8 @@ export class OpenClawPluginHost {
     }
 
     const runtimeEnv: GatewayRuntimeEnv = {
-      log:   (...args: unknown[]) => console.log(`[${channelType}:${accountId}]`, ...args),
-      error: (...args: unknown[]) => console.error(`[${channelType}:${accountId}]`, ...args),
+      log:   (...args: unknown[]) => console.log(`[${channelType}:${accountId}:${bindingId}]`, ...args),
+      error: (...args: unknown[]) => console.error(`[${channelType}:${accountId}:${bindingId}]`, ...args),
       exit:  (code: number) => process.exit(code),
     };
 
@@ -161,7 +162,7 @@ export class OpenClawPluginHost {
       runtime: runtimeEnv,
       abortSignal,
       setStatus: (status) =>
-        logger.info(`status [${channel.id}:${accountId}]`, status),
+        logger.info(`status [${channel.id}:${accountId}:${bindingId}]`, status),
       log: logger,
     });
   }

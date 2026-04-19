@@ -25,7 +25,9 @@ import {
   createAgentConfig,
   updateAgentConfig,
   deleteAgentConfig,
-  getAgentUrlForAccount,
+  DuplicateEnabledBindingError,
+  getAgentUrlForBinding,
+  getAgentUrlForChannelAccount,
   getAgentProtocolForUrl,
   buildOpenClawConfig,
   seedDefaults,
@@ -188,8 +190,7 @@ describe("ChannelBinding CRUD", () => {
       agentUrl: "http://cache-agent:4000",
     });
 
-    // getAgentUrlForAccount reads from the in-memory cache
-    const url = getAgentUrlForAccount("cache-test", "http://default");
+    const url = getAgentUrlForBinding(binding.id, "http://default");
     assert.equal(url, binding.agentUrl);
   });
 
@@ -203,7 +204,7 @@ describe("ChannelBinding CRUD", () => {
       agentUrl: "http://new-agent:4000",
     });
 
-    const url = getAgentUrlForAccount("cache-update", "http://default");
+    const url = getAgentUrlForBinding(binding.id, "http://default");
     assert.equal(url, "http://new-agent:4000");
   });
 
@@ -215,14 +216,73 @@ describe("ChannelBinding CRUD", () => {
     });
     await deleteChannelBinding(binding.id);
 
-    // Cache should be empty – fallback to defaultUrl
-    const url = getAgentUrlForAccount("cache-delete", "http://fallback");
+    const url = getAgentUrlForBinding(binding.id, "http://fallback");
     assert.equal(url, "http://fallback");
   });
-});
+  test("rejects creating a second enabled binding for the same channel/account", async () => {
+    await createChannelBinding(FEISHU_BINDING_DATA);
 
-// ---------------------------------------------------------------------------
-// Agent CRUD
+    await assert.rejects(
+      createChannelBinding({
+        ...FEISHU_BINDING_DATA,
+        name: "Duplicate",
+        agentUrl: "http://duplicate-agent:4000",
+      }),
+      DuplicateEnabledBindingError,
+    );
+  });
+
+  test("allows a disabled duplicate binding for the same channel/account", async () => {
+    await createChannelBinding(FEISHU_BINDING_DATA);
+
+    const duplicate = await createChannelBinding({
+      ...FEISHU_BINDING_DATA,
+      name: "Disabled Duplicate",
+      enabled: false,
+    });
+
+    assert.equal(duplicate.enabled, false);
+  });
+
+  test("rejects enabling a disabled duplicate binding", async () => {
+    await createChannelBinding(FEISHU_BINDING_DATA);
+    const duplicate = await createChannelBinding({
+      ...FEISHU_BINDING_DATA,
+      name: "Disabled Duplicate",
+      enabled: false,
+    });
+
+    await assert.rejects(
+      updateChannelBinding(duplicate.id, { enabled: true }),
+      DuplicateEnabledBindingError,
+    );
+  });
+
+  test("rejects updating a binding into another enabled channel/account pair", async () => {
+    await createChannelBinding(FEISHU_BINDING_DATA);
+    const other = await createChannelBinding({
+      ...FEISHU_BINDING_DATA,
+      accountId: "other-account",
+    });
+
+    await assert.rejects(
+      updateChannelBinding(other.id, { accountId: FEISHU_BINDING_DATA.accountId }),
+      DuplicateEnabledBindingError,
+    );
+  });
+
+  test("allows the same accountId to be enabled for different channel types", async () => {
+    await createChannelBinding(FEISHU_BINDING_DATA);
+    const slack = await createChannelBinding({
+      ...FEISHU_BINDING_DATA,
+      name: "Slack Bot",
+      channelType: "slack",
+      channelConfig: { token: "xoxb" },
+    });
+
+    assert.equal(slack.channelType, "slack");
+  });
+});
 // ---------------------------------------------------------------------------
 
 describe("Agent CRUD", () => {
@@ -363,42 +423,71 @@ describe("Agent CRUD", () => {
 });
 
 // ---------------------------------------------------------------------------
-// getAgentUrlForAccount
+// Agent URL routing
 // ---------------------------------------------------------------------------
 
-describe("getAgentUrlForAccount", () => {
+describe("agent URL routing", () => {
   beforeEach(resetDB);
 
   const DEFAULT_URL = "http://default-agent:3001";
 
-  test("returns the default URL when the cache is empty", () => {
-    const url = getAgentUrlForAccount("any-account", DEFAULT_URL);
+  test("getAgentUrlForBinding returns the default URL when the binding is missing", () => {
+    const url = getAgentUrlForBinding("missing-binding", DEFAULT_URL);
     assert.equal(url, DEFAULT_URL);
   });
 
-  test("returns the matching agent URL for an exact accountId match", async () => {
+  test("getAgentUrlForBinding returns the matching enabled binding URL", async () => {
+    const binding = await createChannelBinding({
+      ...FEISHU_BINDING_DATA,
+      agentUrl: "http://binding-agent:4000",
+    });
+
+    const url = getAgentUrlForBinding(binding.id, DEFAULT_URL);
+    assert.equal(url, "http://binding-agent:4000");
+  });
+
+  test("getAgentUrlForBinding skips disabled bindings", async () => {
+    const binding = await createChannelBinding({
+      ...FEISHU_BINDING_DATA,
+      agentUrl: "http://disabled-agent:4000",
+      enabled: false,
+    });
+
+    const url = getAgentUrlForBinding(binding.id, DEFAULT_URL);
+    assert.equal(url, DEFAULT_URL);
+  });
+
+  test("getAgentUrlForChannelAccount returns the matching channel/account URL", async () => {
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "exact-match",
       agentUrl: "http://exact-agent:4000",
     });
 
-    const url = getAgentUrlForAccount("exact-match", DEFAULT_URL);
+    const url = getAgentUrlForChannelAccount(
+      "feishu",
+      "exact-match",
+      DEFAULT_URL,
+    );
     assert.equal(url, "http://exact-agent:4000");
   });
 
-  test("falls back to the first enabled binding when no exact match exists", async () => {
+  test("getAgentUrlForChannelAccount does not fall back to another account", async () => {
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "other-account",
-      agentUrl: "http://fallback-agent:4000",
+      agentUrl: "http://other-agent:4000",
     });
 
-    const url = getAgentUrlForAccount("no-match-account", DEFAULT_URL);
-    assert.equal(url, "http://fallback-agent:4000");
+    const url = getAgentUrlForChannelAccount(
+      "feishu",
+      "no-match-account",
+      DEFAULT_URL,
+    );
+    assert.equal(url, DEFAULT_URL);
   });
 
-  test("skips disabled bindings when falling back", async () => {
+  test("getAgentUrlForChannelAccount skips disabled bindings", async () => {
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "disabled-account",
@@ -406,35 +495,48 @@ describe("getAgentUrlForAccount", () => {
       enabled: false,
     });
 
-    const url = getAgentUrlForAccount("no-match-account", DEFAULT_URL);
+    const url = getAgentUrlForChannelAccount(
+      "feishu",
+      "disabled-account",
+      DEFAULT_URL,
+    );
     assert.equal(url, DEFAULT_URL);
   });
 
-  test("treats undefined accountId as 'default'", async () => {
+  test("getAgentUrlForChannelAccount treats undefined channel/account as feishu/default", async () => {
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "default",
       agentUrl: "http://default-binding-agent:4000",
     });
 
-    const url = getAgentUrlForAccount(undefined, DEFAULT_URL);
+    const url = getAgentUrlForChannelAccount(undefined, undefined, DEFAULT_URL);
     assert.equal(url, "http://default-binding-agent:4000");
   });
 
-  test("prefers exact accountId match over any-binding fallback", async () => {
+  test("getAgentUrlForChannelAccount distinguishes identical accountIds across channel types", async () => {
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
-      accountId: "other",
-      agentUrl: "http://other-agent:4000",
+      accountId: "shared",
+      agentUrl: "http://feishu-agent:4000",
     });
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
-      accountId: "specific",
-      agentUrl: "http://specific-agent:4000",
+      name: "Slack Bot",
+      channelType: "slack",
+      accountId: "shared",
+      channelConfig: { token: "xoxb" },
+      agentUrl: "http://slack-agent:4000",
     });
 
-    const url = getAgentUrlForAccount("specific", DEFAULT_URL);
-    assert.equal(url, "http://specific-agent:4000");
+    assert.equal(
+      getAgentUrlForChannelAccount("feishu", "shared", DEFAULT_URL),
+      "http://feishu-agent:4000",
+    );
+    assert.equal(
+      getAgentUrlForChannelAccount("slack", "shared", DEFAULT_URL),
+      "http://slack-agent:4000",
+    );
   });
 });
 
@@ -492,7 +594,7 @@ describe("buildOpenClawConfig", () => {
   });
 
   test("returns feishu config for a 'default' account binding", async () => {
-    await createChannelBinding({
+    const binding = await createChannelBinding({
       name: "Default Feishu",
       channelType: "feishu",
       accountId: "default",
@@ -511,6 +613,8 @@ describe("buildOpenClawConfig", () => {
     const feishu = config.channels as Record<string, unknown>;
     const feishuConfig = feishu["feishu"] as Record<string, unknown>;
 
+    assert.equal(feishuConfig["bindingId"], binding.id);
+    assert.equal(feishuConfig["agentUrl"], "http://localhost:3001");
     assert.equal(feishuConfig["appId"], "cli_def");
     assert.equal(feishuConfig["appSecret"], "sec_def");
     assert.equal(feishuConfig["verificationToken"], "token123");
@@ -521,7 +625,7 @@ describe("buildOpenClawConfig", () => {
   });
 
   test("returns feishu config with an accounts block for non-default bindings", async () => {
-    await createChannelBinding({
+    const binding = await createChannelBinding({
       name: "Account A",
       channelType: "feishu",
       accountId: "account-a",
@@ -539,6 +643,8 @@ describe("buildOpenClawConfig", () => {
     assert.ok(accounts);
     assert.ok("account-a" in accounts);
     const accountCfg = accounts["account-a"] as Record<string, unknown>;
+    assert.equal(accountCfg["bindingId"], binding.id);
+    assert.equal(accountCfg["agentUrl"], "http://localhost:3001");
     assert.equal(accountCfg["appId"], "cli_a");
   });
 
@@ -740,7 +846,11 @@ describe("initStore", () => {
     // Re-init to pick up the direct insert
     await initStore();
 
-    const url = getAgentUrlForAccount("direct", "http://fallback");
+    const bindings = await listChannelBindings();
+    const binding = bindings.find((b) => b.accountId === "direct");
+    assert.ok(binding);
+
+    const url = getAgentUrlForBinding(binding.id, "http://fallback");
     assert.equal(url, "http://direct:4000");
   });
 

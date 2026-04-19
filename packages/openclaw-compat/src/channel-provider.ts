@@ -39,8 +39,8 @@
 
 import type {
   ChannelAccountRunner,
-  ChannelBindingRef,
   ChannelProvider,
+  ChannelBinding,
 } from '@a2a-channels/core';
 import type { OpenClawPluginHost } from './plugin-host.js';
 
@@ -72,14 +72,14 @@ export class OpenClawChannelProvider implements ChannelProvider {
    * The runner delegates to {@link OpenClawPluginHost.startChannelAccount},
    * which in turn calls the registered plugin's `gateway.startAccount()` hook.
    */
-  createAccountRunner(binding: ChannelBindingRef): ChannelAccountRunner {
-    const { accountId, channelType } = binding;
+  createAccountRunner(binding: ChannelBinding): ChannelAccountRunner {
+    const { accountId, channelType, id } = binding;
     const host = this.host;
 
     return {
       async run(signal: AbortSignal): Promise<void> {
-        console.log(`[openclaw-provider] starting account runner for ${channelType}:${accountId}`);
-        await host.startChannelAccount(channelType, accountId, signal);
+        console.log(`[openclaw-provider] starting binding ${id} for ${channelType}:${accountId}`);
+        await host.startChannelBinding(binding, signal);
       },
     };
   }

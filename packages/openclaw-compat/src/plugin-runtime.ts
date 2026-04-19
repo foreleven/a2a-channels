@@ -40,10 +40,13 @@ export interface PluginRuntimeOptions {
   transportRegistry: TransportRegistry;
 
   /**
-   * Resolve the agent URL for the given accountId.
+   * Resolve the agent URL for the given channel account.
    * Injected by the gateway so this package has no store dependency.
    */
-  getAgentUrl: (accountId: string | undefined) => string;
+  getAgentUrl: (
+    channelType: string | undefined,
+    accountId: string | undefined,
+  ) => string;
 
   /**
    * Resolve the transport protocol for the agent at the given URL.
@@ -65,6 +68,7 @@ export interface PluginRuntimeOptions {
 
 /** Emitted when an inbound message from the channel is about to be forwarded to the agent. */
 export interface MessageInboundEvent {
+  channelType: string | undefined;
   accountId: string | undefined;
   sessionKey: string | undefined;
   userMessage: string;
@@ -73,6 +77,7 @@ export interface MessageInboundEvent {
 
 /** Emitted when the agent reply has been received and is about to be sent back to the channel. */
 export interface MessageOutboundEvent {
+  channelType: string | undefined;
   accountId: string | undefined;
   sessionKey: string | undefined;
   replyText: string;
@@ -96,7 +101,10 @@ export interface RuntimeEventMap {
  */
 export class OpenClawPluginRuntime extends EventEmitter {
   private readonly transportRegistry: TransportRegistry;
-  private readonly getAgentUrl: (accountId: string | undefined) => string;
+  private readonly getAgentUrl: (
+    channelType: string | undefined,
+    accountId: string | undefined,
+  ) => string;
   private readonly getAgentProtocol: (agentUrl: string) => string;
   private readonly getConfig: () => Record<string, unknown>;
 
@@ -163,13 +171,18 @@ export class OpenClawPluginRuntime extends EventEmitter {
 
     if (!userMessage.trim()) return null;
 
+    const channelType =
+      (ctx["ChannelType"] as string | undefined) ??
+      (ctx["Channel"] as string | undefined) ??
+      (ctx["channel"] as string | undefined);
     const accountId = ctx["AccountId"] as string | undefined;
     const sessionKey = ctx["SessionKey"] as string | undefined;
-    const agentUrl = this.getAgentUrl(accountId);
+    const agentUrl = this.getAgentUrl(channelType, accountId);
     const protocol = this.getAgentProtocol(agentUrl);
     const transport = this.transportRegistry.resolve(protocol);
 
     this.emit("message:inbound", {
+      channelType,
       accountId,
       sessionKey,
       userMessage,
@@ -184,6 +197,7 @@ export class OpenClawPluginRuntime extends EventEmitter {
 
     if (result) {
       this.emit("message:outbound", {
+        channelType,
         accountId,
         sessionKey,
         replyText: result.text,

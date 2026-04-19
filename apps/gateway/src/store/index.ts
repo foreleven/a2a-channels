@@ -3,8 +3,8 @@
  * hot-path reads (agent URL resolution and OpenClaw config building).
  *
  * Async CRUD helpers are used directly by HTTP route handlers.
- * The synchronous `getAgentUrlForAccount` and `buildOpenClawConfig` helpers
- * read from the in-memory cache and are used by the plugin runtime and host.
+ * The synchronous routing and config helpers read from the in-memory cache and
+ * are used by the plugin runtime and host.
  *
  * Call `initStore()` once at startup to populate the cache from the database.
  * Each mutating operation keeps the cache in sync so no periodic refresh
@@ -31,6 +31,13 @@ interface FeishuChannelConfig {
   allowFrom?: string[];
 }
 
+export class DuplicateEnabledBindingError extends Error {
+  constructor(channelType: string, accountId: string) {
+    super(`An enabled ${channelType} binding already exists for account ${accountId}`);
+    this.name = "DuplicateEnabledBindingError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Prisma client instance
 // ---------------------------------------------------------------------------
@@ -52,6 +59,28 @@ export const prisma = new PrismaClient({ adapter });
 let channelCache: ChannelBinding[] = [];
 /** Secondary index: agentUrl → AgentConfig, for hot-path protocol lookup. */
 let agentByUrl = new Map<string, AgentConfig>();
+
+function assertNoDuplicateEnabledBinding(
+  candidate: Pick<ChannelBinding, "channelType" | "accountId" | "enabled">,
+  excludeId?: string,
+): void {
+  if (!candidate.enabled) return;
+
+  const duplicate = channelCache.find(
+    (binding) =>
+      binding.enabled &&
+      binding.id !== excludeId &&
+      binding.channelType === candidate.channelType &&
+      binding.accountId === candidate.accountId,
+  );
+
+  if (duplicate) {
+    throw new DuplicateEnabledBindingError(
+      candidate.channelType,
+      candidate.accountId,
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Row mappers
@@ -134,6 +163,8 @@ export async function getChannelBinding(
 export async function createChannelBinding(
   data: Omit<ChannelBinding, "id" | "createdAt">,
 ): Promise<ChannelBinding> {
+  assertNoDuplicateEnabledBinding(data);
+
   const row = await prisma.channelBinding.create({
     data: {
       name: data.name,
@@ -155,6 +186,20 @@ export async function updateChannelBinding(
 ): Promise<ChannelBinding | null> {
   const existing = await prisma.channelBinding.findUnique({ where: { id } });
   if (!existing) return null;
+
+  const nextBinding = mapBinding({
+    ...existing,
+    name: data.name ?? existing.name,
+    channelType: data.channelType ?? existing.channelType,
+    accountId: data.accountId ?? existing.accountId,
+    channelConfig:
+      data.channelConfig !== undefined
+        ? JSON.stringify(data.channelConfig)
+        : existing.channelConfig,
+    agentUrl: data.agentUrl ?? existing.agentUrl,
+    enabled: data.enabled ?? existing.enabled,
+  });
+  assertNoDuplicateEnabledBinding(nextBinding, id);
 
   const row = await prisma.channelBinding.update({
     where: { id },
@@ -255,20 +300,28 @@ export async function deleteAgentConfig(id: string): Promise<boolean> {
 // Routing helpers (synchronous – read from in-memory cache)
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve the agent URL for the given channel account.
- * Priority: exact accountId match → first enabled binding → env default.
- */
-export function getAgentUrlForAccount(
+export function getAgentUrlForBinding(
+  bindingId: string,
+  defaultUrl: string,
+): string {
+  const binding = channelCache.find((b) => b.id === bindingId && b.enabled);
+  return binding?.agentUrl ?? defaultUrl;
+}
+
+export function getAgentUrlForChannelAccount(
+  channelType: string | undefined,
   accountId: string | undefined,
   defaultUrl: string,
 ): string {
-  const target = accountId ?? "default";
-  const exact = channelCache.find((b) => b.accountId === target && b.enabled);
-  if (exact) return exact.agentUrl;
-  const any = channelCache.find((b) => b.enabled);
-  if (any) return any.agentUrl;
-  return defaultUrl;
+  const targetChannelType = channelType ?? "feishu";
+  const targetAccountId = accountId ?? "default";
+  const exact = channelCache.find(
+    (b) =>
+      b.channelType === targetChannelType &&
+      b.accountId === targetAccountId &&
+      b.enabled,
+  );
+  return exact?.agentUrl ?? defaultUrl;
 }
 
 /**
@@ -292,6 +345,8 @@ export function buildOpenClawConfig(): Record<string, unknown> {
 
     const cfg = binding.channelConfig as unknown as FeishuChannelConfig;
     const accountConfig = {
+      bindingId: binding.id,
+      agentUrl: binding.agentUrl,
       appId: cfg.appId,
       appSecret: cfg.appSecret,
       encryptKey: cfg.encryptKey,

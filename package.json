@@ -12,7 +12,7 @@
     "web": "pnpm --filter @a2a-channels/web dev",
     "dev": "node --env-file-if-exists .env --import tsx/esm apps/gateway/src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "cd apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts"
+    "test": "cd apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts src/monitor-manager.test.ts"
   },
   "devDependencies": {
     "@hono/node-server": "^1.19.14",

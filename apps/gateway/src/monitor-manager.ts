@@ -21,7 +21,7 @@ import type {
 
 interface MonitorHandle {
   abortController: AbortController;
-  accountId: string;
+  binding: ChannelBinding;
   promise: Promise<void>;
 }
 
@@ -36,12 +36,12 @@ export class MonitorManager {
     if (runtime) {
       runtime.on("message:inbound", (event: MessageInboundEvent) => {
         console.log(
-          `[monitor] message:inbound accountId=${event.accountId ?? "-"} agent=${event.agentUrl} text=${JSON.stringify(event.userMessage)}`,
+          `[monitor] message:inbound channel=${event.channelType ?? "-"} accountId=${event.accountId ?? "-"} agent=${event.agentUrl} text=${JSON.stringify(event.userMessage)}`,
         );
       });
       runtime.on("message:outbound", (event: MessageOutboundEvent) => {
         console.log(
-          `[monitor] message:outbound accountId=${event.accountId ?? "-"} agent=${event.agentUrl} text=${JSON.stringify(event.replyText)}`,
+          `[monitor] message:outbound channel=${event.channelType ?? "-"} accountId=${event.accountId ?? "-"} agent=${event.agentUrl} text=${JSON.stringify(event.replyText)}`,
         );
       });
     }
@@ -55,44 +55,36 @@ export class MonitorManager {
     return this.providers.find((p) => p.supports(channelType));
   }
 
-  private monitorKey(channelType: string, accountId: string): string {
-    return `${channelType}:${accountId}`;
-  }
-
-  private async startMonitor(
-    channelType: string,
-    accountId: string,
-  ): Promise<void> {
-    const provider = this.resolveProvider(channelType);
+  private async startMonitor(binding: ChannelBinding): Promise<void> {
+    const provider = this.resolveProvider(binding.channelType);
     if (!provider) {
       console.warn(
-        `[monitor] no provider for "${channelType}"; skipping account ${accountId}`,
+        `[monitor] no provider for "${binding.channelType}"; skipping binding ${binding.id}`,
       );
       return;
     }
 
-    console.log(`[monitor] starting monitor for ${channelType}:${accountId}`);
-
-    const key = this.monitorKey(channelType, accountId);
-    const existing = this.monitors.get(key);
+    const existing = this.monitors.get(binding.id);
     if (existing) {
-      console.log(`[monitor] stopping existing monitor for ${key}`);
+      console.log(`[monitor] stopping existing monitor for binding ${binding.id}`);
       existing.abortController.abort();
       await existing.promise.catch(() => {});
-      this.monitors.delete(key);
+      this.monitors.delete(binding.id);
     }
 
     const abortController = new AbortController();
-    const runner = provider.createAccountRunner({ accountId, channelType });
+    const runner = provider.createAccountRunner(binding);
 
-    console.log(`[monitor] starting monitor for ${key}`);
+    console.log(
+      `[monitor] starting binding ${binding.id} for ${binding.channelType}:${binding.accountId}`,
+    );
     const promise = runner.run(abortController.signal).catch((err: unknown) => {
       if ((err as { name?: string })?.name !== "AbortError") {
-        console.error(`[monitor] ${key} error:`, String(err));
+        console.error(`[monitor] binding ${binding.id} error:`, String(err));
       }
     });
 
-    this.monitors.set(key, { abortController, accountId, promise });
+    this.monitors.set(binding.id, { abortController, binding, promise });
   }
 
   // -------------------------------------------------------------------------
@@ -108,39 +100,48 @@ export class MonitorManager {
     console.log(
       `[monitor] syncMonitors: ${bindings.length} enabled binding(s)`,
     );
-    const activeKeys = new Set(
-      bindings.map((b) => this.monitorKey(b.channelType, b.accountId)),
-    );
+    const activeIds = new Set(bindings.map((b) => b.id));
 
-    for (const [key, handle] of this.monitors.entries()) {
-      if (!activeKeys.has(key)) {
-        console.log(`[monitor] stopping removed binding: ${key}`);
+    for (const [bindingId, handle] of this.monitors.entries()) {
+      if (!activeIds.has(bindingId)) {
+        console.log(`[monitor] stopping removed binding: ${bindingId}`);
         handle.abortController.abort();
         await handle.promise.catch(() => {});
-        this.monitors.delete(key);
+        this.monitors.delete(bindingId);
       }
     }
 
     for (const binding of bindings) {
-      const key = this.monitorKey(binding.channelType, binding.accountId);
-      if (!this.monitors.has(key)) {
-        await this.startMonitor(binding.channelType, binding.accountId);
+      if (!this.monitors.has(binding.id)) {
+        await this.startMonitor(binding);
       }
     }
   }
 
-  /** Restart the monitor for a single account (called on binding create/update). */
-  async restartMonitor(channelType: string, accountId: string): Promise<void> {
-    await this.startMonitor(channelType, accountId);
+  /** Restart the monitor for a single binding after create/update. */
+  async restartMonitor(binding: ChannelBinding): Promise<void> {
+    if (!binding.enabled) {
+      await this.stopMonitor(binding.id);
+      return;
+    }
+    await this.startMonitor(binding);
+  }
+
+  /** Stop one binding monitor if it is running. */
+  async stopMonitor(bindingId: string): Promise<void> {
+    const handle = this.monitors.get(bindingId);
+    if (!handle) return;
+
+    console.log(`[monitor] stopping binding: ${bindingId}`);
+    handle.abortController.abort();
+    await handle.promise.catch(() => {});
+    this.monitors.delete(bindingId);
   }
 
   /** Gracefully stop all active monitors. */
   async stopAllMonitors(): Promise<void> {
-    for (const [key, handle] of this.monitors.entries()) {
-      console.log(`[monitor] stopping: ${key}`);
-      handle.abortController.abort();
-      await handle.promise.catch(() => {});
-      this.monitors.delete(key);
+    for (const bindingId of Array.from(this.monitors.keys())) {
+      await this.stopMonitor(bindingId);
     }
   }
 }
