@@ -33,3 +33,50 @@ model Agent {
 
   @@map("agents")
 }
+
+// ---------------------------------------------------------------------------
+// Event sourcing – append-only event log
+// ---------------------------------------------------------------------------
+
+model Event {
+  /// Auto-increment primary key – also used as the global sequence number for
+  /// projection ordering (SQLite ROWID alias; always monotonically increasing).
+  seq           Int      @id @default(autoincrement())
+
+  /// UUID for idempotency / external references.
+  uuid          String   @unique @default(uuid())
+
+  /// Aggregate stream identifier, e.g. "ChannelBinding:some-uuid".
+  streamId      String   @map("stream_id")
+
+  /// 1-based position within the stream (for optimistic concurrency).
+  streamVersion Int      @map("stream_version")
+
+  /// Versioned event type discriminant, e.g. "ChannelBindingCreated.v1".
+  eventType     String   @map("event_type")
+
+  /// Serialised domain event payload (JSON).
+  payload       String
+
+  /// Serialised metadata (JSON).
+  metadata      String
+
+  occurredAt    DateTime @map("occurred_at")
+
+  @@unique([streamId, streamVersion])
+  @@index([streamId])
+  @@map("events")
+}
+
+// ---------------------------------------------------------------------------
+// Projection checkpoints
+// ---------------------------------------------------------------------------
+
+model ProjectionCheckpoint {
+  /// Projection name, e.g. "ChannelBindingProjection".
+  name String @id
+  /// Last event seq that this projection has processed.
+  seq  Int    @default(0)
+
+  @@map("projection_checkpoints")
+}

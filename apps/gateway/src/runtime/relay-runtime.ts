@@ -14,6 +14,7 @@ import {
 
 import { ConnectionManager } from "../connection-manager.js";
 import { registerAllPlugins } from "../register-plugins.js";
+import type { DomainEventBus } from "../domain/event-bus.js";
 import {
   createAgentClientHandle,
   startAgentClients,
@@ -30,6 +31,8 @@ export interface RelayRuntimeOptions {
   bindings: ChannelBinding[];
   agents: AgentConfig[];
   transports: AgentTransport[];
+  /** Optional event bus to subscribe for reactive updates. */
+  eventBus?: DomainEventBus;
 }
 
 export class RelayRuntime {
@@ -89,15 +92,21 @@ export class RelayRuntime {
       (event) => this.runtime.emit("message:outbound", event),
     );
     this.connectionManager = connectionManager;
+
+    // Wire up domain event subscriptions if a bus was provided.
+    if (options.eventBus) {
+      this.subscribeToEventBus(options.eventBus);
+    }
   }
 
-  static async load(): Promise<RelayRuntime> {
+  static async load(eventBus?: DomainEventBus): Promise<RelayRuntime> {
     const snapshot = await loadRuntimeStateSnapshot();
     const runtime = new RelayRuntime({
       name: "local",
       bindings: snapshot.bindings,
       agents: snapshot.agents,
       transports: [new A2ATransport(), new ACPTransport()],
+      eventBus,
     });
 
     return runtime;
@@ -114,6 +123,82 @@ export class RelayRuntime {
     await this.connectionManager.stopAllConnections();
     await stopAgentClients(this.clients.values());
   }
+
+  // -------------------------------------------------------------------------
+  // Domain event subscriptions
+  // -------------------------------------------------------------------------
+
+  /**
+   * Subscribe to all relevant domain events on `bus` so the runtime reacts
+   * to binding/agent changes automatically, without requiring direct calls
+   * from the HTTP layer.
+   */
+  subscribeToEventBus(bus: DomainEventBus): void {
+    bus.on("ChannelBindingCreated.v1", (e) => {
+      const binding: ChannelBinding = {
+        id: e.bindingId,
+        name: e.name,
+        channelType: e.channelType,
+        accountId: e.accountId,
+        channelConfig: e.channelConfig,
+        agentUrl: e.agentUrl,
+        enabled: e.enabled,
+        createdAt: e.occurredAt,
+      };
+      void this.applyBindingUpsert(binding);
+    });
+
+    bus.on("ChannelBindingUpdated.v1", (e) => {
+      const existing = this.bindingsById.get(e.bindingId);
+      if (!existing) return;
+      const updated: ChannelBinding = {
+        ...existing,
+        ...e.changes,
+        channelConfig: e.changes.channelConfig ?? existing.channelConfig,
+      };
+      void this.applyBindingUpsert(updated);
+    });
+
+    bus.on("ChannelBindingDeleted.v1", (e) => {
+      void this.applyBindingDelete(e.bindingId);
+    });
+
+    bus.on("AgentRegistered.v1", (e) => {
+      const agent: AgentConfig = {
+        id: e.agentId,
+        name: e.name,
+        url: e.url,
+        protocol: e.protocol,
+        description: e.description,
+        createdAt: e.occurredAt,
+      };
+      void this.applyAgentUpsert(agent);
+    });
+
+    bus.on("AgentUpdated.v1", (e) => {
+      const existing = this.agentsById.get(e.agentId);
+      if (!existing) return;
+      const c = e.changes;
+      const updated: AgentConfig = {
+        ...existing,
+        ...(c.name !== undefined && { name: c.name }),
+        ...(c.url !== undefined && { url: c.url }),
+        ...(c.protocol !== undefined && { protocol: c.protocol }),
+        ...(c.description !== undefined && {
+          description: c.description ?? undefined,
+        }),
+      };
+      void this.applyAgentUpsert(updated);
+    });
+
+    bus.on("AgentDeleted.v1", (e) => {
+      void this.applyAgentDelete(e.agentId);
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Mutation helpers (also reachable directly for tests / back-compat)
+  // -------------------------------------------------------------------------
 
   async applyBindingUpsert(binding: ChannelBinding): Promise<void> {
     const previous = this.bindingsById.get(binding.id);
@@ -244,10 +329,6 @@ export class RelayRuntime {
       `[gateway] skipping binding ${binding.id} for ${binding.channelType}:${binding.accountId} because appId/appSecret are missing`,
     );
     return false;
-  }
-
-  private bindingKey(channelType: string, accountId: string): string {
-    return `${channelType}:${accountId}`;
   }
 
   private areBindingsEquivalent(

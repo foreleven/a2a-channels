@@ -1,8 +1,9 @@
 /**
  * A2A Channels Gateway – main HTTP server.
  *
- * Composition root: creates the Prisma store, transport, plugin host, and
- * monitor manager, then starts the Hono HTTP server on Node.js.
+ * Composition root: wires together the DDD / event-sourcing infrastructure
+ * (EventStore, repositories, projections, DomainEventBus, application
+ * services) and starts the Hono HTTP server.
  *
  * Routes:
  *   GET  /                     → Admin Web UI
@@ -24,22 +25,17 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 
+import { DomainEventBus } from "./domain/event-bus.js";
+import { ChannelBindingService } from "./domain/channel-binding-service.js";
+import { AgentService } from "./domain/agent-service.js";
+import { DuplicateEnabledBindingError } from "./services/channel-bindings.js";
+import { PrismaEventStore } from "./infra/prisma-event-store.js";
+import { EventSourcedChannelBindingRepository } from "./infra/channel-binding-repo.js";
+import { EventSourcedAgentConfigRepository } from "./infra/agent-config-repo.js";
+import { ChannelBindingProjection } from "./projections/channel-binding-projection.js";
+import { AgentConfigProjection } from "./projections/agent-config-projection.js";
 import { RelayRuntime } from "./runtime/relay-runtime.js";
-import {
-  DuplicateEnabledBindingError,
-  initStore,
-  seedDefaults,
-  listChannelBindings,
-  getChannelBinding,
-  createChannelBinding,
-  updateChannelBinding,
-  deleteChannelBinding,
-  listAgentConfigs,
-  getAgentConfig,
-  createAgentConfig,
-  updateAgentConfig,
-  deleteAgentConfig,
-} from "./store/index.js";
+import { initStore, seedDefaults } from "./store/index.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -50,28 +46,46 @@ const WEB_DIR = join(__dirname, "..", "web");
 const PORT = Number(process.env["PORT"] ?? 7890);
 
 // ---------------------------------------------------------------------------
-// Hono app
+// Infrastructure wiring
 // ---------------------------------------------------------------------------
-
-const app = new Hono();
 
 await initStore();
 await seedDefaults();
 
-const relay = await RelayRuntime.load();
+const eventBus = new DomainEventBus();
+const eventStore = new PrismaEventStore();
+
+const bindingRepo = new EventSourcedChannelBindingRepository(eventStore, eventBus);
+const agentRepo = new EventSourcedAgentConfigRepository(eventStore, eventBus);
+
+const bindingProjection = new ChannelBindingProjection(eventBus, eventStore);
+const agentProjection = new AgentConfigProjection(eventBus, eventStore);
+
+// Replay any missed events (projection catch-up), then register live handlers.
+await bindingProjection.catchUp();
+await agentProjection.catchUp();
+bindingProjection.register();
+agentProjection.register();
+
+// Application services
+const channelBindingService = new ChannelBindingService(bindingRepo);
+const agentService = new AgentService(agentRepo);
+
+// RelayRuntime subscribes to the event bus to react to binding/agent changes.
+const relay = await RelayRuntime.load(eventBus);
 await relay.bootstrap();
+
+// ---------------------------------------------------------------------------
+// Hono app
+// ---------------------------------------------------------------------------
+
+const app = new Hono();
 
 function channelMutationErrorResponse(c: Context, err: unknown) {
   if (err instanceof DuplicateEnabledBindingError) {
     return c.json({ error: err.message }, 409);
   }
   throw err;
-}
-
-function applyRelayMutation(operation: Promise<unknown>, action: string): void {
-  operation.catch((err: unknown) =>
-    console.error(`[gateway] failed to ${action}:`, err),
-  );
 }
 
 // ── CORS – allow requests from the Next.js admin UI ──────────────────────────
@@ -96,10 +110,10 @@ app.get("/", async (c) => {
 });
 
 // ── Channel bindings ─────────────────────────────────────────────────────────
-app.get("/api/channels", async (c) => c.json(await listChannelBindings()));
+app.get("/api/channels", async (c) => c.json(await channelBindingService.list()));
 
 app.get("/api/channels/:id", async (c) => {
-  const binding = await getChannelBinding(c.req.param("id"));
+  const binding = await channelBindingService.getById(c.req.param("id"));
   return binding ? c.json(binding) : c.json({ error: "Not found" }, 404);
 });
 
@@ -116,9 +130,8 @@ app.post("/api/channels", async (c) => {
       400,
     );
   }
-  let binding;
   try {
-    binding = await createChannelBinding({
+    const binding = await channelBindingService.create({
       name: String(body["name"]),
       channelType: (body["channelType"] as string | undefined) ?? "feishu",
       channelConfig: body["channelConfig"] as Record<string, unknown>,
@@ -126,47 +139,41 @@ app.post("/api/channels", async (c) => {
       agentUrl: String(body["agentUrl"]),
       enabled: (body["enabled"] as boolean | undefined) ?? true,
     });
+    return c.json(binding, 201);
   } catch (err) {
     return channelMutationErrorResponse(c, err);
   }
-  applyRelayMutation(relay.applyBindingUpsert(binding), "apply binding create");
-  return c.json(binding, 201);
 });
 
 app.patch("/api/channels/:id", async (c) => {
   const id = c.req.param("id");
-  if (!(await getChannelBinding(id)))
-    return c.json({ error: `Channel ${id} not found` }, 404);
   let body: Record<string, unknown>;
   try {
     body = (await c.req.json()) as Record<string, unknown>;
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  let updated;
   try {
-    updated = await updateChannelBinding(id, body);
+    const updated = await channelBindingService.update(id, body as Parameters<ChannelBindingService["update"]>[1]);
+    if (!updated) return c.json({ error: `Channel ${id} not found` }, 404);
+    return c.json(updated);
   } catch (err) {
     return channelMutationErrorResponse(c, err);
   }
-  if (!updated) return c.json({ error: "Not found" }, 404);
-  applyRelayMutation(relay.applyBindingUpsert(updated), "apply binding update");
-  return c.json(updated);
 });
 
 app.delete("/api/channels/:id", async (c) => {
   const id = c.req.param("id");
-  if (!(await deleteChannelBinding(id)))
-    return c.json({ error: `Channel ${id} not found` }, 404);
-  applyRelayMutation(relay.applyBindingDelete(id), "apply binding delete");
+  const deleted = await channelBindingService.delete(id);
+  if (!deleted) return c.json({ error: `Channel ${id} not found` }, 404);
   return c.json({ deleted: true });
 });
 
 // ── Agent configs ─────────────────────────────────────────────────────────────
-app.get("/api/agents", async (c) => c.json(await listAgentConfigs()));
+app.get("/api/agents", async (c) => c.json(await agentService.list()));
 
 app.get("/api/agents/:id", async (c) => {
-  const agent = await getAgentConfig(c.req.param("id"));
+  const agent = await agentService.getById(c.req.param("id"));
   return agent ? c.json(agent) : c.json({ error: "Not found" }, 404);
 });
 
@@ -179,37 +186,32 @@ app.post("/api/agents", async (c) => {
   }
   if (!body["name"] || !body["url"])
     return c.json({ error: "Missing required fields: name, url" }, 400);
-  const agent = await createAgentConfig({
+  const agent = await agentService.register({
     name: String(body["name"]),
     url: String(body["url"]),
     protocol: (body["protocol"] as string | undefined) ?? "a2a",
     description: body["description"] as string | undefined,
   });
-  applyRelayMutation(relay.applyAgentUpsert(agent), "apply agent create");
   return c.json(agent, 201);
 });
 
 app.patch("/api/agents/:id", async (c) => {
   const id = c.req.param("id");
-  if (!(await getAgentConfig(id)))
-    return c.json({ error: `Agent ${id} not found` }, 404);
   let body: Record<string, unknown>;
   try {
     body = (await c.req.json()) as Record<string, unknown>;
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const updated = await updateAgentConfig(id, body);
-  if (!updated) return c.json({ error: "Not found" }, 404);
-  applyRelayMutation(relay.applyAgentUpsert(updated), "apply agent update");
+  const updated = await agentService.update(id, body as Parameters<AgentService["update"]>[1]);
+  if (!updated) return c.json({ error: `Agent ${id} not found` }, 404);
   return c.json(updated);
 });
 
 app.delete("/api/agents/:id", async (c) => {
   const id = c.req.param("id");
-  if (!(await deleteAgentConfig(id)))
-    return c.json({ error: `Agent ${id} not found` }, 404);
-  applyRelayMutation(relay.applyAgentDelete(id), "apply agent delete");
+  const deleted = await agentService.delete(id);
+  if (!deleted) return c.json({ error: `Agent ${id} not found` }, 404);
   return c.json({ deleted: true });
 });
 

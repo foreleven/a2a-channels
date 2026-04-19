@@ -44,6 +44,12 @@ importers:
       '@a2a-channels/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@a2a-channels/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@a2a-channels/event-store':
+        specifier: workspace:*
+        version: link:../../packages/event-store
       '@a2a-channels/openclaw-compat':
         specifier: workspace:*
         version: link:../../packages/openclaw-compat
@@ -114,6 +120,10 @@ importers:
         version: 0.3.13(express@5.2.1)
 
   packages/core: {}
+
+  packages/domain: {}
+
+  packages/event-store: {}
 
   packages/openclaw-compat:
     dependencies:
