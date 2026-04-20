@@ -6,12 +6,13 @@
  * those events on the DomainEventBus.
  *
  * `findAll()` and `findEnabled()` delegate to Prisma (the read projection)
- * for efficiency – they do NOT reconstruct aggregates from events.
+ * for efficiency and return snapshots, NOT aggregates – avoiding the
+ * incorrect-version problem that would arise if those objects were saved.
  */
 
 import { randomUUID } from "node:crypto";
 
-import type { ChannelBindingRepository } from "@a2a-channels/domain";
+import type { ChannelBindingRepository, ChannelBindingSnapshot } from "@a2a-channels/domain";
 import { ChannelBindingAggregate } from "@a2a-channels/domain";
 import type { ChannelBindingEvent } from "@a2a-channels/domain";
 import type { EventStore } from "@a2a-channels/event-store";
@@ -23,7 +24,7 @@ function streamId(bindingId: string): string {
   return `ChannelBinding:${bindingId}`;
 }
 
-function mapPrismaRow(row: {
+function mapPrismaRowToSnapshot(row: {
   id: string;
   name: string;
   channelType: string;
@@ -32,17 +33,17 @@ function mapPrismaRow(row: {
   agentUrl: string;
   enabled: boolean;
   createdAt: Date;
-}): ChannelBindingAggregate {
-  const agg = new ChannelBindingAggregate();
-  agg.id = row.id;
-  agg.name = row.name;
-  agg.channelType = row.channelType;
-  agg.accountId = row.accountId;
-  agg.channelConfig = JSON.parse(row.channelConfig) as Record<string, unknown>;
-  agg.agentUrl = row.agentUrl;
-  agg.enabled = row.enabled;
-  agg.createdAt = row.createdAt.toISOString();
-  return agg;
+}): ChannelBindingSnapshot {
+  return {
+    id: row.id,
+    name: row.name,
+    channelType: row.channelType,
+    accountId: row.accountId,
+    channelConfig: JSON.parse(row.channelConfig) as Record<string, unknown>,
+    agentUrl: row.agentUrl,
+    enabled: row.enabled,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 export class EventSourcedChannelBindingRepository
@@ -62,18 +63,18 @@ export class EventSourcedChannelBindingRepository
     return agg;
   }
 
-  async findAll(): Promise<ChannelBindingAggregate[]> {
+  async findAll(): Promise<ChannelBindingSnapshot[]> {
     const rows = await prisma.channelBinding.findMany({
       orderBy: { createdAt: "asc" },
     });
-    return rows.map(mapPrismaRow);
+    return rows.map(mapPrismaRowToSnapshot);
   }
 
   async findEnabled(
     channelType: string,
     accountId: string,
     excludeId?: string,
-  ): Promise<ChannelBindingAggregate | null> {
+  ): Promise<ChannelBindingSnapshot | null> {
     const row = await prisma.channelBinding.findFirst({
       where: {
         channelType,
@@ -82,7 +83,7 @@ export class EventSourcedChannelBindingRepository
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
     });
-    return row ? mapPrismaRow(row) : null;
+    return row ? mapPrismaRowToSnapshot(row) : null;
   }
 
   async save(aggregate: ChannelBindingAggregate): Promise<void> {
@@ -98,7 +99,7 @@ export class EventSourcedChannelBindingRepository
       streamVersion: baseVersion + i + 1,
       eventType: event.eventType,
       payload: event,
-      metadata: { occurredAt: event.occurredAt },
+      metadata: {},
       occurredAt: new Date(event.occurredAt),
     }));
 

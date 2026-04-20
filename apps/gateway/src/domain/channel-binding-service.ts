@@ -36,8 +36,7 @@ export class ChannelBindingService {
   // -------------------------------------------------------------------------
 
   async list(): Promise<ChannelBindingSnapshot[]> {
-    const all = await this.repo.findAll();
-    return all.map((a) => a.snapshot());
+    return this.repo.findAll();
   }
 
   async getById(id: string): Promise<ChannelBindingSnapshot | null> {

@@ -37,7 +37,7 @@ import { EventSourcedAgentConfigRepository } from "./infra/agent-config-repo.js"
 import { ChannelBindingProjection } from "./projections/channel-binding-projection.js";
 import { AgentConfigProjection } from "./projections/agent-config-projection.js";
 import { RelayRuntime } from "./runtime/relay-runtime.js";
-import { initStore, seedDefaults } from "./store/index.js";
+import { initStore } from "./store/index.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -46,13 +46,13 @@ import { initStore, seedDefaults } from "./store/index.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = join(__dirname, "..", "web");
 const PORT = Number(process.env["PORT"] ?? 7890);
+const DEFAULT_ECHO_AGENT_URL = process.env["ECHO_AGENT_URL"] ?? "http://localhost:3001";
 
 // ---------------------------------------------------------------------------
 // Infrastructure wiring
 // ---------------------------------------------------------------------------
 
 await initStore();
-await seedDefaults();
 
 const eventBus = new DomainEventBus();
 const eventStore = new PrismaEventStore();
@@ -72,6 +72,48 @@ agentProjection.register();
 // Application services
 const channelBindingService = new ChannelBindingService(bindingRepo);
 const agentService = new AgentService(agentRepo);
+
+// ---------------------------------------------------------------------------
+// Seed defaults through application services so domain events are recorded.
+// (Unlike the old seedDefaults() which wrote directly to Prisma, this path
+//  also appends events to the event log so findById() works correctly.)
+// ---------------------------------------------------------------------------
+
+const existingAgents = await agentService.list();
+if (existingAgents.length === 0) {
+  await agentService.register({
+    name: "Echo Agent",
+    url: DEFAULT_ECHO_AGENT_URL,
+    protocol: "a2a",
+    description: "Built-in echo agent – mirrors every message back",
+  });
+}
+
+const bootstrapAppId = process.env["FEISHU_APP_ID"];
+const bootstrapAppSecret = process.env["FEISHU_APP_SECRET"];
+if (bootstrapAppId && bootstrapAppSecret) {
+  const accountId = process.env["FEISHU_ACCOUNT_ID"] ?? "default";
+  const existing = await channelBindingService.list();
+  const hasFeishu = existing.some(
+    (b) => b.channelType === "feishu" && b.accountId === accountId,
+  );
+  if (!hasFeishu) {
+    await channelBindingService.create({
+      name: "Bootstrap Feishu Bot",
+      channelType: "feishu",
+      accountId,
+      channelConfig: {
+        appId: bootstrapAppId,
+        appSecret: bootstrapAppSecret,
+        verificationToken: process.env["FEISHU_VERIFICATION_TOKEN"] || undefined,
+        encryptKey: process.env["FEISHU_ENCRYPT_KEY"] || undefined,
+        allowFrom: ["*"],
+      },
+      agentUrl: DEFAULT_ECHO_AGENT_URL,
+      enabled: true,
+    });
+  }
+}
 
 // RelayRuntime subscribes to the event bus to react to binding/agent changes.
 const relay = await RelayRuntime.load(eventBus);

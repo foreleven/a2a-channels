@@ -31,7 +31,8 @@ function mapRow(row: {
     streamVersion: row.streamVersion,
     eventType: row.eventType,
     payload: JSON.parse(row.payload) as unknown,
-    metadata: JSON.parse(row.metadata) as { occurredAt: string; causedBy?: string },
+    metadata: JSON.parse(row.metadata) as { causedBy?: string },
+    occurredAt: row.occurredAt.toISOString(),
     globalSeq: row.seq,
   };
 }

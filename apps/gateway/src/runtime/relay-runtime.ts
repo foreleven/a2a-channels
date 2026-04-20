@@ -145,7 +145,9 @@ export class RelayRuntime {
         enabled: e.enabled,
         createdAt: e.occurredAt,
       };
-      void this.applyBindingUpsert(binding);
+      this.applyBindingUpsert(binding).catch((err: unknown) => {
+        console.error("[RelayRuntime] ChannelBindingCreated handler failed", err);
+      });
     });
 
     bus.on("ChannelBindingUpdated.v1", (e) => {
@@ -156,11 +158,15 @@ export class RelayRuntime {
         ...e.changes,
         channelConfig: e.changes.channelConfig ?? existing.channelConfig,
       };
-      void this.applyBindingUpsert(updated);
+      this.applyBindingUpsert(updated).catch((err: unknown) => {
+        console.error("[RelayRuntime] ChannelBindingUpdated handler failed", err);
+      });
     });
 
     bus.on("ChannelBindingDeleted.v1", (e) => {
-      void this.applyBindingDelete(e.bindingId);
+      this.applyBindingDelete(e.bindingId).catch((err: unknown) => {
+        console.error("[RelayRuntime] ChannelBindingDeleted handler failed", err);
+      });
     });
 
     bus.on("AgentRegistered.v1", (e) => {
@@ -172,7 +178,9 @@ export class RelayRuntime {
         description: e.description,
         createdAt: e.occurredAt,
       };
-      void this.applyAgentUpsert(agent);
+      this.applyAgentUpsert(agent).catch((err: unknown) => {
+        console.error("[RelayRuntime] AgentRegistered handler failed", err);
+      });
     });
 
     bus.on("AgentUpdated.v1", (e) => {
@@ -188,11 +196,15 @@ export class RelayRuntime {
           description: c.description ?? undefined,
         }),
       };
-      void this.applyAgentUpsert(updated);
+      this.applyAgentUpsert(updated).catch((err: unknown) => {
+        console.error("[RelayRuntime] AgentUpdated handler failed", err);
+      });
     });
 
     bus.on("AgentDeleted.v1", (e) => {
-      void this.applyAgentDelete(e.agentId);
+      this.applyAgentDelete(e.agentId).catch((err: unknown) => {
+        console.error("[RelayRuntime] AgentDeleted handler failed", err);
+      });
     });
   }
 

@@ -9,7 +9,11 @@ const DEFAULT_ECHO_AGENT_URL =
 
 export async function initStore(): Promise<void> {
   try {
+    // Verify both the legacy tables AND the new event-sourcing tables exist.
+    // If any one is missing (e.g. an older DB that pre-dates the events table),
+    // run `db push` to bring the schema up to date.
     await prisma.$queryRaw`SELECT 1 FROM "channel_bindings" LIMIT 0`;
+    await prisma.$queryRaw`SELECT 1 FROM "events" LIMIT 0`;
   } catch {
     execSync("npx prisma db push", {
       cwd: GATEWAY_DIR,

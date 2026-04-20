@@ -27,13 +27,23 @@ export class ChannelBindingProjection {
   /** Register event handlers so the projection stays up to date at runtime. */
   register(): void {
     this.eventBus.on("ChannelBindingCreated.v1", (e) => {
-      void this.onCreated(e);
+      this.dispatchHandler("ChannelBindingCreated.v1", this.onCreated(e));
     });
     this.eventBus.on("ChannelBindingUpdated.v1", (e) => {
-      void this.onUpdated(e);
+      this.dispatchHandler("ChannelBindingUpdated.v1", this.onUpdated(e));
     });
     this.eventBus.on("ChannelBindingDeleted.v1", (e) => {
-      void this.onDeleted(e);
+      this.dispatchHandler("ChannelBindingDeleted.v1", this.onDeleted(e));
+    });
+  }
+
+  /**
+   * Fires an async handler and logs any rejection so it never becomes an
+   * unhandled promise rejection that could crash the process.
+   */
+  private dispatchHandler(eventType: string, handler: Promise<void>): void {
+    void handler.catch((err: unknown) => {
+      console.error(`[${PROJECTION_NAME}] Failed to apply ${eventType} event`, err);
     });
   }
 

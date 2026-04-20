@@ -2,12 +2,14 @@
  * EventSourcedAgentConfigRepository
  *
  * Loads AgentConfigAggregate instances by replaying their event stream.
- * `findAll()` delegates to Prisma (the read projection) for efficiency.
+ * `findAll()` delegates to Prisma (the read projection) for efficiency and
+ * returns snapshots – NOT aggregates – avoiding the incorrect-version problem
+ * that would arise if those objects were later saved.
  */
 
 import { randomUUID } from "node:crypto";
 
-import type { AgentConfigRepository } from "@a2a-channels/domain";
+import type { AgentConfigRepository, AgentConfigSnapshot } from "@a2a-channels/domain";
 import { AgentConfigAggregate } from "@a2a-channels/domain";
 import type { AgentEvent } from "@a2a-channels/domain";
 import type { EventStore } from "@a2a-channels/event-store";
@@ -19,22 +21,22 @@ function streamId(agentId: string): string {
   return `AgentConfig:${agentId}`;
 }
 
-function mapPrismaRow(row: {
+function mapPrismaRowToSnapshot(row: {
   id: string;
   name: string;
   url: string;
   protocol: string;
   description: string | null;
   createdAt: Date;
-}): AgentConfigAggregate {
-  const agg = new AgentConfigAggregate();
-  agg.id = row.id;
-  agg.name = row.name;
-  agg.url = row.url;
-  agg.protocol = row.protocol;
-  agg.description = row.description ?? undefined;
-  agg.createdAt = row.createdAt.toISOString();
-  return agg;
+}): AgentConfigSnapshot {
+  return {
+    id: row.id,
+    name: row.name,
+    url: row.url,
+    protocol: row.protocol,
+    description: row.description ?? undefined,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 export class EventSourcedAgentConfigRepository
@@ -54,11 +56,11 @@ export class EventSourcedAgentConfigRepository
     return agg;
   }
 
-  async findAll(): Promise<AgentConfigAggregate[]> {
+  async findAll(): Promise<AgentConfigSnapshot[]> {
     const rows = await prisma.agent.findMany({
       orderBy: { createdAt: "asc" },
     });
-    return rows.map(mapPrismaRow);
+    return rows.map(mapPrismaRowToSnapshot);
   }
 
   async save(aggregate: AgentConfigAggregate): Promise<void> {
@@ -74,7 +76,7 @@ export class EventSourcedAgentConfigRepository
       streamVersion: baseVersion + i + 1,
       eventType: event.eventType,
       payload: event,
-      metadata: { occurredAt: event.occurredAt },
+      metadata: {},
       occurredAt: new Date(event.occurredAt),
     }));
 

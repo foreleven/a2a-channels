@@ -25,13 +25,23 @@ export class AgentConfigProjection {
 
   register(): void {
     this.eventBus.on("AgentRegistered.v1", (e) => {
-      void this.onRegistered(e);
+      this.dispatchHandler("AgentRegistered.v1", this.onRegistered(e));
     });
     this.eventBus.on("AgentUpdated.v1", (e) => {
-      void this.onUpdated(e);
+      this.dispatchHandler("AgentUpdated.v1", this.onUpdated(e));
     });
     this.eventBus.on("AgentDeleted.v1", (e) => {
-      void this.onDeleted(e);
+      this.dispatchHandler("AgentDeleted.v1", this.onDeleted(e));
+    });
+  }
+
+  /**
+   * Fires an async handler and logs any rejection so it never becomes an
+   * unhandled promise rejection that could crash the process.
+   */
+  private dispatchHandler(eventType: string, handler: Promise<void>): void {
+    void handler.catch((err: unknown) => {
+      console.error(`[${PROJECTION_NAME}] Failed to apply ${eventType} event`, err);
     });
   }
 

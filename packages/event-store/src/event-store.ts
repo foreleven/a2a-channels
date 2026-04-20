@@ -9,8 +9,8 @@
 // StoredEvent
 // ---------------------------------------------------------------------------
 
+/** Supplemental envelope metadata (does not include `occurredAt`). */
 export interface StoredEventMetadata {
-  readonly occurredAt: string;
   readonly causedBy?: string;
 }
 
@@ -36,7 +36,11 @@ export interface StoredEvent {
   /** The domain event payload (deserialized from JSON). */
   readonly payload: unknown;
 
+  /** Supplemental envelope metadata (e.g. causedBy trace). */
   readonly metadata: StoredEventMetadata;
+
+  /** ISO-8601 timestamp at which the event was stored. */
+  readonly occurredAt: string;
 
   /**
    * Monotonically increasing global sequence number across all streams.
@@ -71,7 +75,9 @@ export interface NewStoredEvent {
   readonly streamVersion: number;
   readonly eventType: string;
   readonly payload: unknown;
+  /** Supplemental envelope metadata. `occurredAt` is separate. */
   readonly metadata: StoredEventMetadata;
+  /** When the event occurred. Stored as the canonical `occurred_at` DB column. */
   readonly occurredAt: Date;
 }
 
