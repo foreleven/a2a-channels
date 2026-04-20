@@ -12,26 +12,24 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+import { prisma } from "./prisma.js";
+import { AgentService, ReferencedAgentError } from "../application/agent-service.js";
+import { ChannelBindingService } from "../application/channel-binding-service.js";
+import { DuplicateEnabledBindingError } from "../application/errors.js";
+import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
+import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
+import { DomainEventBus } from "../infra/domain-event-bus.js";
+import { OutboxWorker } from "../infra/outbox-worker.js";
+import { LocalScheduler } from "../runtime/local-scheduler.js";
+import { initStore, seedDefaults } from "../services/initialization.js";
+import { buildOpenClawConfig } from "../services/openclaw-config.js";
 import {
-  prisma,
-  initStore,
-  listChannelBindings,
-  getChannelBinding,
-  createChannelBinding,
-  updateChannelBinding,
-  deleteChannelBinding,
-  listAgentConfigs,
-  getAgentConfig,
-  createAgentConfig,
-  updateAgentConfig,
-  deleteAgentConfig,
-  DuplicateEnabledBindingError,
   getAgentUrlForBinding,
   getAgentUrlForChannelAccount,
   getAgentProtocolForUrl,
-  buildOpenClawConfig,
-  seedDefaults,
-} from "./index.js";
+} from "../services/routing.js";
+import { createRuntimeOwnershipState } from "../runtime/ownership-state.js";
+import { createReconnectPolicy } from "../runtime/reconnect-policy.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -50,12 +48,11 @@ function pushSchema(): void {
   );
 }
 
-/** Delete all rows from the `channel_bindings`, `agents`, `events`, and `projection_checkpoints` tables. */
+/** Delete all rows from the gateway state, outbox, and legacy event tables. */
 async function resetDB(): Promise<void> {
+  await prisma.outboxEvent.deleteMany();
   await prisma.channelBinding.deleteMany();
   await prisma.agent.deleteMany();
-  await prisma.event.deleteMany();
-  await prisma.projectionCheckpoint.deleteMany();
   await initStore();
 }
 
@@ -64,7 +61,7 @@ const FEISHU_BINDING_DATA = {
   channelType: "feishu",
   accountId: "test-account",
   channelConfig: { appId: "cli_abc", appSecret: "secret123" },
-  agentUrl: "http://localhost:3001",
+  agentId: "test-agent-id",
   enabled: true,
 } as const;
 
@@ -74,6 +71,73 @@ const AGENT_DATA = {
   protocol: "a2a",
   description: "A test agent",
 } as const;
+
+async function createTestAgent(url: string = AGENT_DATA.url) {
+  return createAgentConfig({
+    ...AGENT_DATA,
+    url,
+    name: `Agent ${url}`,
+  });
+}
+
+function makeInfra() {
+  const bindingRepo = new ChannelBindingStateRepository();
+  const agentRepo = new AgentConfigStateRepository();
+  return {
+    bindingService: new ChannelBindingService(bindingRepo),
+    agentService: new AgentService(agentRepo, bindingRepo),
+    bindingRepo,
+    agentRepo,
+  };
+}
+
+async function listChannelBindings() {
+  return makeInfra().bindingService.list();
+}
+
+async function getChannelBinding(id: string) {
+  return makeInfra().bindingService.getById(id);
+}
+
+async function createChannelBinding(
+  data: Parameters<ChannelBindingService["create"]>[0],
+) {
+  return makeInfra().bindingService.create(data);
+}
+
+async function updateChannelBinding(
+  id: string,
+  data: Parameters<ChannelBindingService["update"]>[1],
+) {
+  return makeInfra().bindingService.update(id, data);
+}
+
+async function deleteChannelBinding(id: string) {
+  return makeInfra().bindingService.delete(id);
+}
+
+async function listAgentConfigs() {
+  return makeInfra().agentService.list();
+}
+
+async function getAgentConfig(id: string) {
+  return makeInfra().agentService.getById(id);
+}
+
+async function createAgentConfig(data: Parameters<AgentService["register"]>[0]) {
+  return makeInfra().agentService.register(data);
+}
+
+async function updateAgentConfig(
+  id: string,
+  data: Parameters<AgentService["update"]>[1],
+) {
+  return makeInfra().agentService.update(id, data);
+}
+
+async function deleteAgentConfig(id: string) {
+  return makeInfra().agentService.delete(id);
+}
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -98,7 +162,7 @@ describe("ChannelBinding CRUD", () => {
     assert.equal(binding.channelType, FEISHU_BINDING_DATA.channelType);
     assert.equal(binding.accountId, FEISHU_BINDING_DATA.accountId);
     assert.deepEqual(binding.channelConfig, FEISHU_BINDING_DATA.channelConfig);
-    assert.equal(binding.agentUrl, FEISHU_BINDING_DATA.agentUrl);
+    assert.equal(binding.agentId, FEISHU_BINDING_DATA.agentId);
     assert.equal(binding.enabled, true);
     assert.ok(binding.createdAt, "createdAt should be set");
   });
@@ -159,7 +223,7 @@ describe("ChannelBinding CRUD", () => {
     assert.equal(updated.enabled, false);
     // Unchanged fields should remain
     assert.equal(updated.channelType, FEISHU_BINDING_DATA.channelType);
-    assert.equal(updated.agentUrl, FEISHU_BINDING_DATA.agentUrl);
+    assert.equal(updated.agentId, FEISHU_BINDING_DATA.agentId);
   });
 
   test("update persists changes to the database", async () => {
@@ -186,35 +250,39 @@ describe("ChannelBinding CRUD", () => {
   });
 
   test("create immediately reflects in DB-backed routing", async () => {
+    const agent = await createTestAgent("http://routing-agent:4000");
     const binding = await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "routing-test",
-      agentUrl: "http://routing-agent:4000",
+      agentId: agent.id,
     });
 
     const url = await getAgentUrlForBinding(binding.id, "http://default");
-    assert.equal(url, binding.agentUrl);
+    assert.equal(url, agent.url);
   });
 
   test("update immediately reflects in DB-backed routing", async () => {
+    const oldAgent = await createTestAgent("http://old-agent:4000");
+    const newAgent = await createTestAgent("http://new-agent:4000");
     const binding = await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "routing-update",
-      agentUrl: "http://old-agent:4000",
+      agentId: oldAgent.id,
     });
     await updateChannelBinding(binding.id, {
-      agentUrl: "http://new-agent:4000",
+      agentId: newAgent.id,
     });
 
     const url = await getAgentUrlForBinding(binding.id, "http://default");
-    assert.equal(url, "http://new-agent:4000");
+    assert.equal(url, newAgent.url);
   });
 
   test("delete immediately reflects in DB-backed routing", async () => {
+    const agent = await createTestAgent("http://to-delete:4000");
     const binding = await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "routing-delete",
-      agentUrl: "http://to-delete:4000",
+      agentId: agent.id,
     });
     await deleteChannelBinding(binding.id);
 
@@ -228,7 +296,7 @@ describe("ChannelBinding CRUD", () => {
       createChannelBinding({
         ...FEISHU_BINDING_DATA,
         name: "Duplicate",
-        agentUrl: "http://duplicate-agent:4000",
+        agentId: "http://duplicate-agent:4000",
       }),
       DuplicateEnabledBindingError,
     );
@@ -283,6 +351,55 @@ describe("ChannelBinding CRUD", () => {
     });
 
     assert.equal(slack.channelType, "slack");
+  });
+});
+
+describe("RuntimeOwnershipState", () => {
+  test("detaching a binding removes its runtime status entry", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    state.attachBinding(binding);
+    state.markConnecting("binding-1", "http://agent-1");
+    state.markConnected("binding-1", "http://agent-1");
+    state.detachBinding("binding-1");
+
+    assert.deepEqual(state.listConnectionStatuses(), []);
+  });
+
+  test("error state schedules the next reconnect attempt", async () => {
+    const state = createRuntimeOwnershipState({
+      reconnectPolicy: createReconnectPolicy({
+        baseDelayMs: 1000,
+        maxDelayMs: 8000,
+      }),
+    });
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    state.attachBinding(binding);
+    const retry = state.markError("binding-1", new Error("socket closed"));
+
+    assert.equal(retry.attempt, 1);
+    assert.equal(retry.delayMs, 1000);
+    assert.equal(state.getOwnedBinding("binding-1")?.status.status, "error");
   });
 });
 // ---------------------------------------------------------------------------
@@ -409,7 +526,7 @@ describe("Agent CRUD", () => {
     assert.equal(fetched, null);
   });
 
-  test("delete removes the agent URL from DB-backed protocol lookup", async () => {
+  test("delete removes the agent from DB-backed protocol lookup", async () => {
     const created = await createAgentConfig({
       ...AGENT_DATA,
       protocol: "acp",
@@ -422,10 +539,10 @@ describe("Agent CRUD", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Agent URL routing
+// Agent routing
 // ---------------------------------------------------------------------------
 
-describe("agent URL routing", () => {
+describe("agent routing", () => {
   beforeEach(resetDB);
 
   const DEFAULT_URL = "http://default-agent:3001";
@@ -436,19 +553,21 @@ describe("agent URL routing", () => {
   });
 
   test("getAgentUrlForBinding returns the matching enabled binding URL", async () => {
+    const agent = await createTestAgent("http://binding-agent:4000");
     const binding = await createChannelBinding({
       ...FEISHU_BINDING_DATA,
-      agentUrl: "http://binding-agent:4000",
+      agentId: agent.id,
     });
 
     const url = await getAgentUrlForBinding(binding.id, DEFAULT_URL);
-    assert.equal(url, "http://binding-agent:4000");
+    assert.equal(url, agent.url);
   });
 
   test("getAgentUrlForBinding skips disabled bindings", async () => {
+    const agent = await createTestAgent("http://disabled-agent:4000");
     const binding = await createChannelBinding({
       ...FEISHU_BINDING_DATA,
-      agentUrl: "http://disabled-agent:4000",
+      agentId: agent.id,
       enabled: false,
     });
 
@@ -457,10 +576,11 @@ describe("agent URL routing", () => {
   });
 
   test("getAgentUrlForChannelAccount returns the matching channel/account URL", async () => {
+    const agent = await createTestAgent("http://exact-agent:4000");
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "exact-match",
-      agentUrl: "http://exact-agent:4000",
+      agentId: agent.id,
     });
 
     const url = await getAgentUrlForChannelAccount(
@@ -468,14 +588,15 @@ describe("agent URL routing", () => {
       "exact-match",
       DEFAULT_URL,
     );
-    assert.equal(url, "http://exact-agent:4000");
+    assert.equal(url, agent.url);
   });
 
   test("getAgentUrlForChannelAccount does not fall back to another account", async () => {
+    const agent = await createTestAgent("http://other-agent:4000");
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "other-account",
-      agentUrl: "http://other-agent:4000",
+      agentId: agent.id,
     });
 
     const url = await getAgentUrlForChannelAccount(
@@ -487,10 +608,11 @@ describe("agent URL routing", () => {
   });
 
   test("getAgentUrlForChannelAccount skips disabled bindings", async () => {
+    const agent = await createTestAgent("http://disabled-agent:4000");
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "disabled-account",
-      agentUrl: "http://disabled-agent:4000",
+      agentId: agent.id,
       enabled: false,
     });
 
@@ -503,21 +625,24 @@ describe("agent URL routing", () => {
   });
 
   test("getAgentUrlForChannelAccount treats undefined channel/account as feishu/default", async () => {
+    const agent = await createTestAgent("http://default-binding-agent:4000");
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "default",
-      agentUrl: "http://default-binding-agent:4000",
+      agentId: agent.id,
     });
 
     const url = await getAgentUrlForChannelAccount(undefined, undefined, DEFAULT_URL);
-    assert.equal(url, "http://default-binding-agent:4000");
+    assert.equal(url, agent.url);
   });
 
   test("getAgentUrlForChannelAccount distinguishes identical accountIds across channel types", async () => {
+    const feishuAgent = await createTestAgent("http://feishu-agent:4000");
+    const slackAgent = await createTestAgent("http://slack-agent:4000");
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
       accountId: "shared",
-      agentUrl: "http://feishu-agent:4000",
+      agentId: feishuAgent.id,
     });
     await createChannelBinding({
       ...FEISHU_BINDING_DATA,
@@ -525,16 +650,16 @@ describe("agent URL routing", () => {
       channelType: "slack",
       accountId: "shared",
       channelConfig: { token: "xoxb" },
-      agentUrl: "http://slack-agent:4000",
+      agentId: slackAgent.id,
     });
 
     assert.equal(
       await getAgentUrlForChannelAccount("feishu", "shared", DEFAULT_URL),
-      "http://feishu-agent:4000",
+      feishuAgent.url,
     );
     assert.equal(
       await getAgentUrlForChannelAccount("slack", "shared", DEFAULT_URL),
-      "http://slack-agent:4000",
+      slackAgent.url,
     );
   });
 });
@@ -546,7 +671,7 @@ describe("agent URL routing", () => {
 describe("getAgentProtocolForUrl", () => {
   beforeEach(resetDB);
 
-  test("returns 'a2a' when the agent URL is not in the database", async () => {
+  test("returns 'a2a' when the agent is not in the database", async () => {
     const protocol = await getAgentProtocolForUrl("http://unknown:3001");
     assert.equal(protocol, "a2a");
   });
@@ -593,6 +718,7 @@ describe("buildOpenClawConfig", () => {
   });
 
   test("returns feishu config for a 'default' account binding", async () => {
+    const agent = await createTestAgent("http://localhost:3001");
     const binding = await createChannelBinding({
       name: "Default Feishu",
       channelType: "feishu",
@@ -604,7 +730,7 @@ describe("buildOpenClawConfig", () => {
         encryptKey: "enc456",
         allowFrom: ["*"],
       },
-      agentUrl: "http://localhost:3001",
+      agentId: agent.id,
       enabled: true,
     });
 
@@ -613,7 +739,7 @@ describe("buildOpenClawConfig", () => {
     const feishuConfig = feishu["feishu"] as Record<string, unknown>;
 
     assert.equal(feishuConfig["bindingId"], binding.id);
-    assert.equal(feishuConfig["agentUrl"], "http://localhost:3001");
+    assert.equal(feishuConfig["agentUrl"], agent.url);
     assert.equal(feishuConfig["appId"], "cli_def");
     assert.equal(feishuConfig["appSecret"], "sec_def");
     assert.equal(feishuConfig["verificationToken"], "token123");
@@ -624,12 +750,13 @@ describe("buildOpenClawConfig", () => {
   });
 
   test("returns feishu config with an accounts block for non-default bindings", async () => {
+    const agent = await createTestAgent("http://localhost:3001");
     const binding = await createChannelBinding({
       name: "Account A",
       channelType: "feishu",
       accountId: "account-a",
       channelConfig: { appId: "cli_a", appSecret: "sec_a" },
-      agentUrl: "http://localhost:3001",
+      agentId: agent.id,
       enabled: true,
     });
 
@@ -643,17 +770,18 @@ describe("buildOpenClawConfig", () => {
     assert.ok("account-a" in accounts);
     const accountCfg = accounts["account-a"] as Record<string, unknown>;
     assert.equal(accountCfg["bindingId"], binding.id);
-    assert.equal(accountCfg["agentUrl"], "http://localhost:3001");
+    assert.equal(accountCfg["agentUrl"], agent.url);
     assert.equal(accountCfg["appId"], "cli_a");
   });
 
   test("skips disabled feishu bindings", async () => {
+    const agent = await createTestAgent();
     await createChannelBinding({
       name: "Disabled Bot",
       channelType: "feishu",
       accountId: "disabled",
       channelConfig: { appId: "cli_dis", appSecret: "sec_dis" },
-      agentUrl: "http://localhost:3001",
+      agentId: agent.id,
       enabled: false,
     });
 
@@ -669,12 +797,13 @@ describe("buildOpenClawConfig", () => {
   });
 
   test("skips non-feishu channel bindings", async () => {
+    const agent = await createTestAgent();
     await createChannelBinding({
       name: "Slack Bot",
       channelType: "slack",
       accountId: "default",
       channelConfig: { token: "xoxb-slack" },
-      agentUrl: "http://localhost:3001",
+      agentId: agent.id,
       enabled: true,
     });
 
@@ -690,12 +819,13 @@ describe("buildOpenClawConfig", () => {
   });
 
   test("uses '*' as default allowFrom when not specified in channelConfig", async () => {
+    const agent = await createTestAgent();
     await createChannelBinding({
       name: "No AllowFrom",
       channelType: "feishu",
       accountId: "no-allow",
       channelConfig: { appId: "cli_naf", appSecret: "sec_naf" },
-      agentUrl: "http://localhost:3001",
+      agentId: agent.id,
       enabled: true,
     });
 
@@ -830,14 +960,21 @@ describe("initStore", () => {
   beforeEach(resetDB);
 
   test("direct channel rows are available through DB-backed routing", async () => {
-    // Insert a binding directly via prisma, bypass store functions
+    const agent = await prisma.agent.create({
+      data: {
+        name: "Direct Binding Agent",
+        url: "http://direct:4000",
+        protocol: "a2a",
+      },
+    });
+
     await prisma.channelBinding.create({
       data: {
         name: "Direct Insert",
         channelType: "feishu",
         accountId: "direct",
         channelConfig: JSON.stringify({ appId: "x", appSecret: "y" }),
-        agentUrl: "http://direct:4000",
+        agentId: agent.id,
         enabled: true,
       },
     });
@@ -866,36 +1003,79 @@ describe("initStore", () => {
 });
 
 // ---------------------------------------------------------------------------
-// DDD / Event Sourcing – aggregates + application services
+// DDD state persistence – aggregates + application services + outbox
 // ---------------------------------------------------------------------------
 
-import { DomainEventBus } from "../domain/event-bus.js";
-import { ChannelBindingService } from "../domain/channel-binding-service.js";
-import { AgentService } from "../domain/agent-service.js";
-import { PrismaEventStore } from "../infra/prisma-event-store.js";
-import { EventSourcedChannelBindingRepository } from "../infra/channel-binding-repo.js";
-import { EventSourcedAgentConfigRepository } from "../infra/agent-config-repo.js";
-import { ChannelBindingProjection } from "../projections/channel-binding-projection.js";
-import { AgentConfigProjection } from "../projections/agent-config-projection.js";
+describe("LocalScheduler", () => {
+  test("start and stop do not accumulate duplicate event listeners", async () => {
+    const bus = new DomainEventBus();
+    const calls: string[] = [];
+    const runtime = {
+      async refreshBinding() {
+        calls.push("refresh");
+      },
+      async detachBinding() {
+        calls.push("detach");
+      },
+      listBindings() {
+        return [];
+      },
+    } as const;
 
-function makeInfra() {
-  const bus = new DomainEventBus();
-  const store = new PrismaEventStore();
-  const bindingRepo = new EventSourcedChannelBindingRepository(store, bus);
-  const agentRepo = new EventSourcedAgentConfigRepository(store, bus);
-  const bindingProjection = new ChannelBindingProjection(bus, store);
-  const agentProjection = new AgentConfigProjection(bus, store);
-  bindingProjection.register();
-  agentProjection.register();
-  return {
-    bus,
-    store,
-    bindingService: new ChannelBindingService(bindingRepo),
-    agentService: new AgentService(agentRepo),
-    bindingRepo,
-    agentRepo,
-  };
-}
+    const scheduler = new LocalScheduler(
+      runtime as unknown as import("../runtime/relay-runtime.js").RelayRuntime,
+      bus,
+      { debounceMs: 0, reconcileIntervalMs: 60_000 },
+    );
+
+    scheduler.start();
+    await scheduler.stop();
+    scheduler.start();
+
+    bus.publish({
+      eventType: "AgentDeleted.v1",
+      agentId: "agent-1",
+      occurredAt: new Date().toISOString(),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await scheduler.stop();
+
+    assert.ok(calls.length <= 1, "scheduler should not reconcile twice for one event after restart");
+  });
+});
+describe("OutboxWorker", () => {
+  beforeEach(resetDB);
+
+  test("publishes pending outbox events and marks them processed", async () => {
+    const { bindingService } = makeInfra();
+    const binding = await bindingService.create({
+      name: "Worker Feishu Bot",
+      channelType: "feishu",
+      accountId: "worker-test",
+      channelConfig: { appId: "cli_worker", appSecret: "sec_worker" },
+      agentId: "http://worker-agent:3001",
+      enabled: true,
+    });
+
+    const bus = new DomainEventBus();
+    const received: unknown[] = [];
+    bus.on("ChannelBindingCreated.v1", (event) => received.push(event));
+
+    await new OutboxWorker(bus).drain();
+
+    assert.equal(received.length, 1);
+    assert.equal(
+      (received[0] as { bindingId?: string }).bindingId,
+      binding.id,
+    );
+
+    const row = await prisma.outboxEvent.findFirst({
+      where: { aggregateId: binding.id },
+    });
+    assert.ok(row?.processedAt);
+  });
+});
 
 describe("ChannelBinding aggregate + ChannelBindingService", () => {
   beforeEach(resetDB);
@@ -907,7 +1087,7 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
       channelType: "feishu",
       accountId: "es-test",
       channelConfig: { appId: "cli_es", appSecret: "sec_es" },
-      agentUrl: "http://es-agent:3001",
+      agentId: "http://es-agent:3001",
       enabled: true,
     });
 
@@ -918,47 +1098,50 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
     assert.equal(binding.enabled, true);
   });
 
-  test("create publishes ChannelBindingCreated event on the bus", async () => {
-    const { bus, bindingService } = makeInfra();
-    const received: unknown[] = [];
-    bus.on("ChannelBindingCreated.v1", (e) => received.push(e));
-
-    await bindingService.create({
-      name: "Bus Feishu Bot",
-      channelType: "feishu",
-      accountId: "bus-test",
-      channelConfig: { appId: "cli_bus", appSecret: "sec_bus" },
-      agentUrl: "http://bus-agent:3001",
-      enabled: true,
-    });
-
-    assert.equal(received.length, 1);
-  });
-
-  test("create writes an event to the event store", async () => {
-    const { store, bindingService } = makeInfra();
+  test("create writes a ChannelBindingCreated event to the outbox", async () => {
+    const { bindingService } = makeInfra();
     const binding = await bindingService.create({
-      name: "Store Feishu Bot",
+      name: "Outbox Feishu Bot",
       channelType: "feishu",
-      accountId: "store-test",
-      channelConfig: { appId: "cli_st", appSecret: "sec_st" },
-      agentUrl: "http://store-agent:3001",
+      accountId: "outbox-test",
+      channelConfig: { appId: "cli_outbox", appSecret: "sec_outbox" },
+      agentId: "http://outbox-agent:3001",
       enabled: true,
     });
 
-    const events = await store.load(`ChannelBinding:${binding.id}`);
+    const events = await prisma.outboxEvent.findMany({
+      where: { aggregateId: binding.id },
+      orderBy: { occurredAt: "asc" },
+    });
     assert.equal(events.length, 1);
     assert.equal(events[0]?.eventType, "ChannelBindingCreated.v1");
   });
 
-  test("update persists changes via event sourcing", async () => {
+  test("create persists current binding state", async () => {
+    const { bindingService } = makeInfra();
+    const binding = await bindingService.create({
+      name: "State Feishu Bot",
+      channelType: "feishu",
+      accountId: "state-test",
+      channelConfig: { appId: "cli_state", appSecret: "sec_state" },
+      agentId: "http://state-agent:3001",
+      enabled: true,
+    });
+
+    const row = await prisma.channelBinding.findUnique({ where: { id: binding.id } });
+    assert.ok(row);
+    assert.equal(row.name, "State Feishu Bot");
+    assert.equal(row.channelType, "feishu");
+  });
+
+  test("update persists changes through state repository", async () => {
     const { bindingService } = makeInfra();
     const created = await bindingService.create({
       name: "Before Update",
       channelType: "feishu",
       accountId: "update-test",
       channelConfig: { appId: "cli_upd", appSecret: "sec_upd" },
-      agentUrl: "http://upd-agent:3001",
+      agentId: "http://upd-agent:3001",
       enabled: true,
     });
 
@@ -973,33 +1156,36 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
     assert.equal(updated.channelType, "feishu");
   });
 
-  test("update writes two events to the stream", async () => {
-    const { store, bindingService } = makeInfra();
+  test("update writes create and update events to the outbox", async () => {
+    const { bindingService } = makeInfra();
     const created = await bindingService.create({
       name: "Two Events",
       channelType: "feishu",
       accountId: "two-events",
       channelConfig: { appId: "cli_2e", appSecret: "sec_2e" },
-      agentUrl: "http://2e-agent:3001",
+      agentId: "http://2e-agent:3001",
       enabled: true,
     });
 
     await bindingService.update(created.id, { name: "Updated" });
 
-    const events = await store.load(`ChannelBinding:${created.id}`);
+    const events = await prisma.outboxEvent.findMany({
+      where: { aggregateId: created.id },
+      orderBy: { occurredAt: "asc" },
+    });
     assert.equal(events.length, 2);
     assert.equal(events[0]?.eventType, "ChannelBindingCreated.v1");
     assert.equal(events[1]?.eventType, "ChannelBindingUpdated.v1");
   });
 
-  test("delete marks binding as deleted and removes from projection", async () => {
+  test("delete marks binding as deleted and removes state row", async () => {
     const { bindingService, bindingRepo } = makeInfra();
     const created = await bindingService.create({
       name: "To Delete",
       channelType: "feishu",
       accountId: "delete-test",
       channelConfig: { appId: "cli_del", appSecret: "sec_del" },
-      agentUrl: "http://del-agent:3001",
+      agentId: "http://del-agent:3001",
       enabled: true,
     });
 
@@ -1017,7 +1203,7 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
       channelType: "feishu",
       accountId: "dup-test",
       channelConfig: { appId: "cli_d1", appSecret: "sec_d1" },
-      agentUrl: "http://d1:3001",
+      agentId: "http://d1:3001",
       enabled: true,
     });
 
@@ -1027,45 +1213,27 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
         channelType: "feishu",
         accountId: "dup-test",
         channelConfig: { appId: "cli_d2", appSecret: "sec_d2" },
-        agentUrl: "http://d2:3001",
+        agentId: "http://d2:3001",
         enabled: true,
       }),
       DuplicateEnabledBindingError,
     );
   });
 
-  test("projection catches up from event store on cold start", async () => {
-    // Write events through one infra instance (no projection registered yet)
-    const busA = new DomainEventBus();
-    const storeA = new PrismaEventStore();
-    const bindingRepoA = new EventSourcedChannelBindingRepository(storeA, busA);
-    const serviceA = new ChannelBindingService(bindingRepoA);
-
-    const created = await serviceA.create({
+  test("state table remains the source of truth on cold start", async () => {
+    const { bindingService, bindingRepo } = makeInfra();
+    const created = await bindingService.create({
       name: "Cold Start Binding",
       channelType: "feishu",
       accountId: "cold-start",
       channelConfig: { appId: "cli_cs", appSecret: "sec_cs" },
-      agentUrl: "http://cs-agent:3001",
+      agentId: "http://cs-agent:3001",
       enabled: true,
     });
 
-    // The projection table was NOT updated because no projection was listening.
-    // Delete the row manually to simulate a wiped read model.
-    await prisma.channelBinding.deleteMany({ where: { id: created.id } });
-
-    // Now create a fresh infra with a projection and run catchUp.
-    const busB = new DomainEventBus();
-    const storeB = new PrismaEventStore();
-    const projection = new ChannelBindingProjection(busB, storeB);
-    await projection.catchUp();
-
-    // The projection should have rebuilt the read model from the event log.
-    const row = await prisma.channelBinding.findUnique({
-      where: { id: created.id },
-    });
-    assert.ok(row, "projection should have rebuilt the binding row");
-    assert.equal(row.name, "Cold Start Binding");
+    const found = await bindingRepo.findById(created.id);
+    assert.ok(found, "binding should load from the current state row");
+    assert.equal(found.name, "Cold Start Binding");
   });
 });
 
@@ -1085,17 +1253,16 @@ describe("AgentConfig aggregate + AgentService", () => {
     assert.equal(agent.protocol, "a2a");
   });
 
-  test("register publishes AgentRegistered event", async () => {
-    const { bus, agentService } = makeInfra();
-    const received: unknown[] = [];
-    bus.on("AgentRegistered.v1", (e) => received.push(e));
+  test("register does not write a runtime outbox event", async () => {
+    const { agentService } = makeInfra();
 
     await agentService.register({
       name: "Bus Agent",
       url: "http://bus-agent:4000",
     });
 
-    assert.equal(received.length, 1);
+    const events = await prisma.outboxEvent.findMany();
+    assert.equal(events.length, 0);
   });
 
   test("update patches agent fields", async () => {
@@ -1117,17 +1284,41 @@ describe("AgentConfig aggregate + AgentService", () => {
     assert.equal(updated.url, "http://before:4000");
   });
 
-  test("delete returns true and removes from projection", async () => {
+  test("delete removes an unreferenced agent", async () => {
     const { agentService, agentRepo } = makeInfra();
-    const created = await agentService.register({
-      name: "Temp",
-      url: "http://temp:4000",
+    const agent = await agentService.register({
+      name: "Disposable",
+      url: "http://disposable:4000",
     });
 
-    const deleted = await agentService.delete(created.id);
+    const deleted = await agentService.delete(agent.id);
     assert.equal(deleted, true);
 
-    const found = await agentRepo.findById(created.id);
+    const found = await agentRepo.findById(agent.id);
     assert.equal(found, null);
+  });
+
+  test("delete rejects when channel bindings reference the agent", async () => {
+    const { agentService, bindingService } = makeInfra();
+    const agent = await agentService.register({
+      name: "Referenced",
+      url: "http://referenced:4000",
+    });
+    const binding = await bindingService.create({
+      name: "References Agent",
+      channelType: "feishu",
+      accountId: "references-agent",
+      channelConfig: { appId: "cli_ref", appSecret: "sec_ref" },
+      agentId: agent.id,
+      enabled: true,
+    });
+
+    await assert.rejects(
+      agentService.delete(agent.id),
+      (err: unknown) =>
+        err instanceof ReferencedAgentError &&
+        err.agentId === agent.id &&
+        err.bindingIds.includes(binding.id),
+    );
   });
 });
