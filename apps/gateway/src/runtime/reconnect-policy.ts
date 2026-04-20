@@ -1,7 +1,6 @@
 export interface ReconnectDecision {
   attempt: number;
   delayMs: number;
-  nextAttemptAt: string;
 }
 
 export interface ReconnectPolicy {
@@ -30,7 +29,6 @@ export function createReconnectPolicy(
       return {
         attempt: safeAttempt,
         delayMs,
-        nextAttemptAt: new Date(Date.now() + delayMs).toISOString(),
       };
     },
   };

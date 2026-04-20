@@ -396,10 +396,41 @@ describe("RuntimeOwnershipState", () => {
 
     state.attachBinding(binding);
     const retry = state.markError("binding-1", new Error("socket closed"));
+    const statuses = state.listConnectionStatuses();
 
     assert.equal(retry.attempt, 1);
     assert.equal(retry.delayMs, 1000);
-    assert.equal(state.getOwnedBinding("binding-1")?.status.status, "error");
+    assert.equal(statuses.length, 1);
+    assert.equal(statuses[0]?.bindingId, "binding-1");
+    assert.equal(statuses[0]?.status, "error");
+  });
+
+  test("connected state resets reconnect attempt state", async () => {
+    const state = createRuntimeOwnershipState({
+      reconnectPolicy: createReconnectPolicy({
+        baseDelayMs: 1000,
+        maxDelayMs: 8000,
+      }),
+    });
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    state.attachBinding(binding);
+    const firstRetry = state.markError("binding-1", new Error("socket closed"));
+    state.markConnected("binding-1", "http://agent-1");
+    const secondRetry = state.markError("binding-1", new Error("socket closed"));
+
+    assert.equal(firstRetry.attempt, 1);
+    assert.equal(secondRetry.attempt, 1);
+    assert.equal(secondRetry.delayMs, 1000);
   });
 });
 // ---------------------------------------------------------------------------

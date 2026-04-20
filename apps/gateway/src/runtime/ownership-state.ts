@@ -6,16 +6,15 @@ import {
   type ReconnectPolicy,
 } from "./reconnect-policy.js";
 
-export interface OwnedRuntimeBinding {
+interface OwnedRuntimeBinding {
   binding: ChannelBinding;
   status: RuntimeConnectionStatus;
   reconnectAttempt: number;
 }
 
 export interface RuntimeOwnershipState {
-  attachBinding(binding: ChannelBinding): OwnedRuntimeBinding;
+  attachBinding(binding: ChannelBinding): void;
   detachBinding(bindingId: string): void;
-  getOwnedBinding(bindingId: string): OwnedRuntimeBinding | undefined;
   listConnectionStatuses(): RuntimeConnectionStatus[];
   markConnecting(bindingId: string, agentUrl?: string): RuntimeConnectionStatus;
   markConnected(bindingId: string, agentUrl?: string): RuntimeConnectionStatus;
@@ -77,8 +76,8 @@ export function createRuntimeOwnershipState(
   }
 
   return {
-    attachBinding(binding: ChannelBinding): OwnedRuntimeBinding {
-      const owned: OwnedRuntimeBinding = {
+    attachBinding(binding: ChannelBinding): void {
+      bindings.set(binding.id, {
         binding,
         status: {
           bindingId: binding.id,
@@ -86,17 +85,12 @@ export function createRuntimeOwnershipState(
           updatedAt: new Date().toISOString(),
         },
         reconnectAttempt: 0,
-      };
-
-      bindings.set(binding.id, owned);
-      return owned;
+      });
     },
 
     detachBinding(bindingId: string): void {
       bindings.delete(bindingId);
     },
-
-    getOwnedBinding,
 
     listConnectionStatuses(): RuntimeConnectionStatus[] {
       return Array.from(bindings.values())
