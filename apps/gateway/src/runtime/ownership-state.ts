@@ -7,7 +7,6 @@ import {
 } from "./reconnect-policy.js";
 
 interface OwnedRuntimeBinding {
-  binding: ChannelBinding;
   status: RuntimeConnectionStatus;
   reconnectAttempt: number;
 }
@@ -32,8 +31,10 @@ export function createRuntimeOwnershipState(
   const reconnectPolicy = options.reconnectPolicy ?? createReconnectPolicy();
   const bindings = new Map<string, OwnedRuntimeBinding>();
 
-  function getOwnedBinding(bindingId: string): OwnedRuntimeBinding | undefined {
-    return bindings.get(bindingId);
+  function cloneStatus(
+    status: RuntimeConnectionStatus,
+  ): RuntimeConnectionStatus {
+    return { ...status };
   }
 
   function setStatus(
@@ -55,7 +56,7 @@ export function createRuntimeOwnershipState(
       updatedAt: new Date().toISOString(),
     };
 
-    return owned.status;
+    return cloneStatus(owned.status);
   }
 
   function advanceReconnect(
@@ -78,7 +79,6 @@ export function createRuntimeOwnershipState(
   return {
     attachBinding(binding: ChannelBinding): void {
       bindings.set(binding.id, {
-        binding,
         status: {
           bindingId: binding.id,
           status: "idle",
@@ -94,7 +94,7 @@ export function createRuntimeOwnershipState(
 
     listConnectionStatuses(): RuntimeConnectionStatus[] {
       return Array.from(bindings.values())
-        .map((entry) => entry.status)
+        .map((entry) => cloneStatus(entry.status))
         .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
     },
 

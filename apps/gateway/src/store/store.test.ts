@@ -355,7 +355,7 @@ describe("ChannelBinding CRUD", () => {
 });
 
 describe("RuntimeOwnershipState", () => {
-  test("detaching a binding removes its runtime status entry", async () => {
+  test("attachBinding seeds an idle runtime status", async () => {
     const state = createRuntimeOwnershipState();
     const binding = {
       id: "binding-1",
@@ -369,14 +369,19 @@ describe("RuntimeOwnershipState", () => {
     };
 
     state.attachBinding(binding);
-    state.markConnecting("binding-1", "http://agent-1");
-    state.markConnected("binding-1", "http://agent-1");
-    state.detachBinding("binding-1");
+    const statuses = state.listConnectionStatuses();
+    assert.equal(statuses.length, 1);
+    assert.equal(statuses[0]?.bindingId, "binding-1");
+    assert.equal(statuses[0]?.status, "idle");
 
-    assert.deepEqual(state.listConnectionStatuses(), []);
+    if (statuses[0]) {
+      statuses[0].status = "error";
+    }
+
+    assert.equal(state.listConnectionStatuses()[0]?.status, "idle");
   });
 
-  test("error state schedules the next reconnect attempt", async () => {
+  test("markDisconnected returns a reconnect decision and updates status", async () => {
     const state = createRuntimeOwnershipState({
       reconnectPolicy: createReconnectPolicy({
         baseDelayMs: 1000,
@@ -395,14 +400,34 @@ describe("RuntimeOwnershipState", () => {
     };
 
     state.attachBinding(binding);
-    const retry = state.markError("binding-1", new Error("socket closed"));
+    const retry = state.markDisconnected("binding-1", "http://agent-1");
     const statuses = state.listConnectionStatuses();
 
     assert.equal(retry.attempt, 1);
     assert.equal(retry.delayMs, 1000);
     assert.equal(statuses.length, 1);
     assert.equal(statuses[0]?.bindingId, "binding-1");
-    assert.equal(statuses[0]?.status, "error");
+    assert.equal(statuses[0]?.status, "disconnected");
+  });
+
+  test("transition results are defensive copies", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    state.attachBinding(binding);
+    const status = state.markConnected("binding-1", "http://agent-1");
+    status.status = "error";
+
+    assert.equal(state.listConnectionStatuses()[0]?.status, "connected");
   });
 
   test("connected state resets reconnect attempt state", async () => {
@@ -431,6 +456,19 @@ describe("RuntimeOwnershipState", () => {
     assert.equal(firstRetry.attempt, 1);
     assert.equal(secondRetry.attempt, 1);
     assert.equal(secondRetry.delayMs, 1000);
+  });
+
+  test("reconnect policy caps exponential growth at the max delay", async () => {
+    const policy = createReconnectPolicy({
+      baseDelayMs: 1000,
+      maxDelayMs: 8000,
+    });
+
+    assert.equal(policy.next(1).delayMs, 1000);
+    assert.equal(policy.next(2).delayMs, 2000);
+    assert.equal(policy.next(3).delayMs, 4000);
+    assert.equal(policy.next(4).delayMs, 8000);
+    assert.equal(policy.next(5).delayMs, 8000);
   });
 });
 // ---------------------------------------------------------------------------
