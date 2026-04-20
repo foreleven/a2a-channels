@@ -381,6 +381,44 @@ describe("RuntimeOwnershipState", () => {
     assert.equal(state.listConnectionStatuses()[0]?.status, "idle");
   });
 
+  test("detachBinding removes the record", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    state.attachBinding(binding);
+    state.detachBinding("binding-1");
+
+    assert.deepEqual(state.listConnectionStatuses(), []);
+  });
+
+  test("markConnecting produces an observable connecting status", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    state.attachBinding(binding);
+    state.markConnecting("binding-1", "http://agent-1");
+
+    assert.equal(state.listConnectionStatuses()[0]?.status, "connecting");
+  });
+
   test("markDisconnected returns a reconnect decision and updates status", async () => {
     const state = createRuntimeOwnershipState({
       reconnectPolicy: createReconnectPolicy({
@@ -408,6 +446,27 @@ describe("RuntimeOwnershipState", () => {
     assert.equal(statuses.length, 1);
     assert.equal(statuses[0]?.bindingId, "binding-1");
     assert.equal(statuses[0]?.status, "disconnected");
+  });
+
+  test("markError updates observable error status and surfaces the error string", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    state.attachBinding(binding);
+    state.markError("binding-1", new Error("socket closed"));
+
+    const statuses = state.listConnectionStatuses();
+    assert.equal(statuses[0]?.status, "error");
+    assert.equal(statuses[0]?.error, "Error: socket closed");
   });
 
   test("transition results are defensive copies", async () => {
