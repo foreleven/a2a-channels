@@ -9,7 +9,7 @@ import { ChannelBindingService } from "../application/channel-binding-service.js
 import { buildHttpApp } from "./app.js";
 
 describe("buildHttpApp", () => {
-  test("registers channel, agent, and runtime routes against container services", async () => {
+  test("registers runtime nodes and connections routes against runtime reader", async () => {
     const container = new Container({ defaultScope: "Singleton" });
     const channelService = {
       list: async () => [{ id: "binding-1", name: "Binding" }],
@@ -64,9 +64,25 @@ describe("buildHttpApp", () => {
     const app = buildHttpApp(container, {
       corsOrigin: "http://localhost:3000",
       runtime: {
-        listConnectionStatuses: () => [
+        listNodes: async () => [
+          {
+            nodeId: "node-a",
+            displayName: "Gateway Node A",
+            mode: "local",
+            lastKnownAddress: "http://127.0.0.1:7890",
+            lifecycle: "ready",
+            bindingCount: 1,
+            updatedAt: "2026-04-21T00:00:00.000Z",
+          },
+        ],
+        listConnections: async () => [
           {
             bindingId: "binding-1",
+            bindingName: "Binding",
+            channelType: "feishu",
+            accountId: "default",
+            agentId: "agent-1",
+            ownerNodeId: "node-a",
             status: "connected",
             agentUrl: "http://localhost:3001",
             updatedAt: "2026-04-21T00:00:00.000Z",
@@ -90,9 +106,82 @@ describe("buildHttpApp", () => {
       createdAt: "2026-04-21T00:00:00.000Z",
     }]);
 
-    const runtimeResponse = await app.request("/api/runtime/connections");
-    assert.equal(runtimeResponse.status, 200);
-    assert.deepEqual(await runtimeResponse.json(), [
+    const runtimeNodesResponse = await app.request("/api/runtime/nodes");
+    assert.equal(runtimeNodesResponse.status, 200);
+    assert.deepEqual(await runtimeNodesResponse.json(), [
+      {
+        nodeId: "node-a",
+        displayName: "Gateway Node A",
+        mode: "local",
+        lastKnownAddress: "http://127.0.0.1:7890",
+        lifecycle: "ready",
+        bindingCount: 1,
+        updatedAt: "2026-04-21T00:00:00.000Z",
+      },
+    ]);
+
+    const runtimeConnectionsResponse = await app.request("/api/runtime/connections");
+    assert.equal(runtimeConnectionsResponse.status, 200);
+    assert.deepEqual(await runtimeConnectionsResponse.json(), [
+      {
+        bindingId: "binding-1",
+        bindingName: "Binding",
+        channelType: "feishu",
+        accountId: "default",
+        agentId: "agent-1",
+        ownerNodeId: "node-a",
+        status: "connected",
+        agentUrl: "http://localhost:3001",
+        updatedAt: "2026-04-21T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("registers runtime nodes route without breaking relay-style runtime source", async () => {
+    const container = new Container({ defaultScope: "Singleton" });
+    container.bind(ChannelBindingService).toConstantValue({
+      list: async (): Promise<ChannelBindingSnapshot[]> => [],
+      getById: async () => null,
+      create: async () => ({ id: "binding-2" }),
+      update: async () => null,
+      delete: async () => false,
+    } as unknown as ChannelBindingService);
+    container.bind(AgentService).toConstantValue({
+      list: async (): Promise<AgentConfigSnapshot[]> => [],
+      getById: async () => null,
+      register: async (): Promise<AgentConfigSnapshot> => ({
+        id: "agent-1",
+        name: "Echo",
+        url: "http://localhost:3001",
+        protocol: "a2a",
+        createdAt: "2026-04-21T00:00:00.000Z",
+      }),
+      update: async () => null,
+      delete: async () => false,
+    } as unknown as AgentService);
+
+    const app = buildHttpApp(container, {
+      corsOrigin: "http://localhost:3000",
+      runtime: {
+        listConnectionStatuses: () => [
+          {
+            bindingId: "binding-1",
+            status: "connected",
+            agentUrl: "http://localhost:3001",
+            updatedAt: "2026-04-21T00:00:00.000Z",
+          },
+        ],
+      },
+      webDir: "/tmp/does-not-exist",
+    });
+
+    const runtimeNodesResponse = await app.request("/api/runtime/nodes");
+    assert.equal(runtimeNodesResponse.status, 200);
+    assert.deepEqual(await runtimeNodesResponse.json(), []);
+
+    const runtimeConnectionsResponse = await app.request("/api/runtime/connections");
+    assert.equal(runtimeConnectionsResponse.status, 200);
+    assert.deepEqual(await runtimeConnectionsResponse.json(), [
       {
         bindingId: "binding-1",
         status: "connected",
@@ -132,7 +221,8 @@ describe("buildHttpApp", () => {
     const app = buildHttpApp(container, {
       corsOrigin: "*",
       runtime: {
-        listConnectionStatuses: () => [],
+        listNodes: async () => [],
+        listConnections: async () => [],
       },
       webDir: "/tmp/does-not-exist",
     });

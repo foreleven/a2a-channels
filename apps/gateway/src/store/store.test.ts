@@ -663,6 +663,152 @@ describe("RuntimeNodeStateRepository", () => {
   });
 });
 
+describe("RuntimeClusterStateReader", () => {
+  beforeEach(resetDB);
+
+  test("merges DB bindings with local runtime state", async () => {
+    const { RuntimeClusterStateReader } = await import(
+      "../runtime/runtime-cluster-state-reader.js"
+    );
+    const stateStore = new LocalNodeRuntimeStateStore();
+    const bindingRepo = new ChannelBindingStateRepository();
+    const agentRepo = new AgentConfigStateRepository();
+    const runtimeNodeRepo = new (await import("../infra/runtime-node-repo.js"))
+      .RuntimeNodeStateRepository();
+
+    const agent = await createAgentConfig({
+      name: "Echo",
+      url: "http://localhost:3001",
+      protocol: "a2a",
+    });
+    const binding = await createChannelBinding({
+      name: "Binding",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: agent.id,
+      enabled: true,
+    });
+
+    await runtimeNodeRepo.upsert({
+      nodeId: "node-a",
+      displayName: "Gateway Node A",
+      mode: "local",
+      lastKnownAddress: "http://127.0.0.1:7890",
+      registeredAt: new Date("2026-04-21T08:00:00.000Z"),
+      updatedAt: new Date("2026-04-21T08:00:00.000Z"),
+    });
+    await stateStore.publishNodeSnapshot({
+      nodeId: "node-a",
+      displayName: "Gateway Node A",
+      mode: "local",
+      lastKnownAddress: "http://127.0.0.1:7890",
+      lifecycle: "ready",
+      bindingStatuses: [
+        {
+          bindingId: binding.id,
+          status: "connected",
+          agentUrl: "http://localhost:3001",
+          updatedAt: "2026-04-21T08:00:00.000Z",
+        },
+      ],
+      updatedAt: "2026-04-21T08:00:00.000Z",
+    });
+
+    const reader = new RuntimeClusterStateReader(
+      bindingRepo,
+      agentRepo,
+      runtimeNodeRepo,
+      stateStore,
+    );
+
+    const nodes = await reader.listNodes();
+    const connections = await reader.listConnections();
+
+    assert.deepEqual(nodes, [
+      {
+        nodeId: "node-a",
+        displayName: "Gateway Node A",
+        mode: "local",
+        lastKnownAddress: "http://127.0.0.1:7890",
+        lifecycle: "ready",
+        bindingCount: 1,
+        updatedAt: "2026-04-21T08:00:00.000Z",
+      },
+    ]);
+    assert.deepEqual(connections, [
+      {
+        bindingId: binding.id,
+        bindingName: "Binding",
+        channelType: "feishu",
+        accountId: "default",
+        agentId: agent.id,
+        agentUrl: "http://localhost:3001",
+        ownerNodeId: "node-a",
+        status: "connected",
+        updatedAt: "2026-04-21T08:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("prefers the newest snapshot when multiple snapshots exist for a node", async () => {
+    const { RuntimeClusterStateReader } = await import(
+      "../runtime/runtime-cluster-state-reader.js"
+    );
+    const stateStore = new LocalNodeRuntimeStateStore();
+    const bindingRepo = new ChannelBindingStateRepository();
+    const agentRepo = new AgentConfigStateRepository();
+    const runtimeNodeRepo = new (await import("../infra/runtime-node-repo.js"))
+      .RuntimeNodeStateRepository();
+
+    await runtimeNodeRepo.upsert({
+      nodeId: "node-a",
+      displayName: "Gateway Node A",
+      mode: "local",
+      lastKnownAddress: "http://127.0.0.1:7890",
+      registeredAt: new Date("2026-04-21T08:00:00.000Z"),
+      updatedAt: new Date("2026-04-21T08:00:00.000Z"),
+    });
+    await stateStore.publishNodeSnapshot({
+      nodeId: "node-a",
+      displayName: "Gateway Node A",
+      mode: "local",
+      lastKnownAddress: "http://127.0.0.1:7890",
+      lifecycle: "bootstrapping",
+      bindingStatuses: [],
+      updatedAt: "2026-04-21T08:00:00.000Z",
+    });
+    await stateStore.publishNodeSnapshot({
+      nodeId: "node-a",
+      displayName: "Gateway Node A Updated",
+      mode: "cluster",
+      lastKnownAddress: "http://127.0.0.1:7891",
+      lifecycle: "ready",
+      bindingStatuses: [],
+      updatedAt: "2026-04-21T09:00:00.000Z",
+    });
+
+    const reader = new RuntimeClusterStateReader(
+      bindingRepo,
+      agentRepo,
+      runtimeNodeRepo,
+      stateStore,
+    );
+
+    assert.deepEqual(await reader.listNodes(), [
+      {
+        nodeId: "node-a",
+        displayName: "Gateway Node A Updated",
+        mode: "cluster",
+        lastKnownAddress: "http://127.0.0.1:7891",
+        lifecycle: "ready",
+        bindingCount: 0,
+        updatedAt: "2026-04-21T09:00:00.000Z",
+      },
+    ]);
+  });
+});
+
 describe("cluster bootstrap wiring", () => {
   test("cluster mode uses the leader scheduler instead of LocalScheduler", async () => {
     const result = buildRuntimeBootstrap({
