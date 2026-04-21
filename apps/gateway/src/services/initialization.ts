@@ -27,6 +27,7 @@ export async function initStore(): Promise<void> {
   try {
     await prisma.$queryRaw`SELECT 1 FROM "channel_bindings" LIMIT 0`;
     await prisma.$queryRaw`SELECT 1 FROM "agents" LIMIT 0`;
+    await prisma.$queryRaw`SELECT 1 FROM "runtime_nodes" LIMIT 0`;
     await prisma.$queryRaw`SELECT 1 FROM "outbox_events" LIMIT 0`;
   } catch {
     execSync("npx prisma db push", {

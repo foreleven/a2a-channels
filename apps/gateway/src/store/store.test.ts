@@ -57,6 +57,7 @@ async function resetDB(): Promise<void> {
   await prisma.outboxEvent.deleteMany();
   await prisma.channelBinding.deleteMany();
   await prisma.agent.deleteMany();
+  await prisma.runtimeNode.deleteMany();
   await initStore();
 }
 
@@ -609,6 +610,46 @@ describe("Redis coordination contracts", () => {
     assert.equal(keys.bindingLeaseKey, "a2a:binding:binding-1:lease");
     assert.equal(keys.instanceHeartbeatKey, "a2a:instance:gateway-a:heartbeat");
     assert.equal(keys.leaderLeaseKey, "a2a:cluster:leader");
+  });
+});
+
+describe("RuntimeNodeStateRepository", () => {
+  beforeEach(resetDB);
+
+  test("upserts runtime node records and returns the latest row", async () => {
+    const { RuntimeNodeStateRepository } = await import(
+      "../infra/runtime-node-repo.js"
+    );
+    const repo = new RuntimeNodeStateRepository();
+
+    await repo.upsert({
+      nodeId: "node-1",
+      displayName: "Runtime Node 1",
+      mode: "local",
+      lastKnownAddress: "http://127.0.0.1:7890",
+      registeredAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await repo.upsert({
+      nodeId: "node-1",
+      displayName: "Runtime Node 1 Updated",
+      mode: "cluster",
+      lastKnownAddress: "http://127.0.0.1:7891",
+      registeredAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    });
+
+    const rows = await repo.list();
+
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0], {
+      nodeId: "node-1",
+      displayName: "Runtime Node 1 Updated",
+      mode: "cluster",
+      lastKnownAddress: "http://127.0.0.1:7891",
+      registeredAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    });
   });
 });
 
@@ -1504,6 +1545,28 @@ describe("seedDefaults", () => {
 
 describe("initStore", () => {
   beforeEach(resetDB);
+
+  test("recreates the runtime_nodes table when it is missing", async () => {
+    await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS "runtime_nodes"');
+
+    await initStore();
+
+    await prisma.runtimeNode.create({
+      data: {
+        nodeId: "node-recreated",
+        displayName: "Recreated Node",
+        mode: "local",
+        lastKnownAddress: "http://localhost:7890",
+      },
+    });
+
+    const found = await prisma.runtimeNode.findUnique({
+      where: { nodeId: "node-recreated" },
+    });
+
+    assert.ok(found);
+    assert.equal(found?.displayName, "Recreated Node");
+  });
 
   test("direct channel rows are available through DB-backed routing", async () => {
     const agent = await prisma.agent.create({
