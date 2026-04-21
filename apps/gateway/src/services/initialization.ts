@@ -1,11 +1,23 @@
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import type {
+  AgentConfigRepository,
+  ChannelBindingRepository,
+} from "@a2a-channels/domain";
+
 import { AgentService } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { DB_PATH, prisma } from "../store/prisma.js";
+
+export interface SeedDefaultsDependencies {
+  agentService?: AgentService;
+  bindingService?: ChannelBindingService;
+  agentRepo?: AgentConfigRepository;
+  bindingRepo?: ChannelBindingRepository;
+}
 
 const GATEWAY_DIR = fileURLToPath(new URL("../../", import.meta.url));
 const DEFAULT_ECHO_AGENT_URL =
@@ -25,11 +37,15 @@ export async function initStore(): Promise<void> {
   }
 }
 
-export async function seedDefaults(): Promise<void> {
-  const agentRepo = new AgentConfigStateRepository();
-  const bindingRepo = new ChannelBindingStateRepository();
-  const agentService = new AgentService(agentRepo, bindingRepo);
-  const bindingService = new ChannelBindingService(bindingRepo, agentRepo);
+export async function seedDefaults(
+  deps: SeedDefaultsDependencies = {},
+): Promise<void> {
+  const agentRepo = deps.agentRepo ?? new AgentConfigStateRepository();
+  const bindingRepo = deps.bindingRepo ?? new ChannelBindingStateRepository();
+  const agentService =
+    deps.agentService ?? new AgentService(agentRepo, bindingRepo);
+  const bindingService =
+    deps.bindingService ?? new ChannelBindingService(bindingRepo, agentRepo);
 
   let defaultAgent = (await agentService.list())[0];
   if (!defaultAgent) {

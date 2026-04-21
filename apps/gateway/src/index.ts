@@ -25,6 +25,10 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { SERVICE_TOKENS } from "@a2a-channels/di";
+import type {
+  AgentConfigRepository,
+  ChannelBindingRepository,
+} from "@a2a-channels/domain";
 
 import type { UpdateChannelBindingData } from "./application/channel-binding-service.js";
 import type { ChannelBindingService } from "./application/channel-binding-service.js";
@@ -57,17 +61,29 @@ const { port: PORT, corsOrigin: CORS_ORIGIN } = gatewayConfig;
 // ---------------------------------------------------------------------------
 
 await initStore();
-await seedDefaults();
 
 const eventBus = new DomainEventBus();
 const outboxWorker = new OutboxWorker(eventBus);
 outboxWorker.start();
 
 const container = buildGatewayContainer(gatewayConfig);
+const bindingRepo = container.get<ChannelBindingRepository>(
+  SERVICE_TOKENS.ChannelBindingStateRepository,
+);
+const agentRepo = container.get<AgentConfigRepository>(
+  SERVICE_TOKENS.AgentConfigStateRepository,
+);
 const channelBindingService = container.get<ChannelBindingService>(
   SERVICE_TOKENS.ChannelBindingService,
 );
 const agentService = container.get<AgentService>(SERVICE_TOKENS.AgentService);
+
+await seedDefaults({
+  agentService,
+  bindingService: channelBindingService,
+  agentRepo,
+  bindingRepo,
+});
 
 // ---------------------------------------------------------------------------
 // Runtime bootstrap

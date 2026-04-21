@@ -15,13 +15,13 @@ export class ReferencedAgentError extends Error {
 export async function deleteAgent(
   repo: AgentConfigRepository,
   id: string,
-  bindingRepo?: ChannelBindingRepository,
+  bindingRepo: ChannelBindingRepository,
 ): Promise<boolean> {
   const aggregate = await repo.findById(id);
   if (!aggregate) return false;
 
-  const bindings = await bindingRepo?.findByAgentId(id);
-  if (bindings?.length) {
+  const bindings = await bindingRepo.findByAgentId(id);
+  if (bindings.length) {
     throw new ReferencedAgentError(
       id,
       bindings.map((binding) => binding.id),

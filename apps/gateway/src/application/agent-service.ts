@@ -27,7 +27,7 @@ export class AgentService {
     @inject(PORT_TOKENS.AgentConfigRepository)
     private readonly repo: AgentConfigRepository,
     @inject(PORT_TOKENS.ChannelBindingRepository)
-    private readonly bindingRepo?: ChannelBindingRepository,
+    private readonly bindingRepo: ChannelBindingRepository,
   ) {}
 
   async list(): Promise<AgentConfigSnapshot[]> {
