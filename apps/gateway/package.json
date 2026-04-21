@@ -10,7 +10,7 @@
     "postinstall": "prisma generate --schema=prisma/schema.prisma",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:push": "prisma db push --schema=prisma/schema.prisma",
-    "test": "XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts src/container/container.test.ts"
+    "test": "XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts src/container/container.test.ts src/http/app.test.ts"
   },
   "dependencies": {
     "@a2a-channels/agent-transport": "workspace:*",
