@@ -15,6 +15,7 @@
   "dependencies": {
     "@a2a-channels/agent-transport": "workspace:*",
     "@a2a-channels/core": "workspace:*",
+    "@a2a-channels/di": "workspace:*",
     "@a2a-channels/domain": "workspace:*",
     "@a2a-channels/event-store": "workspace:*",
     "@a2a-channels/openclaw-compat": "workspace:*",
@@ -22,6 +23,8 @@
     "@prisma/adapter-better-sqlite3": "7.7.0",
     "@prisma/client": "7.7.0",
     "@prisma/client-runtime-utils": "7.7.0",
+    "inversify": "^7.7.1",
+    "reflect-metadata": "^0.2.2",
     "openclaw": "^2026.4.15"
   },
   "devDependencies": {

@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "lib": [
       "ESNext"
     ],
@@ -28,6 +30,9 @@
     "paths": {
       "@a2a-channels/core": [
         "./packages/core/src/index.ts"
+      ],
+      "@a2a-channels/di": [
+        "./packages/di/src/index.ts"
       ],
       "@a2a-channels/domain": [
         "./packages/domain/src/index.ts"
