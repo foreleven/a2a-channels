@@ -3,6 +3,7 @@ import "reflect-metadata";
 import { Container } from "inversify";
 import { buildApplicationModule } from "../container/modules/application.js";
 import { buildInfraModule } from "../container/modules/infra.js";
+import { buildRuntimeModule } from "../container/modules/runtime.js";
 import type { GatewayConfig } from "./config.js";
 import { GatewayConfigToken } from "./config.js";
 
@@ -11,5 +12,6 @@ export function buildGatewayContainer(config: GatewayConfig): Container {
   container.bind(GatewayConfigToken).toConstantValue(config);
   container.load(buildInfraModule());
   container.load(buildApplicationModule());
+  container.load(buildRuntimeModule());
   return container;
 }

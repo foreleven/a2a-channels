@@ -34,6 +34,7 @@ import {
   RuntimeNodeState,
   type LocalRuntimeSnapshot,
 } from "../runtime/runtime-node-state.js";
+import type { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 import { TransportRegistryProvider } from "../runtime/transport-registry-provider.js";
 import { initStore, seedDefaults } from "../services/initialization.js";
 import { buildOpenClawConfig } from "../services/openclaw-config.js";
@@ -830,6 +831,309 @@ describe("cluster bootstrap wiring", () => {
 
     assert.equal(result.schedulerKind, "local");
     assert.equal(result.scheduler instanceof LocalScheduler, true);
+  });
+});
+
+describe("gateway startup sequencing", () => {
+  test("startGateway starts HTTP before runtime bootstrap resolves", async () => {
+    const { startGateway } = await import("../bootstrap/start-gateway.js");
+    const events: string[] = [];
+    let resolveBootstrap!: () => void;
+    let bootstrapResolved = false;
+
+    const bootstrapGate = new Promise<void>((resolve) => {
+      resolveBootstrap = resolve;
+    });
+
+    const gateway = startGateway({
+      app: {
+        fetch: () => new Response("ok"),
+      },
+      port: 7897,
+      outboxWorker: {
+        start: () => {
+          events.push("outbox:start");
+        },
+        stop: async () => {
+          events.push("outbox:stop");
+        },
+      } as OutboxWorker,
+      runtimeBootstrapper: {
+        bootstrap: async () => {
+          events.push("bootstrap:start");
+          await bootstrapGate;
+          bootstrapResolved = true;
+          events.push("bootstrap:done");
+        },
+        shutdown: async () => {
+          events.push("bootstrap:shutdown");
+        },
+      } as unknown as RuntimeBootstrapper,
+      logger: {
+        info: (message: string) => {
+          events.push(`info:${message}`);
+        },
+        error: () => {
+          events.push("log:error");
+        },
+      },
+      serve: (_options, onListening) => {
+        events.push("http:serve");
+        onListening?.({ port: 7897 } as never);
+        return {
+          close: () => {
+            events.push("http:close");
+          },
+        } as never;
+      },
+    });
+
+    await waitFor(() => events.includes("bootstrap:start"));
+
+    assert.ok(events.includes("outbox:start"));
+    assert.ok(events.includes("http:serve"));
+    assert.ok(events.indexOf("outbox:start") < events.indexOf("http:serve"));
+    assert.equal(bootstrapResolved, false);
+
+    resolveBootstrap();
+    await waitFor(() => bootstrapResolved);
+    await gateway.shutdown();
+
+    assert.ok(events.includes("bootstrap:done"));
+    assert.ok(events.includes("bootstrap:shutdown"));
+    assert.ok(events.includes("outbox:stop"));
+    assert.ok(events.includes("http:close"));
+  });
+
+  test("startGateway exposes bootstrap rejection", async () => {
+    const { startGateway } = await import("../bootstrap/start-gateway.js");
+    const events: string[] = [];
+
+    const gateway = startGateway({
+      app: {
+        fetch: () => new Response("ok"),
+      },
+      port: 7898,
+      outboxWorker: {
+        start: () => {
+          events.push("outbox:start");
+        },
+        stop: async () => {
+          events.push("outbox:stop");
+        },
+      } as OutboxWorker,
+      runtimeBootstrapper: {
+        bootstrap: async () => {
+          events.push("bootstrap:start");
+          throw new Error("bootstrap rejection");
+        },
+        shutdown: async () => {
+          events.push("bootstrap:shutdown");
+        },
+      } as unknown as RuntimeBootstrapper,
+      logger: {
+        info: (message: string) => {
+          events.push(`info:${message}`);
+        },
+        error: (message: string, error?: unknown) => {
+          events.push(`error:${message}:${String(error)}`);
+        },
+      },
+      serve: (_options, onListening) => {
+        events.push("http:serve");
+        onListening?.({ port: 7898 } as never);
+        return {
+          close: () => {
+            events.push("http:close");
+          },
+        } as never;
+      },
+    });
+
+    await assert.rejects(gateway.runtimeBootstrap, /bootstrap rejection/);
+    await gateway.shutdown();
+
+    assert.ok(
+      events.some((event) =>
+        event.includes("error:[gateway] runtime bootstrap failed:Error: bootstrap rejection"),
+      ),
+    );
+    assert.ok(events.includes("bootstrap:shutdown"));
+    assert.ok(events.includes("outbox:stop"));
+    assert.ok(events.includes("http:close"));
+  });
+
+  test("startGateway retries bootstrap after initial rejection", async () => {
+    const { startGateway } = await import("../bootstrap/start-gateway.js");
+    const events: string[] = [];
+    let attempts = 0;
+
+    const gateway = startGateway({
+      app: {
+        fetch: () => new Response("ok"),
+      },
+      port: 7901,
+      outboxWorker: {
+        start: () => {
+          events.push("outbox:start");
+        },
+        stop: async () => {
+          events.push("outbox:stop");
+        },
+      } as OutboxWorker,
+      runtimeBootstrapper: {
+        bootstrap: async () => {
+          attempts += 1;
+          events.push(`bootstrap:start:${attempts}`);
+          if (attempts === 1) {
+            throw new Error("bootstrap rejection");
+          }
+          events.push("bootstrap:done");
+        },
+        shutdown: async () => {
+          events.push("bootstrap:shutdown");
+        },
+      } as unknown as RuntimeBootstrapper,
+      logger: {
+        info: () => {},
+        error: (message: string, error?: unknown) => {
+          events.push(`error:${message}:${String(error)}`);
+        },
+      },
+      serve: (_options, onListening) => {
+        events.push("http:serve");
+        onListening?.({ port: 7901 } as never);
+        return {
+          close: () => {
+            events.push("http:close");
+          },
+        } as never;
+      },
+      runtimeBootstrapRetryDelayMs: 5,
+    });
+
+    await assert.rejects(gateway.runtimeBootstrap, /bootstrap rejection/);
+    await waitFor(() => attempts === 2);
+    await waitFor(() => events.includes("bootstrap:done"));
+    await gateway.shutdown();
+
+    assert.deepEqual(
+      events.filter((event) => event.startsWith("bootstrap:start:")),
+      ["bootstrap:start:1", "bootstrap:start:2"],
+    );
+    assert.ok(
+      events.some((event) =>
+        event.includes("error:[gateway] runtime bootstrap failed:Error: bootstrap rejection"),
+      ),
+    );
+  });
+
+  test("startGateway shutdown while bootstrap is in flight waits for cleanup", async () => {
+    const { startGateway } = await import("../bootstrap/start-gateway.js");
+    const events: string[] = [];
+    let resolveBootstrap!: () => void;
+    let shutdownCompleted = false;
+
+    const bootstrapGate = new Promise<void>((resolve) => {
+      resolveBootstrap = resolve;
+    });
+
+    const gateway = startGateway({
+      app: {
+        fetch: () => new Response("ok"),
+      },
+      port: 7899,
+      outboxWorker: {
+        start: () => {
+          events.push("outbox:start");
+        },
+        stop: async () => {
+          events.push("outbox:stop");
+        },
+      } as OutboxWorker,
+      runtimeBootstrapper: {
+        bootstrap: async () => {
+          events.push("bootstrap:start");
+          await bootstrapGate;
+          events.push("bootstrap:done");
+        },
+        shutdown: async () => {
+          events.push("bootstrap:shutdown");
+        },
+      } as unknown as RuntimeBootstrapper,
+      logger: {
+        info: () => {},
+        error: () => {},
+      },
+      serve: (_options, onListening) => {
+        events.push("http:serve");
+        onListening?.({ port: 7899 } as never);
+        return {
+          close: () => {
+            events.push("http:close");
+          },
+        } as never;
+      },
+    });
+
+    await waitFor(() => events.includes("bootstrap:start"));
+
+    const shutdownPromise = gateway.shutdown().then(() => {
+      shutdownCompleted = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(shutdownCompleted, false);
+
+    resolveBootstrap();
+    await shutdownPromise;
+
+    assert.ok(events.includes("bootstrap:done"));
+    assert.ok(events.includes("bootstrap:shutdown"));
+    assert.ok(events.includes("outbox:stop"));
+    assert.ok(events.includes("http:close"));
+  });
+});
+
+describe("runtime bootstrapper", () => {
+  test("runtime bootstrapper retries after bootstrap rejection", async () => {
+    const { RuntimeBootstrapper } = await import(
+      "../runtime/runtime-bootstrapper.js"
+    );
+    let relayBootstrapAttempts = 0;
+    let relayShutdownCalls = 0;
+
+    const bootstrapper = new RuntimeBootstrapper(
+      buildGatewayConfig({
+        port: 7900,
+        clusterMode: true,
+        nodeId: "node-runtime-bootstrapper",
+        nodeDisplayName: "Runtime Bootstrapper Node",
+        runtimeAddress: "http://localhost:7900",
+      }),
+      {
+        upsert: async () => {},
+      } as never,
+      {
+        bootstrap: async () => {
+          relayBootstrapAttempts += 1;
+          if (relayBootstrapAttempts === 1) {
+            throw new Error("bootstrap rejection");
+          }
+        },
+        shutdown: async () => {
+          relayShutdownCalls += 1;
+        },
+      } as RelayRuntime,
+      new DomainEventBus(),
+    );
+
+    await assert.rejects(bootstrapper.bootstrap(), /bootstrap rejection/);
+    await bootstrapper.bootstrap();
+    await bootstrapper.shutdown();
+
+    assert.equal(relayBootstrapAttempts, 2);
+    assert.equal(relayShutdownCalls, 1);
   });
 });
 

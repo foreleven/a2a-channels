@@ -18,6 +18,8 @@ import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
+import { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
+import { RuntimeClusterStateReader } from "../runtime/runtime-cluster-state-reader.js";
 import { initStore } from "../services/initialization.js";
 
 describe("buildGatewayContainer", () => {
@@ -146,5 +148,12 @@ describe("buildGatewayContainer", () => {
     await worker.stop();
 
     assert.ok(worker);
+  });
+
+  test("resolves runtime bootstrapper and RuntimeClusterStateReader", () => {
+    const container = buildGatewayContainer(buildGatewayConfig({ port: 7896 }));
+
+    assert.ok(container.get(RuntimeBootstrapper));
+    assert.ok(container.get(RuntimeClusterStateReader));
   });
 });
