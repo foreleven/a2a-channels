@@ -4,22 +4,20 @@ import type {
   AgentTransport,
   ChannelBinding,
   RuntimeConnectionStatus,
+  TransportRegistry,
 } from "@a2a-channels/core";
 import { A2ATransport, ACPTransport } from "@a2a-channels/agent-transport";
-import { TransportRegistry } from "@a2a-channels/core";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
 
+import { buildGatewayConfig, type GatewayConfig } from "../bootstrap/config.js";
 import { ConnectionManager } from "../connection-manager.js";
 import { registerAllPlugins } from "../register-plugins.js";
-import {
-  createAgentClientHandle,
-  startAgentClients,
-  stopAgentClients,
-} from "./agent-clients.js";
+import { AgentClientRegistry } from "./agent-client-registry.js";
+import type { NodeRuntimeStateStore } from "./node-runtime-state-store.js";
 import {
   buildOpenClawConfigFromBindings,
 } from "./openclaw-config.js";
@@ -29,12 +27,23 @@ import {
 } from "./ownership-state.js";
 import { createLocalOwnershipGate } from "./local-ownership-gate.js";
 import type { OwnershipGate } from "./ownership-gate.js";
+import { PluginHostProvider } from "./plugin-host-provider.js";
 import type { ReconnectPolicy } from "./reconnect-policy.js";
+import {
+  RuntimeNodeState,
+  type LocalRuntimeSnapshot,
+} from "./runtime-node-state.js";
+import { TransportRegistryProvider } from "./transport-registry-provider.js";
 
 export interface RelayRuntimeOptions {
   name?: string;
   reconnectPolicy?: ReconnectPolicy;
-  transports: AgentTransport[];
+  transports?: AgentTransport[];
+  config?: GatewayConfig;
+  runtimeNodeState?: RuntimeNodeState;
+  stateStore?: NodeRuntimeStateStore;
+  pluginHostProvider?: PluginHostProvider;
+  agentClientRegistry?: AgentClientRegistry;
 }
 
 interface ApplyAgentUpsertOptions {
@@ -51,18 +60,34 @@ export class RelayRuntime {
   private bindingsById = new Map<string, ChannelBinding>();
   private agentsById = new Map<string, AgentConfig>();
   private agentsByUrl = new Map<string, AgentConfig>();
-  private clients = new Map<string, AgentClientHandle>();
   private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly config: GatewayConfig;
+  private readonly nodeState: RuntimeNodeState;
+  private readonly stateStore: NodeRuntimeStateStore;
+  private readonly agentClientRegistry: AgentClientRegistry;
   private readonly ownershipState: RuntimeOwnershipState;
   private readonly ownershipGate: OwnershipGate;
   private openClawConfig: OpenClawConfig;
+  private nodeSnapshotPublishQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: RelayRuntimeOptions) {
     this.name = options.name ?? "local";
+    this.config = options.config ?? buildGatewayConfig();
     this.bindingsById = new Map();
     this.agentsById = new Map();
     this.agentsByUrl = new Map();
     this.reconnectTimers = new Map();
+    this.nodeState = options.runtimeNodeState ?? new RuntimeNodeState(this.config);
+    this.stateStore = options.stateStore ?? {
+      publishNodeSnapshot: async () => {},
+    };
+    this.agentClientRegistry =
+      options.agentClientRegistry ??
+      new AgentClientRegistry(
+        new TransportRegistryProvider(
+          options.transports ?? [new A2ATransport(), new ACPTransport()],
+        ),
+      );
     this.ownershipGate = createLocalOwnershipGate();
     this.ownershipState = createRuntimeOwnershipState({
       reconnectPolicy: options.reconnectPolicy,
@@ -71,10 +96,7 @@ export class RelayRuntime {
 
     console.log("[RelayRuntime] config=", this.openClawConfig);
 
-    this.transportRegistry = new TransportRegistry();
-    for (const transport of options.transports) {
-      this.transportRegistry.register(transport);
-    }
+    this.transportRegistry = this.agentClientRegistry.transportRegistry;
 
     let connectionManager!: ConnectionManager;
 
@@ -90,7 +112,9 @@ export class RelayRuntime {
       handleChannelReplyEvent: (event) => connectionManager.handleEvent(event),
     });
 
-    this.pluginHost = new OpenClawPluginHost(this.runtime);
+    this.pluginHost = (options.pluginHostProvider ?? new PluginHostProvider()).create(
+      this.runtime,
+    );
     connectionManager = new ConnectionManager(
       this.pluginHost,
       () => this.listEnabledBindings(),
@@ -115,20 +139,25 @@ export class RelayRuntime {
   static async load(): Promise<RelayRuntime> {
     return new RelayRuntime({
       name: "local",
+      config: buildGatewayConfig(),
       transports: [new A2ATransport(), new ACPTransport()],
     });
   }
 
   async bootstrap(): Promise<void> {
+    await this.publishNodeSnapshot(this.nodeState.markBootstrapping());
     registerAllPlugins(this.pluginHost);
+    await this.publishNodeSnapshot(this.nodeState.markReady());
   }
 
   async shutdown(): Promise<void> {
+    await this.publishNodeSnapshot(this.nodeState.markStopping());
     for (const bindingId of Array.from(this.reconnectTimers.keys())) {
       this.clearReconnectTimer(bindingId);
     }
     await this.connectionManager.stopAllConnections();
-    await stopAgentClients(this.clients.values());
+    await this.agentClientRegistry.stopAll();
+    await this.publishNodeSnapshot(this.nodeState.markStopped());
   }
 
   // -------------------------------------------------------------------------
@@ -152,7 +181,9 @@ export class RelayRuntime {
 
   async applyBindingUpsert(binding: ChannelBinding): Promise<void> {
     const previous = this.bindingsById.get(binding.id);
-    this.ensureOwnershipState(binding);
+    if (this.ensureOwnershipState(binding)) {
+      await this.publishNodeSnapshot(this.nodeState.attachBinding(binding.id));
+    }
 
     if (previous && this.areBindingsEquivalent(previous, binding)) {
       await this.syncBindingConnection(binding);
@@ -177,6 +208,7 @@ export class RelayRuntime {
     this.clearReconnectTimer(bindingId);
     this.bindingsById.delete(bindingId);
     this.ownershipState.detachBinding(bindingId);
+    await this.publishNodeSnapshot(this.nodeState.detachBinding(bindingId));
     this.openClawConfig = buildOpenClawConfigFromBindings(
       this.listBindings(),
       this.agentsById,
@@ -190,31 +222,13 @@ export class RelayRuntime {
     options: ApplyAgentUpsertOptions = {},
   ): Promise<void> {
     const previous = this.agentsById.get(agent.id);
-    const previousClient = previous?.url
-      ? this.clients.get(previous.url)
-      : undefined;
 
     this.agentsById.set(agent.id, agent);
     this.agentsByUrl = new Map(
       Array.from(this.agentsById.values(), (item) => [item.url, item]),
     );
 
-    if (
-      previousClient &&
-      previous?.url === agent.url &&
-      previous.protocol === agent.protocol
-    ) {
-      return;
-    }
-
-    if (previousClient) {
-      this.clients.delete(previous!.url);
-      await stopAgentClients([previousClient]);
-    }
-
-    const nextClient = this.createAgentClient(agent);
-    this.clients.set(agent.url, nextClient);
-    await startAgentClients([nextClient]);
+    await this.agentClientRegistry.upsert(agent, previous);
 
     this.openClawConfig = buildOpenClawConfigFromBindings(
       this.listBindings(),
@@ -240,14 +254,7 @@ export class RelayRuntime {
 
     this.agentsById.delete(agentId);
     this.agentsByUrl.delete(existing.url);
-
-    const client = this.clients.get(existing.url);
-    if (!client) {
-      return;
-    }
-
-    this.clients.delete(existing.url);
-    await stopAgentClients([client]);
+    await this.agentClientRegistry.remove(existing);
   }
 
   getConfig(): OpenClawConfig {
@@ -296,7 +303,7 @@ export class RelayRuntime {
   private async syncBindingConnection(binding: ChannelBinding): Promise<void> {
     this.clearReconnectTimer(binding.id);
     if (!binding.enabled || !this.isRunnableBinding(binding)) {
-      this.resetOwnershipStatusToIdle(binding);
+      await this.publishNodeSnapshot(this.resetOwnershipStatusToIdle(binding));
       await this.connectionManager.stopConnection(binding.id);
       return;
     }
@@ -304,9 +311,10 @@ export class RelayRuntime {
     await this.connectionManager.restartConnection(binding);
   }
 
-  private resetOwnershipStatusToIdle(binding: ChannelBinding): void {
+  private resetOwnershipStatusToIdle(binding: ChannelBinding): LocalRuntimeSnapshot {
     this.ownershipState.detachBinding(binding.id);
     this.ownershipState.attachBinding(binding);
+    return this.nodeState.markBindingIdle(binding.id);
   }
 
   private scheduleReconnect(
@@ -351,20 +359,24 @@ export class RelayRuntime {
     }
 
     this.ensureOwnershipState(binding);
+    let snapshot: LocalRuntimeSnapshot | undefined;
 
     switch (status) {
       case "connecting":
         this.clearReconnectTimer(bindingId);
         this.ownershipState.markConnecting(bindingId, agentUrl);
-        return;
+        snapshot = this.nodeState.markBindingConnecting(bindingId, agentUrl);
+        break;
       case "connected":
         this.clearReconnectTimer(bindingId);
         this.ownershipState.markConnected(bindingId, agentUrl);
-        return;
+        snapshot = this.nodeState.markBindingConnected(bindingId, agentUrl);
+        break;
       case "disconnected": {
         const decision = this.ownershipState.markDisconnected(bindingId, agentUrl);
+        snapshot = this.nodeState.markBindingDisconnected(bindingId, agentUrl);
         this.scheduleReconnect(bindingId, decision.delayMs);
-        return;
+        break;
       }
       case "error": {
         const decision = this.ownershipState.markError(
@@ -372,11 +384,21 @@ export class RelayRuntime {
           error ?? new Error("Unknown connection error"),
           agentUrl,
         );
+        snapshot = this.nodeState.markBindingError(
+          bindingId,
+          error ?? new Error("Unknown connection error"),
+          agentUrl,
+        );
         this.scheduleReconnect(bindingId, decision.delayMs);
-        return;
+        break;
       }
       case "idle":
-        return;
+        snapshot = this.nodeState.markBindingIdle(bindingId);
+        break;
+    }
+
+    if (snapshot) {
+      this.publishNodeSnapshotInBackground(snapshot);
     }
   }
 
@@ -388,20 +410,10 @@ export class RelayRuntime {
       throw new Error(`Agent ${agentId} not found`);
     }
 
-    const client =
-      this.clients.get(agent.url) ??
-      createAgentClientHandle(
-        agent,
-        this.transportRegistry.resolve(agent.protocol ?? "a2a"),
-      );
-
-    return { client, url: agent.url };
-  }
-  private createAgentClient(agent: AgentConfig): AgentClientHandle {
-    return createAgentClientHandle(
-      agent,
-      this.transportRegistry.resolve(agent.protocol ?? "a2a"),
-    );
+    return {
+      client: this.agentClientRegistry.get(agent),
+      url: agent.url,
+    };
   }
 
   private isRunnableBinding(binding: ChannelBinding): boolean {
@@ -444,5 +456,23 @@ export class RelayRuntime {
       left.enabled === right.enabled &&
       JSON.stringify(left.channelConfig) === JSON.stringify(right.channelConfig)
     );
+  }
+
+  private async publishNodeSnapshot(
+    snapshot: LocalRuntimeSnapshot = this.nodeState.snapshot(),
+  ): Promise<void> {
+    const publish = this.nodeSnapshotPublishQueue.then(() =>
+      this.stateStore.publishNodeSnapshot(snapshot),
+    );
+    this.nodeSnapshotPublishQueue = publish.catch(() => {});
+    await publish;
+  }
+
+  private publishNodeSnapshotInBackground(
+    snapshot: LocalRuntimeSnapshot = this.nodeState.snapshot(),
+  ): void {
+    void this.publishNodeSnapshot(snapshot).catch((error) => {
+      console.error("[runtime] failed to publish node snapshot:", error);
+    });
   }
 }

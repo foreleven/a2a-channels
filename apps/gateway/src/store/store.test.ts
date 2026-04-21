@@ -20,11 +20,21 @@ import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
+import { buildGatewayConfig } from "../bootstrap/config.js";
 import { buildRuntimeBootstrap } from "../runtime/bootstrap.js";
+import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
+import { LocalNodeRuntimeStateStore } from "../runtime/local-node-runtime-state-store.js";
+import type { NodeRuntimeStateStore } from "../runtime/node-runtime-state-store.js";
+import { PluginHostProvider } from "../runtime/plugin-host-provider.js";
 import { buildRedisCoordinationKeys } from "../runtime/cluster/redis-coordination.js";
 import { createLocalOwnershipGate } from "../runtime/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local-scheduler.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
+import {
+  RuntimeNodeState,
+  type LocalRuntimeSnapshot,
+} from "../runtime/runtime-node-state.js";
+import { TransportRegistryProvider } from "../runtime/transport-registry-provider.js";
 import { initStore, seedDefaults } from "../services/initialization.js";
 import { buildOpenClawConfig } from "../services/openclaw-config.js";
 import {
@@ -676,6 +686,271 @@ describe("cluster bootstrap wiring", () => {
     assert.equal(result.scheduler instanceof LocalScheduler, true);
   });
 });
+
+describe("RelayRuntime node state snapshots", () => {
+  class ConnectedPluginHostProvider extends PluginHostProvider {
+    override create() {
+      return {
+        startChannelBinding: async (
+          _binding: unknown,
+          signal: AbortSignal,
+          callbacks?: { onStatus?: (status: { connected?: boolean; running?: boolean }) => void },
+        ) => {
+          callbacks?.onStatus?.({ connected: true, running: true });
+          await new Promise<void>((_, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                const error = new Error("aborted");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
+          });
+        },
+      } as ReturnType<PluginHostProvider["create"]>;
+    }
+  }
+
+  class ControlledAsyncNodeRuntimeStateStore implements NodeRuntimeStateStore {
+    private readonly committedSnapshots: LocalRuntimeSnapshot[] = [];
+    private readonly pendingSnapshots: Array<{
+      resolve: () => void;
+      snapshot: LocalRuntimeSnapshot;
+    }> = [];
+
+    async publishNodeSnapshot(snapshot: LocalRuntimeSnapshot): Promise<void> {
+      await new Promise<void>((resolve) => {
+        this.pendingSnapshots.push({
+          resolve,
+          snapshot: cloneRuntimeSnapshot(snapshot),
+        });
+      });
+      this.committedSnapshots.push(cloneRuntimeSnapshot(snapshot));
+    }
+
+    async waitForPending(count: number): Promise<void> {
+      await waitFor(() => this.pendingSnapshots.length >= count);
+    }
+
+    async waitForCommitted(count: number): Promise<void> {
+      await waitFor(() => this.committedSnapshots.length >= count);
+    }
+
+    getPendingCount(): number {
+      return this.pendingSnapshots.length;
+    }
+
+    releasePending(index: number): void {
+      const entry = this.pendingSnapshots[index];
+      assert.ok(entry, `pending snapshot ${index} should exist`);
+      entry.resolve();
+      this.pendingSnapshots.splice(index, 1);
+    }
+
+    listCommittedSnapshots(): LocalRuntimeSnapshot[] {
+      return this.committedSnapshots.map(cloneRuntimeSnapshot);
+    }
+  }
+
+  test("publishes node lifecycle snapshots through an injected state store", async () => {
+    const config = buildGatewayConfig({
+      clusterMode: false,
+      nodeId: "node-a",
+      nodeDisplayName: "Node A",
+      runtimeAddress: "http://127.0.0.1:7890",
+    });
+    const stateStore = new LocalNodeRuntimeStateStore();
+    const pluginHostProvider = new PluginHostProvider();
+    const transportRegistryProvider = new TransportRegistryProvider([
+      {
+        protocol: "a2a",
+        send: async () => ({ text: "" }),
+      },
+    ]);
+    const agentClientRegistry = new AgentClientRegistry(transportRegistryProvider);
+    const runtime = new RelayRuntime({
+      config,
+      stateStore,
+      pluginHostProvider,
+      agentClientRegistry,
+    });
+
+    await runtime.bootstrap();
+    await runtime.shutdown();
+
+    const snapshots = stateStore.listNodeSnapshots().reverse();
+
+    assert.deepEqual(
+      snapshots.map((snapshot) => snapshot.lifecycle),
+      ["bootstrapping", "ready", "stopping", "stopped"],
+    );
+
+    for (const snapshot of snapshots) {
+      assert.equal(snapshot.nodeId, "node-a");
+      assert.equal(snapshot.displayName, "Node A");
+      assert.equal(snapshot.mode, "local");
+      assert.equal(snapshot.lastKnownAddress, "http://127.0.0.1:7890");
+      assert.deepEqual(snapshot.bindingStatuses, []);
+      assert.match(snapshot.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    }
+  });
+
+  test("publishes a stopped snapshot without active binding statuses on shutdown", async () => {
+    const config = buildGatewayConfig({
+      clusterMode: false,
+      nodeId: "node-a",
+      nodeDisplayName: "Node A",
+      runtimeAddress: "http://127.0.0.1:7890",
+    });
+    const stateStore = new LocalNodeRuntimeStateStore();
+    const transportRegistryProvider = new TransportRegistryProvider([
+      {
+        protocol: "a2a",
+        send: async () => ({ text: "" }),
+      },
+    ]);
+    const agentClientRegistry = new AgentClientRegistry(transportRegistryProvider);
+    const runtime = new RelayRuntime({
+      config,
+      stateStore,
+      pluginHostProvider: new ConnectedPluginHostProvider(),
+      agentClientRegistry,
+    });
+    const agent = {
+      id: "agent-1",
+      name: "Agent One",
+      url: "http://agent-1",
+      protocol: "a2a" as const,
+      createdAt: new Date().toISOString(),
+    };
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: agent.id,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    await runtime.attachBinding(binding, agent);
+    await waitFor(() =>
+      stateStore
+        .listNodeSnapshots()
+        .some(
+          (snapshot) =>
+            snapshot.lifecycle === "stopped" ||
+            snapshot.bindingStatuses.some(
+              (status) =>
+                status.bindingId === binding.id && status.status === "connected",
+            ),
+        ),
+    );
+    await runtime.shutdown();
+
+    const snapshots = stateStore.listNodeSnapshots().reverse();
+    const stoppingSnapshot = snapshots.at(-2);
+    const stoppedSnapshot = snapshots.at(-1);
+
+    assert.equal(stoppingSnapshot?.lifecycle, "stopping");
+    assert.deepEqual(stoppingSnapshot?.bindingStatuses, [
+      {
+        bindingId: binding.id,
+        status: "connected",
+        agentUrl: agent.url,
+        error: undefined,
+        updatedAt: stoppingSnapshot?.bindingStatuses[0]?.updatedAt,
+      },
+    ]);
+    assert.equal(stoppedSnapshot?.lifecycle, "stopped");
+    assert.deepEqual(stoppedSnapshot?.bindingStatuses, []);
+  });
+
+  test("serializes async state store publications for owned connection status updates", async () => {
+    const config = buildGatewayConfig({
+      clusterMode: false,
+      nodeId: "node-a",
+      nodeDisplayName: "Node A",
+      runtimeAddress: "http://127.0.0.1:7890",
+    });
+    const stateStore = new ControlledAsyncNodeRuntimeStateStore();
+    const runtimeNodeState = new RuntimeNodeState(config);
+    const runtime = new RelayRuntime({
+      config,
+      stateStore,
+      runtimeNodeState,
+      agentClientRegistry: new AgentClientRegistry(
+        new TransportRegistryProvider([
+          {
+            protocol: "a2a",
+            send: async () => ({ text: "" }),
+          },
+        ]),
+      ),
+    });
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+    const relayRuntime = runtime as unknown as {
+      applyOwnedConnectionStatus(
+        bindingId: string,
+        status: "connecting" | "connected" | "disconnected" | "error" | "idle",
+        agentUrl?: string,
+        error?: unknown,
+      ): void;
+      bindingsById: Map<string, typeof binding>;
+    };
+
+    relayRuntime.bindingsById.set(binding.id, binding);
+    relayRuntime.applyOwnedConnectionStatus(binding.id, "connecting", "http://agent-1");
+    await stateStore.waitForPending(1);
+
+    relayRuntime.applyOwnedConnectionStatus(binding.id, "connected", "http://agent-1");
+    assert.equal(stateStore.getPendingCount(), 1);
+
+    stateStore.releasePending(0);
+    await stateStore.waitForPending(1);
+    stateStore.releasePending(0);
+    await stateStore.waitForCommitted(2);
+
+    assert.deepEqual(
+      stateStore
+        .listCommittedSnapshots()
+        .map((snapshot) => snapshot.bindingStatuses[0]?.status),
+      ["connecting", "connected"],
+    );
+  });
+});
+
+function cloneRuntimeSnapshot(snapshot: LocalRuntimeSnapshot): LocalRuntimeSnapshot {
+  return {
+    ...snapshot,
+    bindingStatuses: snapshot.bindingStatuses.map((status) => ({ ...status })),
+  };
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 1_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error("Timed out waiting for condition");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 describe("RelayRuntime ownership semantics", () => {
   const testTransport = {
