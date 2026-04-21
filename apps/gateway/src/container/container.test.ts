@@ -3,15 +3,21 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { Container } from "inversify";
-
-import { SERVICE_TOKENS, SYSTEM_TOKENS } from "@a2a-channels/di";
+import {
+  AgentConfigRepository,
+  ChannelBindingRepository,
+} from "@a2a-channels/domain";
 
 import { AgentService } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { buildGatewayConfig } from "../bootstrap/config.js";
 import type { GatewayConfig } from "../bootstrap/config.js";
+import { GatewayConfigToken } from "../bootstrap/config.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
-import type { OutboxWorker } from "../infra/outbox-worker.js";
+import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
+import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
+import { DomainEventBus } from "../infra/domain-event-bus.js";
+import { OutboxWorker } from "../infra/outbox-worker.js";
 import { initStore } from "../services/initialization.js";
 
 describe("buildGatewayContainer", () => {
@@ -22,7 +28,7 @@ describe("buildGatewayContainer", () => {
   test("resolves typed config", async () => {
     const config = buildGatewayConfig({ port: 7891 });
     const container: Container = buildGatewayContainer(config);
-    const resolved = container.get<GatewayConfig>(SYSTEM_TOKENS.GatewayConfig);
+    const resolved = container.get<GatewayConfig>(GatewayConfigToken);
 
     assert.equal(resolved.port, 7891);
   });
@@ -32,20 +38,28 @@ describe("buildGatewayContainer", () => {
     const container: Container = buildGatewayContainer(config);
 
     assert.strictEqual(
-      container.get(SERVICE_TOKENS.AgentConfigStateRepository),
-      container.get(SERVICE_TOKENS.AgentConfigStateRepository),
+      container.get(AgentConfigStateRepository),
+      container.get(AgentConfigStateRepository),
     );
     assert.strictEqual(
-      container.get(SERVICE_TOKENS.ChannelBindingStateRepository),
-      container.get(SERVICE_TOKENS.ChannelBindingStateRepository),
+      container.get(ChannelBindingStateRepository),
+      container.get(ChannelBindingStateRepository),
     );
     assert.strictEqual(
-      container.get(SERVICE_TOKENS.DomainEventBus),
-      container.get(SERVICE_TOKENS.DomainEventBus),
+      container.get(DomainEventBus),
+      container.get(DomainEventBus),
     );
     assert.strictEqual(
-      container.get(SERVICE_TOKENS.OutboxWorker),
-      container.get(SERVICE_TOKENS.OutboxWorker),
+      container.get(OutboxWorker),
+      container.get(OutboxWorker),
+    );
+    assert.strictEqual(
+      container.get<AgentConfigRepository>(AgentConfigRepository),
+      container.get<AgentConfigRepository>(AgentConfigRepository),
+    );
+    assert.strictEqual(
+      container.get<ChannelBindingRepository>(ChannelBindingRepository),
+      container.get<ChannelBindingRepository>(ChannelBindingRepository),
     );
   });
 
@@ -53,18 +67,14 @@ describe("buildGatewayContainer", () => {
     const config = buildGatewayConfig({ port: 7891 });
     const container: Container = buildGatewayContainer(config);
 
-    const channelBindingService =
-      container.get<ChannelBindingService>(SERVICE_TOKENS.ChannelBindingService);
-    const agentService = container.get<AgentService>(SERVICE_TOKENS.AgentService);
+    const channelBindingService = container.get(ChannelBindingService);
+    const agentService = container.get(AgentService);
 
     assert.strictEqual(
       channelBindingService,
-      container.get<ChannelBindingService>(SERVICE_TOKENS.ChannelBindingService),
+      container.get(ChannelBindingService),
     );
-    assert.strictEqual(
-      agentService,
-      container.get<AgentService>(SERVICE_TOKENS.AgentService),
-    );
+    assert.strictEqual(agentService, container.get(AgentService));
 
     assert.ok(Array.isArray(await channelBindingService.list()));
     assert.ok(Array.isArray(await agentService.list()));
@@ -76,7 +86,7 @@ describe("buildGatewayContainer", () => {
 
   test("container builds once and can start the outbox worker", async () => {
     const container = buildGatewayContainer(buildGatewayConfig({ port: 7895 }));
-    const worker = container.get<OutboxWorker>(SERVICE_TOKENS.OutboxWorker);
+    const worker = container.get(OutboxWorker);
 
     worker.start();
     await worker.stop();

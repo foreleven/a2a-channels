@@ -2,8 +2,7 @@ import type { DomainEvent } from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
 
 import { prisma } from "../store/prisma.js";
-import { SERVICE_TOKENS } from "@a2a-channels/di";
-import type { DomainEventBus } from "./domain-event-bus.js";
+import { DomainEventBus } from "./domain-event-bus.js";
 
 export interface OutboxWorkerOptions {
   readonly pollIntervalMs?: number;
@@ -17,7 +16,7 @@ export class OutboxWorker {
   private running = false;
 
   constructor(
-    @inject(SERVICE_TOKENS.DomainEventBus)
+    @inject(DomainEventBus)
     private readonly eventBus: DomainEventBus,
     private readonly options: OutboxWorkerOptions = {},
   ) {}

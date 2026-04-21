@@ -21,19 +21,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { serve } from "@hono/node-server";
-import { SERVICE_TOKENS } from "@a2a-channels/di";
-import type {
+import {
   AgentConfigRepository,
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
 
-import type { ChannelBindingService } from "./application/channel-binding-service.js";
-import type { AgentService } from "./application/agent-service.js";
-import type { DomainEventBus } from "./infra/domain-event-bus.js";
-import type { OutboxWorker } from "./infra/outbox-worker.js";
 import { buildGatewayConfig } from "./bootstrap/config.js";
 import { buildGatewayContainer } from "./bootstrap/container.js";
 import { buildHttpApp } from "./http/app.js";
+import { AgentService } from "./application/agent-service.js";
+import { ChannelBindingService } from "./application/channel-binding-service.js";
+import { DomainEventBus } from "./infra/domain-event-bus.js";
+import { OutboxWorker } from "./infra/outbox-worker.js";
 import { buildRuntimeBootstrap } from "./runtime/bootstrap.js";
 import { RelayRuntime } from "./runtime/relay-runtime.js";
 import { initStore, seedDefaults } from "./services/initialization.js";
@@ -52,18 +51,14 @@ const { port: PORT, corsOrigin: CORS_ORIGIN } = gatewayConfig;
 // ---------------------------------------------------------------------------
 
 const container = buildGatewayContainer(gatewayConfig);
-const eventBus = container.get<DomainEventBus>(SERVICE_TOKENS.DomainEventBus);
-const outboxWorker = container.get<OutboxWorker>(SERVICE_TOKENS.OutboxWorker);
+const eventBus = container.get(DomainEventBus);
+const outboxWorker = container.get(OutboxWorker);
 const bindingRepo = container.get<ChannelBindingRepository>(
-  SERVICE_TOKENS.ChannelBindingStateRepository,
+  ChannelBindingRepository,
 );
-const agentRepo = container.get<AgentConfigRepository>(
-  SERVICE_TOKENS.AgentConfigStateRepository,
-);
-const channelBindingService = container.get<ChannelBindingService>(
-  SERVICE_TOKENS.ChannelBindingService,
-);
-const agentService = container.get<AgentService>(SERVICE_TOKENS.AgentService);
+const agentRepo = container.get<AgentConfigRepository>(AgentConfigRepository);
+const channelBindingService = container.get(ChannelBindingService);
+const agentService = container.get(AgentService);
 
 await initStore();
 

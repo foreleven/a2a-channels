@@ -1,16 +1,11 @@
 import { Hono, type Context } from "hono";
 import { Container } from "inversify";
-
-import { SERVICE_TOKENS } from "@a2a-channels/di";
-
-import type {
-  ChannelBindingService,
-  UpdateChannelBindingData,
-} from "../../application/channel-binding-service.js";
 import {
   AgentNotFoundError,
   DuplicateEnabledBindingError,
+  ChannelBindingService,
 } from "../../application/channel-binding-service.js";
+import type { UpdateChannelBindingData } from "../../application/channel-binding-service.js";
 
 function channelMutationErrorResponse(c: Context, err: unknown) {
   if (err instanceof AgentNotFoundError) {
@@ -23,9 +18,7 @@ function channelMutationErrorResponse(c: Context, err: unknown) {
 }
 
 export function registerChannelRoutes(app: Hono, container: Container): void {
-  const channelBindingService = container.get<ChannelBindingService>(
-    SERVICE_TOKENS.ChannelBindingService,
-  );
+  const channelBindingService = container.get(ChannelBindingService);
 
   app.get("/api/channels", async (c) => c.json(await channelBindingService.list()));
 

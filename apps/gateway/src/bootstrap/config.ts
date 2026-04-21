@@ -1,3 +1,5 @@
+export const GatewayConfigToken = Symbol.for("system.GatewayConfig");
+
 export interface GatewayConfig {
   port: number;
   corsOrigin: string;

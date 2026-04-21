@@ -2,13 +2,12 @@
  * AgentService – thin application facade over agent use-cases.
  */
 
-import type {
+import type { AgentConfigSnapshot } from "@a2a-channels/domain";
+import {
   AgentConfigRepository,
-  AgentConfigSnapshot,
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
-import { PORT_TOKENS } from "@a2a-channels/di";
 
 import { deleteAgent, ReferencedAgentError } from "./use-cases/delete-agent.js";
 import { getAgentById } from "./use-cases/get-agent-by-id.js";
@@ -24,9 +23,9 @@ export { ReferencedAgentError };
 @injectable()
 export class AgentService {
   constructor(
-    @inject(PORT_TOKENS.AgentConfigRepository)
+    @inject(AgentConfigRepository)
     private readonly repo: AgentConfigRepository,
-    @inject(PORT_TOKENS.ChannelBindingRepository)
+    @inject(ChannelBindingRepository)
     private readonly bindingRepo: ChannelBindingRepository,
   ) {}
 
@@ -38,7 +37,9 @@ export class AgentService {
     return getAgentById(this.repo, id);
   }
 
-  async register(data: import("./use-cases/register-agent.js").RegisterAgentData): Promise<AgentConfigSnapshot> {
+  async register(
+    data: import("./use-cases/register-agent.js").RegisterAgentData,
+  ): Promise<AgentConfigSnapshot> {
     return registerAgent(this.repo, data);
   }
 

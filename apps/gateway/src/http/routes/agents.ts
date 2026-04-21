@@ -1,13 +1,10 @@
 import { Hono } from "hono";
 import { Container } from "inversify";
-
-import { SERVICE_TOKENS } from "@a2a-channels/di";
-
-import type { AgentService, UpdateAgentData } from "../../application/agent-service.js";
-import { ReferencedAgentError } from "../../application/agent-service.js";
+import type { UpdateAgentData } from "../../application/agent-service.js";
+import { AgentService, ReferencedAgentError } from "../../application/agent-service.js";
 
 export function registerAgentRoutes(app: Hono, container: Container): void {
-  const agentService = container.get<AgentService>(SERVICE_TOKENS.AgentService);
+  const agentService = container.get(AgentService);
 
   app.get("/api/agents", async (c) => c.json(await agentService.list()));
 

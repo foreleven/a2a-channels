@@ -5,8 +5,19 @@
  * apps/gateway/src/infra/ and depend on Prisma state tables plus outbox writes.
  */
 
-import type { AgentConfigAggregate, AgentConfigSnapshot } from "./aggregates/agent-config.js";
-import type { ChannelBindingAggregate, ChannelBindingSnapshot } from "./aggregates/channel-binding.js";
+import type {
+  AgentConfigAggregate,
+  AgentConfigSnapshot,
+} from "./aggregates/agent-config.js";
+import type {
+  ChannelBindingAggregate,
+  ChannelBindingSnapshot,
+} from "./aggregates/channel-binding.js";
+
+export const ChannelBindingRepository = Symbol.for(
+  "ports.ChannelBindingRepository",
+);
+export const AgentConfigRepository = Symbol.for("ports.AgentConfigRepository");
 
 export interface ChannelBindingRepository {
   /** Load the aggregate from the current state table. Returns null if unknown. */

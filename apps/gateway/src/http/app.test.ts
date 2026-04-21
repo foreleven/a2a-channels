@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { Container } from "inversify";
-
-import { SERVICE_TOKENS } from "@a2a-channels/di";
-
-import { ReferencedAgentError } from "../application/agent-service.js";
+import type { AgentConfigSnapshot } from "../application/agent-service.js";
+import { AgentService, ReferencedAgentError } from "../application/agent-service.js";
+import type { ChannelBindingSnapshot } from "../application/channel-binding-service.js";
+import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { buildHttpApp } from "./app.js";
 
 describe("buildHttpApp", () => {
@@ -20,18 +20,46 @@ describe("buildHttpApp", () => {
       delete: async () => true,
     };
     const agentService = {
-      list: async () => [{ id: "agent-1", name: "Echo" }],
+      list: async (): Promise<AgentConfigSnapshot[]> => [{
+        id: "agent-1",
+        name: "Echo",
+        url: "http://localhost:3001",
+        protocol: "a2a",
+        createdAt: "2026-04-21T00:00:00.000Z",
+      }],
       getById: async (id: string) =>
-        id === "agent-1" ? { id: "agent-1", name: "Echo" } : null,
-      register: async () => ({ id: "agent-2" }),
-      update: async () => ({ id: "agent-1" }),
+        id === "agent-1"
+          ? {
+              id: "agent-1",
+              name: "Echo",
+              url: "http://localhost:3001",
+              protocol: "a2a",
+              createdAt: "2026-04-21T00:00:00.000Z",
+            }
+          : null,
+      register: async (): Promise<AgentConfigSnapshot> => ({
+        id: "agent-2",
+        name: "Echo 2",
+        url: "http://localhost:3002",
+        protocol: "a2a",
+        createdAt: "2026-04-21T00:00:00.000Z",
+      }),
+      update: async (): Promise<AgentConfigSnapshot> => ({
+        id: "agent-1",
+        name: "Echo",
+        url: "http://localhost:3001",
+        protocol: "a2a",
+        createdAt: "2026-04-21T00:00:00.000Z",
+      }),
       delete: async () => true,
     };
 
-    container
-      .bind(SERVICE_TOKENS.ChannelBindingService)
-      .toConstantValue(channelService);
-    container.bind(SERVICE_TOKENS.AgentService).toConstantValue(agentService);
+    container.bind(ChannelBindingService).toConstantValue(
+      channelService as unknown as ChannelBindingService,
+    );
+    container.bind(AgentService).toConstantValue(
+      agentService as unknown as AgentService,
+    );
 
     const app = buildHttpApp(container, {
       corsOrigin: "http://localhost:3000",
@@ -54,7 +82,13 @@ describe("buildHttpApp", () => {
 
     const agentsResponse = await app.request("/api/agents");
     assert.equal(agentsResponse.status, 200);
-    assert.deepEqual(await agentsResponse.json(), [{ id: "agent-1", name: "Echo" }]);
+    assert.deepEqual(await agentsResponse.json(), [{
+      id: "agent-1",
+      name: "Echo",
+      url: "http://localhost:3001",
+      protocol: "a2a",
+      createdAt: "2026-04-21T00:00:00.000Z",
+    }]);
 
     const runtimeResponse = await app.request("/api/runtime/connections");
     assert.equal(runtimeResponse.status, 200);
@@ -70,24 +104,30 @@ describe("buildHttpApp", () => {
 
   test("preserves existing mutation error handling", async () => {
     const container = new Container({ defaultScope: "Singleton" });
-    container.bind(SERVICE_TOKENS.ChannelBindingService).toConstantValue({
-      list: async () => [],
+    container.bind(ChannelBindingService).toConstantValue({
+      list: async (): Promise<ChannelBindingSnapshot[]> => [],
       getById: async () => null,
       create: async () => {
         throw new Error("should not reach");
       },
       update: async () => null,
       delete: async () => false,
-    });
-    container.bind(SERVICE_TOKENS.AgentService).toConstantValue({
-      list: async () => [],
+    } as unknown as ChannelBindingService);
+    container.bind(AgentService).toConstantValue({
+      list: async (): Promise<AgentConfigSnapshot[]> => [],
       getById: async () => null,
-      register: async () => ({ id: "agent-1" }),
+      register: async (): Promise<AgentConfigSnapshot> => ({
+        id: "agent-1",
+        name: "Echo",
+        url: "http://localhost:3001",
+        protocol: "a2a",
+        createdAt: "2026-04-21T00:00:00.000Z",
+      }),
       update: async () => null,
       delete: async () => {
         throw new ReferencedAgentError("agent-1", ["binding-1"]);
       },
-    });
+    } as unknown as AgentService);
 
     const app = buildHttpApp(container, {
       corsOrigin: "*",

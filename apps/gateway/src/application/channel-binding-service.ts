@@ -2,13 +2,12 @@
  * ChannelBindingService – thin application facade over channel binding use-cases.
  */
 
-import type {
+import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
+import {
   AgentConfigRepository,
   ChannelBindingRepository,
-  ChannelBindingSnapshot,
 } from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
-import { PORT_TOKENS } from "@a2a-channels/di";
 
 import {
   createChannelBinding,
@@ -21,20 +20,21 @@ import {
   updateChannelBinding,
   type UpdateChannelBindingData,
 } from "./use-cases/update-channel-binding.js";
-import {
-  AgentNotFoundError,
-  DuplicateEnabledBindingError,
-} from "./errors.js";
+import { AgentNotFoundError, DuplicateEnabledBindingError } from "./errors.js";
 
 export { AgentNotFoundError, DuplicateEnabledBindingError };
-export type { ChannelBindingSnapshot, CreateChannelBindingData, UpdateChannelBindingData };
+export type {
+  ChannelBindingSnapshot,
+  CreateChannelBindingData,
+  UpdateChannelBindingData,
+};
 
 @injectable()
 export class ChannelBindingService {
   constructor(
-    @inject(PORT_TOKENS.ChannelBindingRepository)
+    @inject(ChannelBindingRepository)
     private readonly repo: ChannelBindingRepository,
-    @inject(PORT_TOKENS.AgentConfigRepository)
+    @inject(AgentConfigRepository)
     private readonly agentRepo: AgentConfigRepository,
   ) {}
 
@@ -46,7 +46,9 @@ export class ChannelBindingService {
     return getChannelBindingById(this.repo, id);
   }
 
-  async create(data: CreateChannelBindingData): Promise<ChannelBindingSnapshot> {
+  async create(
+    data: CreateChannelBindingData,
+  ): Promise<ChannelBindingSnapshot> {
     return createChannelBinding(this.repo, this.agentRepo, data);
   }
 
