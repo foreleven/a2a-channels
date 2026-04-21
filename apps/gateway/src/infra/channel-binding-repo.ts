@@ -1,5 +1,6 @@
 import type { ChannelBindingRepository, ChannelBindingSnapshot } from "@a2a-channels/domain";
 import { ChannelBindingAggregate } from "@a2a-channels/domain";
+import { injectable } from "inversify";
 
 import { prisma } from "../store/prisma.js";
 
@@ -36,6 +37,7 @@ function mapPrismaRowToSnapshot(row: {
   };
 }
 
+@injectable()
 export class ChannelBindingStateRepository implements ChannelBindingRepository {
   async findById(id: string): Promise<ChannelBindingAggregate | null> {
     const row = await prisma.channelBinding.findUnique({ where: { id } });

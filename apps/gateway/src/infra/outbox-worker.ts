@@ -1,6 +1,8 @@
 import type { DomainEvent } from "@a2a-channels/domain";
+import { inject, injectable } from "inversify";
 
 import { prisma } from "../store/prisma.js";
+import { SERVICE_TOKENS } from "@a2a-channels/di";
 import type { DomainEventBus } from "./domain-event-bus.js";
 
 export interface OutboxWorkerOptions {
@@ -8,12 +10,14 @@ export interface OutboxWorkerOptions {
   readonly batchSize?: number;
 }
 
+@injectable()
 export class OutboxWorker {
   private stopped = true;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
   constructor(
+    @inject(SERVICE_TOKENS.DomainEventBus)
     private readonly eventBus: DomainEventBus,
     private readonly options: OutboxWorkerOptions = {},
   ) {}

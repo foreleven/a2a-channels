@@ -1,6 +1,7 @@
 import type { AgentConfigRepository, AgentConfigSnapshot } from "@a2a-channels/domain";
 import { AgentConfigAggregate } from "@a2a-channels/domain";
 import type { AgentEvent } from "@a2a-channels/domain";
+import { injectable } from "inversify";
 
 import { prisma } from "../store/prisma.js";
 
@@ -26,6 +27,7 @@ function shouldWriteOutbox(event: AgentEvent): boolean {
   return event.eventType !== "AgentRegistered.v1";
 }
 
+@injectable()
 export class AgentConfigStateRepository implements AgentConfigRepository {
   async findById(id: string): Promise<AgentConfigAggregate | null> {
     const row = await prisma.agent.findUnique({ where: { id } });
@@ -93,4 +95,3 @@ export class AgentConfigStateRepository implements AgentConfigRepository {
     aggregate.clearPendingEvents();
   }
 }
-

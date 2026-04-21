@@ -8,9 +8,11 @@
 import { EventEmitter } from "node:events";
 
 import type { DomainEvent } from "@a2a-channels/domain";
+import { injectable } from "inversify";
 
 type EventHandler<T extends DomainEvent> = (event: T) => void;
 
+@injectable()
 export class DomainEventBus {
   private readonly emitter = new EventEmitter();
 
