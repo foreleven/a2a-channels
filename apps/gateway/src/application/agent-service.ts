@@ -7,7 +7,7 @@ import type {
   AgentConfigSnapshot,
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
-import { inject, injectable, optional } from "inversify";
+import { inject, injectable } from "inversify";
 import { PORT_TOKENS } from "@a2a-channels/di";
 
 import { deleteAgent, ReferencedAgentError } from "./use-cases/delete-agent.js";
@@ -27,7 +27,6 @@ export class AgentService {
     @inject(PORT_TOKENS.AgentConfigRepository)
     private readonly repo: AgentConfigRepository,
     @inject(PORT_TOKENS.ChannelBindingRepository)
-    @optional()
     private readonly bindingRepo?: ChannelBindingRepository,
   ) {}
 

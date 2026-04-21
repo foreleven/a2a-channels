@@ -24,19 +24,21 @@ import { fileURLToPath } from "node:url";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
+import { SERVICE_TOKENS } from "@a2a-channels/di";
 
-import { ChannelBindingService } from "./application/channel-binding-service.js";
 import type { UpdateChannelBindingData } from "./application/channel-binding-service.js";
-import { AgentService, ReferencedAgentError } from "./application/agent-service.js";
+import type { ChannelBindingService } from "./application/channel-binding-service.js";
+import type { AgentService } from "./application/agent-service.js";
+import { ReferencedAgentError } from "./application/agent-service.js";
 import type { UpdateAgentData } from "./application/agent-service.js";
 import {
   AgentNotFoundError,
   DuplicateEnabledBindingError,
 } from "./application/errors.js";
-import { ChannelBindingStateRepository } from "./infra/channel-binding-repo.js";
-import { AgentConfigStateRepository } from "./infra/agent-config-repo.js";
 import { DomainEventBus } from "./infra/domain-event-bus.js";
 import { OutboxWorker } from "./infra/outbox-worker.js";
+import { buildGatewayConfig } from "./bootstrap/config.js";
+import { buildGatewayContainer } from "./bootstrap/container.js";
 import { buildRuntimeBootstrap } from "./runtime/bootstrap.js";
 import { RelayRuntime } from "./runtime/relay-runtime.js";
 import { initStore, seedDefaults } from "./services/initialization.js";
@@ -47,7 +49,8 @@ import { initStore, seedDefaults } from "./services/initialization.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = join(__dirname, "..", "web");
-const PORT = Number(process.env["PORT"] ?? 7890);
+const gatewayConfig = buildGatewayConfig();
+const { port: PORT, corsOrigin: CORS_ORIGIN } = gatewayConfig;
 
 // ---------------------------------------------------------------------------
 // Infrastructure wiring
@@ -60,12 +63,11 @@ const eventBus = new DomainEventBus();
 const outboxWorker = new OutboxWorker(eventBus);
 outboxWorker.start();
 
-const bindingRepo = new ChannelBindingStateRepository();
-const agentRepo = new AgentConfigStateRepository();
-
-// Application services
-const channelBindingService = new ChannelBindingService(bindingRepo, agentRepo);
-const agentService = new AgentService(agentRepo, bindingRepo);
+const container = buildGatewayContainer(gatewayConfig);
+const channelBindingService = container.get<ChannelBindingService>(
+  SERVICE_TOKENS.ChannelBindingService,
+);
+const agentService = container.get<AgentService>(SERVICE_TOKENS.AgentService);
 
 // ---------------------------------------------------------------------------
 // Runtime bootstrap
@@ -101,7 +103,6 @@ function channelMutationErrorResponse(c: Context, err: unknown) {
 }
 
 // ── CORS – allow requests from the Next.js admin UI ──────────────────────────
-const CORS_ORIGIN = process.env["CORS_ORIGIN"] ?? "http://localhost:3000";
 app.use(
   "/api/*",
   cors({
