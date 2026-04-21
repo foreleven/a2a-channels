@@ -7,6 +7,8 @@ import type {
   ChannelBindingRepository,
   ChannelBindingSnapshot,
 } from "@a2a-channels/domain";
+import { inject, injectable } from "inversify";
+import { PORT_TOKENS } from "@a2a-channels/di";
 
 import {
   createChannelBinding,
@@ -27,9 +29,12 @@ import {
 export { AgentNotFoundError, DuplicateEnabledBindingError };
 export type { ChannelBindingSnapshot, CreateChannelBindingData, UpdateChannelBindingData };
 
+@injectable()
 export class ChannelBindingService {
   constructor(
+    @inject(PORT_TOKENS.ChannelBindingRepository)
     private readonly repo: ChannelBindingRepository,
+    @inject(PORT_TOKENS.AgentConfigRepository)
     private readonly agentRepo: AgentConfigRepository,
   ) {}
 

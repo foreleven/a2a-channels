@@ -1,10 +1,13 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 
 import { Container } from "inversify";
 
 import { SERVICE_TOKENS, SYSTEM_TOKENS } from "@a2a-channels/di";
 
+import { AgentService } from "../application/agent-service.js";
+import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { buildGatewayConfig } from "../bootstrap/config.js";
 import type { GatewayConfig } from "../bootstrap/config.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
@@ -38,5 +41,30 @@ describe("buildGatewayContainer", () => {
       container.get(SERVICE_TOKENS.OutboxWorker),
       container.get(SERVICE_TOKENS.OutboxWorker),
     );
+  });
+
+  test("resolves application services and basic reads", async () => {
+    const config = buildGatewayConfig({ port: 7891 });
+    const container: Container = buildGatewayContainer(config);
+
+    const channelBindingService =
+      container.get<ChannelBindingService>(SERVICE_TOKENS.ChannelBindingService);
+    const agentService = container.get<AgentService>(SERVICE_TOKENS.AgentService);
+
+    assert.strictEqual(
+      channelBindingService,
+      container.get<ChannelBindingService>(SERVICE_TOKENS.ChannelBindingService),
+    );
+    assert.strictEqual(
+      agentService,
+      container.get<AgentService>(SERVICE_TOKENS.AgentService),
+    );
+
+    assert.ok(Array.isArray(await channelBindingService.list()));
+    assert.ok(Array.isArray(await agentService.list()));
+
+    const missingId = randomUUID();
+    assert.equal(await channelBindingService.getById(missingId), null);
+    assert.equal(await agentService.getById(missingId), null);
   });
 });
