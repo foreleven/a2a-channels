@@ -6,6 +6,7 @@ import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { buildRuntimeBootstrap, type RuntimeBootstrap } from "./bootstrap.js";
 import { RelayRuntime } from "./relay-runtime.js";
+import { RuntimeAssignmentCoordinator } from "./runtime-assignment-coordinator.js";
 
 @injectable()
 export class RuntimeBootstrapper {
@@ -20,6 +21,8 @@ export class RuntimeBootstrapper {
     private readonly runtimeNodeRepository: RuntimeNodeStateRepository,
     @inject(RelayRuntime)
     private readonly relay: RelayRuntime,
+    @inject(RuntimeAssignmentCoordinator)
+    private readonly coordinator: RuntimeAssignmentCoordinator,
     @inject(DomainEventBus)
     private readonly eventBus: DomainEventBus,
   ) {}
@@ -90,6 +93,7 @@ export class RuntimeBootstrapper {
       runtimeBootstrap = buildRuntimeBootstrap({
         clusterMode: this.config.clusterMode,
         redisUrl: this.config.redisUrl,
+        coordinator: this.coordinator,
         relay: this.relay,
         eventBus: this.eventBus,
       });

@@ -25,8 +25,6 @@ import {
   createRuntimeOwnershipState,
   type RuntimeOwnershipState,
 } from "./ownership-state.js";
-import { createLocalOwnershipGate } from "./local-ownership-gate.js";
-import type { OwnershipGate } from "./ownership-gate.js";
 import { PluginHostProvider } from "./plugin-host-provider.js";
 import type { ReconnectPolicy } from "./reconnect-policy.js";
 import {
@@ -50,6 +48,10 @@ interface ApplyAgentUpsertOptions {
   skipRestartBindingIds?: string[];
 }
 
+interface ApplyBindingUpsertOptions {
+  forceRestart?: boolean;
+}
+
 export class RelayRuntime {
   readonly name: string;
   readonly transportRegistry: TransportRegistry;
@@ -66,7 +68,6 @@ export class RelayRuntime {
   private readonly stateStore: NodeRuntimeStateStore;
   private readonly agentClientRegistry: AgentClientRegistry;
   private readonly ownershipState: RuntimeOwnershipState;
-  private readonly ownershipGate: OwnershipGate;
   private openClawConfig: OpenClawConfig;
   private nodeSnapshotPublishQueue: Promise<void> = Promise.resolve();
 
@@ -88,7 +89,6 @@ export class RelayRuntime {
           options.transports ?? [new A2ATransport(), new ACPTransport()],
         ),
       );
-    this.ownershipGate = createLocalOwnershipGate();
     this.ownershipState = createRuntimeOwnershipState({
       reconnectPolicy: options.reconnectPolicy,
     });
@@ -161,32 +161,59 @@ export class RelayRuntime {
   }
 
   // -------------------------------------------------------------------------
-  // Local ownership operations
+  // Assignment operations
   // -------------------------------------------------------------------------
 
-  async attachBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
-    await this.applyAgentUpsert(agent, {
-      skipRestartBindingIds: [binding.id],
+  async assignBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
+    const previousAgent = this.agentsById.get(agent.id);
+    const agentChanged =
+      !previousAgent ||
+      previousAgent.url !== agent.url ||
+      previousAgent.protocol !== agent.protocol;
+
+    if (agentChanged) {
+      await this.applyAgentUpsert(agent, {
+        skipRestartBindingIds: [binding.id],
+      });
+    }
+
+    await this.applyBindingUpsert(binding, {
+      forceRestart: agentChanged,
     });
-    await this.applyBindingUpsert(binding);
   }
 
-  async refreshBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
-    await this.attachBinding(binding, agent);
-  }
-
-  async detachBinding(bindingId: string): Promise<void> {
+  async releaseBinding(bindingId: string): Promise<void> {
     await this.applyBindingDelete(bindingId);
   }
 
-  async applyBindingUpsert(binding: ChannelBinding): Promise<void> {
+  async attachBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
+    await this.assignBinding(binding, agent);
+  }
+
+  async refreshBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
+    await this.assignBinding(binding, agent);
+  }
+
+  async detachBinding(bindingId: string): Promise<void> {
+    await this.releaseBinding(bindingId);
+  }
+
+  async applyBindingUpsert(
+    binding: ChannelBinding,
+    options: ApplyBindingUpsertOptions = {},
+  ): Promise<void> {
     const previous = this.bindingsById.get(binding.id);
     if (this.ensureOwnershipState(binding)) {
       await this.publishNodeSnapshot(this.nodeState.attachBinding(binding.id));
     }
 
-    if (previous && this.areBindingsEquivalent(previous, binding)) {
-      await this.syncBindingConnection(binding);
+    if (
+      previous &&
+      this.areBindingsEquivalent(previous, binding) &&
+      this.hasActiveConnection(binding.id) &&
+      !options.forceRestart
+    ) {
+      this.bindingsById.set(binding.id, binding);
       return;
     }
 
@@ -195,6 +222,11 @@ export class RelayRuntime {
       this.listBindings(),
       this.agentsById,
     );
+
+    if (previous && this.areBindingsEquivalent(previous, binding) && !options.forceRestart) {
+      await this.syncBindingConnection(binding);
+      return;
+    }
 
     await this.syncBindingConnection(binding);
   }
@@ -281,6 +313,12 @@ export class RelayRuntime {
 
   listConnectionStatuses(): RuntimeConnectionStatus[] {
     return this.ownershipState.listConnectionStatuses();
+  }
+
+  listOwnedBindingIds(): string[] {
+    return this.ownershipState.listConnectionStatuses().map(
+      (status) => status.bindingId,
+    );
   }
 
   hasActiveConnection(bindingId: string): boolean {

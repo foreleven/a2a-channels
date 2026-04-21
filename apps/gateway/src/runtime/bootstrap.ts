@@ -3,11 +3,13 @@ import { createRedisOwnershipGate } from "./cluster/redis-ownership-gate.js";
 import { LeaderScheduler } from "./cluster/leader-scheduler.js";
 import { LocalScheduler } from "./local-scheduler.js";
 import type { OwnershipGate } from "./ownership-gate.js";
+import type { RuntimeAssignmentCoordinator } from "./runtime-assignment-coordinator.js";
 import type { RelayRuntime } from "./relay-runtime.js";
 
 export interface RuntimeBootstrapOptions {
   clusterMode: boolean;
   redisUrl?: string;
+  coordinator: RuntimeAssignmentCoordinator;
   relay: RelayRuntime;
   eventBus: DomainEventBus;
   ownershipGate?: OwnershipGate;
@@ -30,7 +32,8 @@ export function buildRuntimeBootstrap(
     return {
       schedulerKind: "leader",
       scheduler: new LeaderScheduler({
-        relay: options.relay,
+        coordinator: options.coordinator,
+        eventBus: options.eventBus,
         ownershipGate: options.ownershipGate ?? createRedisOwnershipGate(),
       }),
     };
@@ -38,6 +41,6 @@ export function buildRuntimeBootstrap(
 
   return {
     schedulerKind: "local",
-    scheduler: new LocalScheduler(options.relay, options.eventBus),
+    scheduler: new LocalScheduler(options.coordinator, options.eventBus),
   };
 }

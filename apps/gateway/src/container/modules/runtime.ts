@@ -7,6 +7,7 @@ import { LocalNodeRuntimeStateStore } from "../../runtime/local-node-runtime-sta
 import { NodeRuntimeStateStoreToken } from "../../runtime/node-runtime-state-store.js";
 import { PluginHostProvider } from "../../runtime/plugin-host-provider.js";
 import { RelayRuntime } from "../../runtime/relay-runtime.js";
+import { RuntimeAssignmentCoordinator } from "../../runtime/runtime-assignment-coordinator.js";
 import { RuntimeBootstrapper } from "../../runtime/runtime-bootstrapper.js";
 import { RuntimeClusterStateReader } from "../../runtime/runtime-cluster-state-reader.js";
 import { RuntimeNodeState } from "../../runtime/runtime-node-state.js";
@@ -53,6 +54,9 @@ export function buildRuntimeModule(): ContainerModule {
       )
       .inSingletonScope();
 
+    bind(RuntimeAssignmentCoordinator).toDynamicValue(
+      (context) => new RuntimeAssignmentCoordinator(context.get(RelayRuntime)),
+    ).inSingletonScope();
     bind(RuntimeClusterStateReader).toSelf().inSingletonScope();
     bind(RuntimeBootstrapper).toSelf().inSingletonScope();
   });

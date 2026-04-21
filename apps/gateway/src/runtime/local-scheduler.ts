@@ -1,15 +1,10 @@
 import type { DomainEvent } from "@a2a-channels/domain";
 
 import type { DomainEventBus } from "../infra/domain-event-bus.js";
-import type { RelayRuntime } from "./relay-runtime.js";
-import {
-  loadDesiredStateSnapshot,
-  type RuntimeStateSnapshot,
-} from "./state.js";
+import type { RuntimeAssignmentCoordinator } from "./runtime-assignment-coordinator.js";
 
 export interface LocalSchedulerOptions {
   readonly debounceMs?: number;
-  readonly loadSnapshot?: () => Promise<RuntimeStateSnapshot>;
   readonly reconcileIntervalMs?: number;
 }
 
@@ -32,7 +27,7 @@ export class LocalScheduler {
   >();
 
   constructor(
-    private readonly runtime: RelayRuntime,
+    private readonly coordinator: RuntimeAssignmentCoordinator,
     private readonly eventBus: DomainEventBus,
     private readonly options: LocalSchedulerOptions = {},
   ) {}
@@ -82,36 +77,7 @@ export class LocalScheduler {
     if (this.reconciling) return;
     this.reconciling = true;
     try {
-      const snapshot = await (
-        this.options.loadSnapshot ?? loadDesiredStateSnapshot
-      )();
-      const agentsById = new Map(snapshot.agents.map((agent) => [agent.id, agent]));
-      const desiredBindingIds = new Set<string>();
-
-      for (const binding of snapshot.bindings) {
-        const agent = agentsById.get(binding.agentId);
-        if (!binding.enabled || !agent) {
-          await this.runtime.detachBinding(binding.id);
-          continue;
-        }
-
-        const isOwnedLocally = this.runtime
-          .listBindings()
-          .some((owned) => owned.id === binding.id);
-        const needsRepair =
-          !isOwnedLocally || !this.runtime.hasActiveConnection(binding.id);
-
-        desiredBindingIds.add(binding.id);
-        if (needsRepair) {
-          await this.runtime.refreshBinding(binding, agent);
-        }
-      }
-
-      for (const owned of this.runtime.listBindings()) {
-        if (!desiredBindingIds.has(owned.id)) {
-          await this.runtime.detachBinding(owned.id);
-        }
-      }
+      await this.coordinator.reconcile();
     } finally {
       this.reconciling = false;
     }

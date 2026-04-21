@@ -30,6 +30,7 @@ import { buildRedisCoordinationKeys } from "../runtime/cluster/redis-coordinatio
 import { createLocalOwnershipGate } from "../runtime/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local-scheduler.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
+import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import {
   RuntimeNodeState,
   type LocalRuntimeSnapshot,
@@ -812,9 +813,13 @@ describe("RuntimeClusterStateReader", () => {
 
 describe("cluster bootstrap wiring", () => {
   test("cluster mode uses the leader scheduler instead of LocalScheduler", async () => {
+    const coordinator = {
+      reconcile: async () => {},
+    } as unknown as RuntimeAssignmentCoordinator;
     const result = buildRuntimeBootstrap({
       clusterMode: true,
       redisUrl: "redis://localhost:6379",
+      coordinator,
       relay: {} as RelayRuntime,
       eventBus: new DomainEventBus(),
     });
@@ -822,9 +827,122 @@ describe("cluster bootstrap wiring", () => {
     assert.equal(result.schedulerKind, "leader");
   });
 
+  test("leader scheduler triggers initial and event-driven reconciles", async () => {
+    const { LeaderScheduler } = await import(
+      "../runtime/cluster/leader-scheduler.js"
+    );
+    const bus = new DomainEventBus();
+    let reconcileCalls = 0;
+    const scheduler = new LeaderScheduler({
+      coordinator: {
+        reconcile: async () => {
+          reconcileCalls += 1;
+        },
+      } as unknown as RuntimeAssignmentCoordinator,
+      eventBus: bus,
+      ownershipGate: createLocalOwnershipGate(),
+    });
+
+    scheduler.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(reconcileCalls >= 1);
+    reconcileCalls = 0;
+
+    bus.publish({
+      eventType: "AgentDeleted.v1",
+      agentId: "agent-1",
+      occurredAt: new Date().toISOString(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await scheduler.stop();
+
+    assert.ok(reconcileCalls >= 1);
+  });
+
+  test("leader scheduler waits for in-flight reconcile before releasing leadership", async () => {
+    const { LeaderScheduler } = await import(
+      "../runtime/cluster/leader-scheduler.js"
+    );
+    const bus = new DomainEventBus();
+    const events: string[] = [];
+    let resolveReconcile: (() => void) | undefined;
+    const scheduler = new LeaderScheduler({
+      coordinator: {
+        reconcile: async () => {
+          events.push("reconcile-start");
+          await new Promise<void>((resolve) => {
+            resolveReconcile = resolve;
+          });
+          events.push("reconcile-end");
+        },
+      } as unknown as RuntimeAssignmentCoordinator,
+      eventBus: bus,
+      ownershipGate: {
+        acquire: async () => ({
+          bindingId: "runtime-assignment-coordinator",
+          token: "lease-1",
+        }),
+        renew: async () => true,
+        release: async () => {
+          events.push("release");
+        },
+        isHeld: async () => false,
+      },
+    });
+
+    scheduler.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const stopPromise = scheduler.stop();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(events, ["reconcile-start"]);
+
+    resolveReconcile?.();
+    await stopPromise;
+
+    assert.deepEqual(events, ["reconcile-start", "reconcile-end", "release"]);
+  });
+
+  test("leader scheduler skips reconcile when ownership is unavailable", async () => {
+    const { LeaderScheduler } = await import(
+      "../runtime/cluster/leader-scheduler.js"
+    );
+    const bus = new DomainEventBus();
+    let reconcileCalls = 0;
+    const scheduler = new LeaderScheduler({
+      coordinator: {
+        reconcile: async () => {
+          reconcileCalls += 1;
+        },
+      } as unknown as RuntimeAssignmentCoordinator,
+      eventBus: bus,
+      ownershipGate: {
+        acquire: async () => null,
+        renew: async () => false,
+        release: async () => {},
+        isHeld: async () => false,
+      },
+    });
+
+    scheduler.start();
+    bus.publish({
+      eventType: "AgentDeleted.v1",
+      agentId: "agent-1",
+      occurredAt: new Date().toISOString(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await scheduler.stop();
+
+    assert.equal(reconcileCalls, 0);
+  });
+
   test("single-instance mode keeps LocalScheduler", async () => {
+    const coordinator = {
+      reconcile: async () => {},
+    } as unknown as RuntimeAssignmentCoordinator;
     const result = buildRuntimeBootstrap({
       clusterMode: false,
+      coordinator,
       relay: {} as RelayRuntime,
       eventBus: new DomainEventBus(),
     });
@@ -1125,6 +1243,9 @@ describe("runtime bootstrapper", () => {
           relayShutdownCalls += 1;
         },
       } as RelayRuntime,
+      {
+        reconcile: async () => {},
+      } as unknown as RuntimeAssignmentCoordinator,
       new DomainEventBus(),
     );
 
@@ -1436,9 +1557,12 @@ describe("RelayRuntime ownership semantics", () => {
 
   type RelayRuntimeHarness = {
     attachBinding: RelayRuntime["attachBinding"];
+    assignBinding: RelayRuntime["assignBinding"];
     refreshBinding: RelayRuntime["refreshBinding"];
     detachBinding: RelayRuntime["detachBinding"];
+    releaseBinding: RelayRuntime["releaseBinding"];
     hasActiveConnection: RelayRuntime["hasActiveConnection"];
+    listBindings: RelayRuntime["listBindings"];
     listConnectionStatuses: RelayRuntime["listConnectionStatuses"];
     connectionManager: RelayRuntime["connectionManager"] & {
       restartConnection(binding: { id: string }): Promise<void>;
@@ -1651,6 +1775,24 @@ describe("RelayRuntime ownership semantics", () => {
     await runtime.refreshBinding(binding, updatedAgent);
 
     assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
+  });
+
+  test("assignBinding seeds a new binding and releaseBinding removes it", async () => {
+    const runtime = createRelayRuntimeForTest();
+    const binding = createBinding();
+    const agent = createAgent();
+
+    await runtime.assignBinding(binding, agent);
+    assert.equal(
+      runtime.listBindings().some((item) => item.id === binding.id),
+      true,
+    );
+
+    await runtime.releaseBinding(binding.id);
+    assert.equal(
+      runtime.listBindings().some((item) => item.id === binding.id),
+      false,
+    );
   });
 });
 
@@ -2341,49 +2483,21 @@ describe("initStore", () => {
 // ---------------------------------------------------------------------------
 
 describe("LocalScheduler", () => {
-  const createBinding = () => ({
-    id: "binding-1",
-    name: "Binding One",
-    channelType: "feishu",
-    accountId: "default",
-    channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-    agentId: "agent-1",
-    enabled: true,
-    createdAt: new Date().toISOString(),
-  });
-
-  const createAgent = () => ({
-    id: "agent-1",
-    name: "Agent One",
-    url: "http://agent-1",
-    protocol: "a2a",
-    createdAt: new Date().toISOString(),
-  });
-
   test("start and stop do not accumulate duplicate event listeners", async () => {
     const bus = new DomainEventBus();
-    let loadCalls = 0;
-    const runtime = {
-      async refreshBinding() {},
-      async detachBinding() {},
-      hasActiveConnection() {
-        return true;
+    let reconcileCalls = 0;
+    const coordinator = {
+      reconcile: async () => {
+        reconcileCalls += 1;
       },
-      listBindings() {
-        return [];
-      },
-    } as const;
+    };
 
     const scheduler = new LocalScheduler(
-      runtime as unknown as import("../runtime/relay-runtime.js").RelayRuntime,
+      coordinator as unknown as RuntimeAssignmentCoordinator,
       bus,
       {
         debounceMs: 0,
         reconcileIntervalMs: 60_000,
-        loadSnapshot: async () => ({
-          bindings: (++loadCalls, []),
-          agents: [],
-        }),
       },
     );
 
@@ -2392,7 +2506,7 @@ describe("LocalScheduler", () => {
     await scheduler.stop();
     scheduler.start();
     await new Promise((resolve) => setTimeout(resolve, 20));
-    loadCalls = 0;
+    reconcileCalls = 0;
 
     bus.publish({
       eventType: "AgentDeleted.v1",
@@ -2403,38 +2517,139 @@ describe("LocalScheduler", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await scheduler.stop();
 
-    assert.ok(loadCalls <= 1, "scheduler should not reconcile twice for one event after restart");
+    assert.ok(
+      reconcileCalls <= 1,
+      "scheduler should not reconcile twice for one event after restart",
+    );
   });
 
-  test("reconcile repairs a missing local connection even when binding config is unchanged", async () => {
-    const refreshed: string[] = [];
-    const runtime = {
-      async refreshBinding(binding: { id: string }) {
-        refreshed.push(binding.id);
-      },
-      async detachBinding() {},
-      hasActiveConnection(bindingId: string) {
-        return bindingId !== "binding-1";
-      },
-      listBindings() {
-        return [createBinding()];
-      },
-    } as const;
-
+  test("reconcile delegates directly to the coordinator", async () => {
+    let reconcileCalls = 0;
     const scheduler = new LocalScheduler(
-      runtime as unknown as import("../runtime/relay-runtime.js").RelayRuntime,
+      {
+        reconcile: async () => {
+          reconcileCalls += 1;
+        },
+      } as unknown as RuntimeAssignmentCoordinator,
       new DomainEventBus(),
+    );
+
+    await scheduler.reconcile();
+
+    assert.equal(reconcileCalls, 1);
+  });
+});
+
+describe("RuntimeAssignmentCoordinator", () => {
+  const createAgent = (id = "agent-1") => ({
+    id,
+    name: "Agent One",
+    url: `http://${id}`,
+    protocol: "a2a",
+    createdAt: new Date().toISOString(),
+  });
+
+  test("reconciles runnable desired bindings and releases stale owned bindings", async () => {
+    const events: string[] = [];
+    const runtime = {
+      listOwnedBindingIds: () => ["binding-stale", "binding-disabled"],
+      assignBinding: async (binding: { id: string }) => {
+        events.push(`assign:${binding.id}`);
+      },
+      releaseBinding: async (bindingId: string) => {
+        events.push(`release:${bindingId}`);
+      },
+    };
+
+    const coordinator = new RuntimeAssignmentCoordinator(
+      runtime as unknown as RelayRuntime,
       {
         loadSnapshot: async () => ({
-          bindings: [createBinding()],
+          bindings: [
+            {
+              id: "binding-1",
+              name: "Binding One",
+              channelType: "feishu",
+              accountId: "default",
+              channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+              agentId: "agent-1",
+              enabled: true,
+              createdAt: new Date().toISOString(),
+            },
+            {
+              id: "binding-disabled",
+              name: "Binding Disabled",
+              channelType: "feishu",
+              accountId: "default",
+              channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+              agentId: "agent-1",
+              enabled: false,
+              createdAt: new Date().toISOString(),
+            },
+          ],
           agents: [createAgent()],
         }),
       },
     );
 
-    await scheduler.reconcile();
+    await coordinator.reconcile();
 
-    assert.deepEqual(refreshed, ["binding-1"]);
+    assert.deepEqual(events, [
+      "release:binding-stale",
+      "release:binding-disabled",
+      "assign:binding-1",
+    ]);
+  });
+
+  test("releases owned non-runnable bindings as stale", async () => {
+    const events: string[] = [];
+    const runtime = {
+      listOwnedBindingIds: () => ["binding-invalid"],
+      assignBinding: async (binding: { id: string }) => {
+        events.push(`assign:${binding.id}`);
+      },
+      releaseBinding: async (bindingId: string) => {
+        events.push(`release:${bindingId}`);
+      },
+    };
+
+    const coordinator = new RuntimeAssignmentCoordinator(
+      runtime as unknown as RelayRuntime,
+      {
+        loadSnapshot: async () => ({
+          bindings: [
+            {
+              id: "binding-invalid",
+              name: "Binding Invalid",
+              channelType: "feishu",
+              accountId: "default",
+              channelConfig: { appId: "cli_1" },
+              agentId: "agent-1",
+              enabled: true,
+              createdAt: new Date().toISOString(),
+            },
+            {
+              id: "binding-1",
+              name: "Binding One",
+              channelType: "feishu",
+              accountId: "default",
+              channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+              agentId: "agent-1",
+              enabled: true,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          agents: [createAgent()],
+        }),
+      },
+    );
+
+    await coordinator.reconcile();
+
+    assert.deepEqual(events, [
+      "release:binding-invalid",
+      "assign:binding-1",
+    ]);
   });
 });
 describe("OutboxWorker", () => {
