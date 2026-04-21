@@ -63,7 +63,10 @@ export class RuntimeClusterStateReader {
       this.readSnapshots(),
     ]);
     const agentById = new Map(agents.map((agent) => [agent.id, agent]));
-    const ownerByBindingId = this.buildOwnerByBindingId(snapshots);
+    const latestSnapshotsByNodeId = this.buildLatestSnapshotByNodeId(snapshots);
+    const ownerByBindingId = this.buildOwnerByBindingId(
+      Array.from(latestSnapshotsByNodeId.values()),
+    );
 
     return bindings.map((binding) => {
       const agent = agentById.get(binding.agentId);
