@@ -39,3 +39,4 @@ db/
 # Prisma generated client
 apps/gateway/src/generated/
 .claude/
+.pnpm-store/
