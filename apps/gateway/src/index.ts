@@ -29,8 +29,8 @@ import type {
 
 import type { ChannelBindingService } from "./application/channel-binding-service.js";
 import type { AgentService } from "./application/agent-service.js";
-import { DomainEventBus } from "./infra/domain-event-bus.js";
-import { OutboxWorker } from "./infra/outbox-worker.js";
+import type { DomainEventBus } from "./infra/domain-event-bus.js";
+import type { OutboxWorker } from "./infra/outbox-worker.js";
 import { buildGatewayConfig } from "./bootstrap/config.js";
 import { buildGatewayContainer } from "./bootstrap/container.js";
 import { buildHttpApp } from "./http/app.js";
@@ -51,13 +51,9 @@ const { port: PORT, corsOrigin: CORS_ORIGIN } = gatewayConfig;
 // Infrastructure wiring
 // ---------------------------------------------------------------------------
 
-await initStore();
-
-const eventBus = new DomainEventBus();
-const outboxWorker = new OutboxWorker(eventBus);
-outboxWorker.start();
-
 const container = buildGatewayContainer(gatewayConfig);
+const eventBus = container.get<DomainEventBus>(SERVICE_TOKENS.DomainEventBus);
+const outboxWorker = container.get<OutboxWorker>(SERVICE_TOKENS.OutboxWorker);
 const bindingRepo = container.get<ChannelBindingRepository>(
   SERVICE_TOKENS.ChannelBindingStateRepository,
 );
@@ -69,12 +65,16 @@ const channelBindingService = container.get<ChannelBindingService>(
 );
 const agentService = container.get<AgentService>(SERVICE_TOKENS.AgentService);
 
+await initStore();
+
 await seedDefaults({
   agentService,
   bindingService: channelBindingService,
   agentRepo,
   bindingRepo,
 });
+
+outboxWorker.start();
 
 // ---------------------------------------------------------------------------
 // Runtime bootstrap
