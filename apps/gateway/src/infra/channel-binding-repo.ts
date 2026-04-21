@@ -1,27 +1,17 @@
-/**
- * EventSourcedChannelBindingRepository
- *
- * Loads ChannelBindingAggregate instances by replaying their event stream.
- * Saves them by appending pending events to the EventStore and publishing
- * those events on the DomainEventBus.
- *
- * `findAll()` and `findEnabled()` delegate to Prisma (the read projection)
- * for efficiency and return snapshots, NOT aggregates – avoiding the
- * incorrect-version problem that would arise if those objects were saved.
- */
-
-import { randomUUID } from "node:crypto";
-
 import type { ChannelBindingRepository, ChannelBindingSnapshot } from "@a2a-channels/domain";
 import { ChannelBindingAggregate } from "@a2a-channels/domain";
-import type { ChannelBindingEvent } from "@a2a-channels/domain";
-import type { EventStore } from "@a2a-channels/event-store";
 
-import type { DomainEventBus } from "../domain/event-bus.js";
 import { prisma } from "../store/prisma.js";
 
-function streamId(bindingId: string): string {
-  return `ChannelBinding:${bindingId}`;
+function buildEnabledKey(snapshot: Pick<
+  ChannelBindingSnapshot,
+  "channelType" | "accountId" | "enabled"
+>): string | null {
+  if (!snapshot.enabled) {
+    return null;
+  }
+
+  return `${snapshot.channelType}:${snapshot.accountId}`;
 }
 
 function mapPrismaRowToSnapshot(row: {
@@ -30,7 +20,7 @@ function mapPrismaRowToSnapshot(row: {
   channelType: string;
   accountId: string;
   channelConfig: string;
-  agentUrl: string;
+  agentId: string;
   enabled: boolean;
   createdAt: Date;
 }): ChannelBindingSnapshot {
@@ -40,27 +30,17 @@ function mapPrismaRowToSnapshot(row: {
     channelType: row.channelType,
     accountId: row.accountId,
     channelConfig: JSON.parse(row.channelConfig) as Record<string, unknown>,
-    agentUrl: row.agentUrl,
+    agentId: row.agentId,
     enabled: row.enabled,
     createdAt: row.createdAt.toISOString(),
   };
 }
 
-export class EventSourcedChannelBindingRepository
-  implements ChannelBindingRepository
-{
-  constructor(
-    private readonly eventStore: EventStore,
-    private readonly eventBus: DomainEventBus,
-  ) {}
-
+export class ChannelBindingStateRepository implements ChannelBindingRepository {
   async findById(id: string): Promise<ChannelBindingAggregate | null> {
-    const events = await this.eventStore.load(streamId(id));
-    if (events.length === 0) return null;
-    const domainEvents = events.map((e) => e.payload as ChannelBindingEvent);
-    const agg = ChannelBindingAggregate.reconstitute(domainEvents);
-    if (agg.isDeleted) return null;
-    return agg;
+    const row = await prisma.channelBinding.findUnique({ where: { id } });
+    if (!row) return null;
+    return ChannelBindingAggregate.fromSnapshot(mapPrismaRowToSnapshot(row));
   }
 
   async findAll(): Promise<ChannelBindingSnapshot[]> {
@@ -86,28 +66,70 @@ export class EventSourcedChannelBindingRepository
     return row ? mapPrismaRowToSnapshot(row) : null;
   }
 
+  async findByAgentId(agentId: string): Promise<ChannelBindingSnapshot[]> {
+    const rows = await prisma.channelBinding.findMany({
+      where: { agentId },
+      orderBy: { createdAt: "asc" },
+    });
+    return rows.map(mapPrismaRowToSnapshot);
+  }
+
+  async findByChannelAccount(
+    channelType: string,
+    accountId: string,
+  ): Promise<ChannelBindingSnapshot | null> {
+    const row = await prisma.channelBinding.findFirst({
+      where: { channelType, accountId },
+      orderBy: { createdAt: "asc" },
+    });
+    return row ? mapPrismaRowToSnapshot(row) : null;
+  }
+
   async save(aggregate: ChannelBindingAggregate): Promise<void> {
     const pending = aggregate.pendingEvents;
     if (pending.length === 0) return;
 
-    const sid = streamId(aggregate.id);
-    const baseVersion = aggregate.version - pending.length;
+    await prisma.$transaction(async (tx) => {
+      if (aggregate.isDeleted) {
+        await tx.channelBinding.deleteMany({ where: { id: aggregate.id } });
+      } else {
+        const snapshot = aggregate.snapshot();
+        await tx.channelBinding.upsert({
+          where: { id: snapshot.id },
+          create: {
+            id: snapshot.id,
+            name: snapshot.name,
+            channelType: snapshot.channelType,
+            accountId: snapshot.accountId,
+            channelConfig: JSON.stringify(snapshot.channelConfig),
+            agentId: snapshot.agentId,
+            enabledKey: buildEnabledKey(snapshot),
+            enabled: snapshot.enabled,
+            createdAt: new Date(snapshot.createdAt),
+          },
+          update: {
+            name: snapshot.name,
+            channelType: snapshot.channelType,
+            accountId: snapshot.accountId,
+            channelConfig: JSON.stringify(snapshot.channelConfig),
+            agentId: snapshot.agentId,
+            enabledKey: buildEnabledKey(snapshot),
+            enabled: snapshot.enabled,
+          },
+        });
+      }
 
-    const newEvents = pending.map((event, i) => ({
-      id: randomUUID(),
-      streamId: sid,
-      streamVersion: baseVersion + i + 1,
-      eventType: event.eventType,
-      payload: event,
-      metadata: {},
-      occurredAt: new Date(event.occurredAt),
-    }));
+      await tx.outboxEvent.createMany({
+        data: pending.map((event) => ({
+          aggregateType: "ChannelBinding",
+          aggregateId: event.bindingId,
+          eventType: event.eventType,
+          payload: JSON.stringify(event),
+          occurredAt: new Date(event.occurredAt),
+        })),
+      });
+    });
 
-    await this.eventStore.append(sid, newEvents, baseVersion);
     aggregate.clearPendingEvents();
-
-    for (const event of pending) {
-      this.eventBus.publish(event);
-    }
   }
 }

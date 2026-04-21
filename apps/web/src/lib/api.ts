@@ -18,7 +18,7 @@ export interface ChannelBinding {
   channelType: string;
   accountId: string;
   channelConfig: Record<string, unknown>;
-  agentUrl: string;
+  agentId: string;
   enabled: boolean;
   createdAt: string;
 }

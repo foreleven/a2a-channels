@@ -129,6 +129,17 @@ export class AgentConfigAggregate {
     return agg;
   }
 
+  static fromSnapshot(snapshot: AgentConfigSnapshot): AgentConfigAggregate {
+    const agg = new AgentConfigAggregate();
+    agg.id = snapshot.id;
+    agg.name = snapshot.name;
+    agg.url = snapshot.url;
+    agg.protocol = snapshot.protocol ?? "a2a";
+    agg.description = snapshot.description;
+    agg.createdAt = snapshot.createdAt;
+    return agg;
+  }
+
   // -------------------------------------------------------------------------
   // Internal helpers
   // -------------------------------------------------------------------------

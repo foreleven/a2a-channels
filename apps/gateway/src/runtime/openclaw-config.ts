@@ -1,4 +1,4 @@
-import type { ChannelBinding } from "@a2a-channels/core";
+import type { AgentConfig, ChannelBinding } from "@a2a-channels/core";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 interface FeishuChannelConfig {
@@ -11,33 +11,25 @@ interface FeishuChannelConfig {
 
 type FeishuConfig = NonNullable<OpenClawConfig["channels"]>["feishu"];
 
-export function hasValidFeishuCredentials(binding: ChannelBinding): boolean {
-  if (binding.channelType !== "feishu") {
-    return true;
-  }
-
-  const cfg = binding.channelConfig as unknown as FeishuChannelConfig;
-  return Boolean(cfg.appId && cfg.appSecret);
-}
-
 export function buildOpenClawConfigFromBindings(
   bindings: ChannelBinding[],
+  agentsById: ReadonlyMap<string, AgentConfig>,
 ): OpenClawConfig {
   const feishuBindings = bindings.filter(
-    (binding) =>
-      binding.enabled &&
-      binding.channelType === "feishu" &&
-      hasValidFeishuCredentials(binding),
+    (binding) => binding.enabled && binding.channelType === "feishu",
   );
 
   const feishuAccounts: Record<string, FeishuConfig> = {};
   let defaultFeishuConfig: FeishuConfig | null = null;
 
   for (const binding of feishuBindings) {
+    const agentUrl = agentsById.get(binding.agentId)?.url;
+    if (!agentUrl) continue;
+
     const cfg = binding.channelConfig as unknown as FeishuChannelConfig;
     const accountConfig: FeishuConfig = {
       bindingId: binding.id,
-      agentUrl: binding.agentUrl,
+      agentUrl,
       appId: cfg.appId,
       appSecret: cfg.appSecret,
       encryptKey: cfg.encryptKey,

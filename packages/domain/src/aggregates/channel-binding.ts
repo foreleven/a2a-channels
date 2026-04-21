@@ -23,7 +23,7 @@ export interface ChannelBindingSnapshot {
   readonly channelType: string;
   readonly accountId: string;
   readonly channelConfig: Record<string, unknown>;
-  readonly agentUrl: string;
+  readonly agentId: string;
   readonly enabled: boolean;
   readonly createdAt: string;
 }
@@ -34,7 +34,7 @@ export class ChannelBindingAggregate {
   channelType!: string;
   accountId!: string;
   channelConfig!: Record<string, unknown>;
-  agentUrl!: string;
+  agentId!: string;
   enabled!: boolean;
   createdAt!: string;
 
@@ -63,7 +63,7 @@ export class ChannelBindingAggregate {
       channelType: this.channelType,
       accountId: this.accountId,
       channelConfig: this.channelConfig,
-      agentUrl: this.agentUrl,
+      agentId: this.agentId,
       enabled: this.enabled,
       createdAt: this.createdAt,
     };
@@ -79,7 +79,7 @@ export class ChannelBindingAggregate {
     channelType: string;
     accountId: string;
     channelConfig: Record<string, unknown>;
-    agentUrl: string;
+    agentId: string;
     enabled: boolean;
   }): ChannelBindingAggregate {
     const agg = new ChannelBindingAggregate();
@@ -90,7 +90,7 @@ export class ChannelBindingAggregate {
       channelType: data.channelType,
       accountId: data.accountId,
       channelConfig: data.channelConfig,
-      agentUrl: data.agentUrl,
+      agentId: data.agentId,
       enabled: data.enabled,
       occurredAt: new Date().toISOString(),
     });
@@ -146,6 +146,19 @@ export class ChannelBindingAggregate {
     return agg;
   }
 
+  static fromSnapshot(snapshot: ChannelBindingSnapshot): ChannelBindingAggregate {
+    const agg = new ChannelBindingAggregate();
+    agg.id = snapshot.id;
+    agg.name = snapshot.name;
+    agg.channelType = snapshot.channelType;
+    agg.accountId = snapshot.accountId;
+    agg.channelConfig = snapshot.channelConfig;
+    agg.agentId = snapshot.agentId;
+    agg.enabled = snapshot.enabled;
+    agg.createdAt = snapshot.createdAt;
+    return agg;
+  }
+
   // -------------------------------------------------------------------------
   // Internal helpers
   // -------------------------------------------------------------------------
@@ -164,7 +177,7 @@ export class ChannelBindingAggregate {
         this.channelType = event.channelType;
         this.accountId = event.accountId;
         this.channelConfig = event.channelConfig;
-        this.agentUrl = event.agentUrl;
+        this.agentId = event.agentId;
         this.enabled = event.enabled;
         this.createdAt = event.occurredAt;
         break;
@@ -175,7 +188,7 @@ export class ChannelBindingAggregate {
         if (c.channelType !== undefined) this.channelType = c.channelType;
         if (c.accountId !== undefined) this.accountId = c.accountId;
         if (c.channelConfig !== undefined) this.channelConfig = c.channelConfig;
-        if (c.agentUrl !== undefined) this.agentUrl = c.agentUrl;
+        if (c.agentId !== undefined) this.agentId = c.agentId;
         if (c.enabled !== undefined) this.enabled = c.enabled;
         break;
       }

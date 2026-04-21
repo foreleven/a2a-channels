@@ -3,6 +3,7 @@ import type {
   AgentConfig,
   AgentTransport,
   ChannelBinding,
+  RuntimeConnectionStatus,
 } from "@a2a-channels/core";
 import { A2ATransport, ACPTransport } from "@a2a-channels/agent-transport";
 import { TransportRegistry } from "@a2a-channels/core";
@@ -14,7 +15,6 @@ import {
 
 import { ConnectionManager } from "../connection-manager.js";
 import { registerAllPlugins } from "../register-plugins.js";
-import type { DomainEventBus } from "../domain/event-bus.js";
 import {
   createAgentClientHandle,
   startAgentClients,
@@ -22,17 +22,23 @@ import {
 } from "./agent-clients.js";
 import {
   buildOpenClawConfigFromBindings,
-  hasValidFeishuCredentials,
 } from "./openclaw-config.js";
-import { loadRuntimeStateSnapshot } from "./state.js";
+import {
+  createRuntimeOwnershipState,
+  type RuntimeOwnershipState,
+} from "./ownership-state.js";
+import { createLocalOwnershipGate } from "./local-ownership-gate.js";
+import type { OwnershipGate } from "./ownership-gate.js";
+import type { ReconnectPolicy } from "./reconnect-policy.js";
 
 export interface RelayRuntimeOptions {
   name?: string;
-  bindings: ChannelBinding[];
-  agents: AgentConfig[];
+  reconnectPolicy?: ReconnectPolicy;
   transports: AgentTransport[];
-  /** Optional event bus to subscribe for reactive updates. */
-  eventBus?: DomainEventBus;
+}
+
+interface ApplyAgentUpsertOptions {
+  skipRestartBindingIds?: string[];
 }
 
 export class RelayRuntime {
@@ -46,23 +52,24 @@ export class RelayRuntime {
   private agentsById = new Map<string, AgentConfig>();
   private agentsByUrl = new Map<string, AgentConfig>();
   private clients = new Map<string, AgentClientHandle>();
+  private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly ownershipState: RuntimeOwnershipState;
+  private readonly ownershipGate: OwnershipGate;
   private openClawConfig: OpenClawConfig;
 
   constructor(private readonly options: RelayRuntimeOptions) {
     this.name = options.name ?? "local";
-    this.openClawConfig = buildOpenClawConfigFromBindings(
-      this.options.bindings,
-    );
+    this.bindingsById = new Map();
+    this.agentsById = new Map();
+    this.agentsByUrl = new Map();
+    this.reconnectTimers = new Map();
+    this.ownershipGate = createLocalOwnershipGate();
+    this.ownershipState = createRuntimeOwnershipState({
+      reconnectPolicy: options.reconnectPolicy,
+    });
+    this.openClawConfig = buildOpenClawConfigFromBindings([], this.agentsById);
 
     console.log("[RelayRuntime] config=", this.openClawConfig);
-
-    this.bindingsById = new Map(
-      options.bindings.map((binding) => [binding.id, binding]),
-    );
-    this.agentsById = new Map(options.agents.map((agent) => [agent.id, agent]));
-    this.agentsByUrl = new Map(
-      options.agents.map((agent) => [agent.url, agent]),
-    );
 
     this.transportRegistry = new TransportRegistry();
     for (const transport of options.transports) {
@@ -87,141 +94,78 @@ export class RelayRuntime {
     connectionManager = new ConnectionManager(
       this.pluginHost,
       () => this.listEnabledBindings(),
-      (agentUrl) => this.getAgentClient(agentUrl),
+      (agentId) => this.getAgentClient(agentId),
       (event) => this.runtime.emit("message:inbound", event),
       (event) => this.runtime.emit("message:outbound", event),
+      {
+        onConnectionStatus: ({ binding, status, agentUrl, error }) => {
+          this.applyOwnedConnectionStatus(binding.id, status, agentUrl, error);
+        },
+        onAgentCallFailed: ({ binding, error }) => {
+          console.error(
+            `[runtime] agent call failed for binding ${binding.id}:`,
+            String(error),
+          );
+        },
+      },
     );
     this.connectionManager = connectionManager;
-
-    // Wire up domain event subscriptions if a bus was provided.
-    if (options.eventBus) {
-      this.subscribeToEventBus(options.eventBus);
-    }
   }
 
-  static async load(eventBus?: DomainEventBus): Promise<RelayRuntime> {
-    const snapshot = await loadRuntimeStateSnapshot();
-    const runtime = new RelayRuntime({
+  static async load(): Promise<RelayRuntime> {
+    return new RelayRuntime({
       name: "local",
-      bindings: snapshot.bindings,
-      agents: snapshot.agents,
       transports: [new A2ATransport(), new ACPTransport()],
-      eventBus,
     });
-
-    return runtime;
   }
 
   async bootstrap(): Promise<void> {
-    this.clients = this.buildAgentClients(this.options.agents);
-    await startAgentClients(this.clients.values());
     registerAllPlugins(this.pluginHost);
-    await this.connectionManager.syncConnections();
   }
 
   async shutdown(): Promise<void> {
+    for (const bindingId of Array.from(this.reconnectTimers.keys())) {
+      this.clearReconnectTimer(bindingId);
+    }
     await this.connectionManager.stopAllConnections();
     await stopAgentClients(this.clients.values());
   }
 
   // -------------------------------------------------------------------------
-  // Domain event subscriptions
+  // Local ownership operations
   // -------------------------------------------------------------------------
 
-  /**
-   * Subscribe to all relevant domain events on `bus` so the runtime reacts
-   * to binding/agent changes automatically, without requiring direct calls
-   * from the HTTP layer.
-   */
-  subscribeToEventBus(bus: DomainEventBus): void {
-    bus.on("ChannelBindingCreated.v1", (e) => {
-      const binding: ChannelBinding = {
-        id: e.bindingId,
-        name: e.name,
-        channelType: e.channelType,
-        accountId: e.accountId,
-        channelConfig: e.channelConfig,
-        agentUrl: e.agentUrl,
-        enabled: e.enabled,
-        createdAt: e.occurredAt,
-      };
-      this.applyBindingUpsert(binding).catch((err: unknown) => {
-        console.error("[RelayRuntime] ChannelBindingCreated handler failed", err);
-      });
+  async attachBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
+    await this.applyAgentUpsert(agent, {
+      skipRestartBindingIds: [binding.id],
     });
-
-    bus.on("ChannelBindingUpdated.v1", (e) => {
-      const existing = this.bindingsById.get(e.bindingId);
-      if (!existing) return;
-      const updated: ChannelBinding = {
-        ...existing,
-        ...e.changes,
-        channelConfig: e.changes.channelConfig ?? existing.channelConfig,
-      };
-      this.applyBindingUpsert(updated).catch((err: unknown) => {
-        console.error("[RelayRuntime] ChannelBindingUpdated handler failed", err);
-      });
-    });
-
-    bus.on("ChannelBindingDeleted.v1", (e) => {
-      this.applyBindingDelete(e.bindingId).catch((err: unknown) => {
-        console.error("[RelayRuntime] ChannelBindingDeleted handler failed", err);
-      });
-    });
-
-    bus.on("AgentRegistered.v1", (e) => {
-      const agent: AgentConfig = {
-        id: e.agentId,
-        name: e.name,
-        url: e.url,
-        protocol: e.protocol,
-        description: e.description,
-        createdAt: e.occurredAt,
-      };
-      this.applyAgentUpsert(agent).catch((err: unknown) => {
-        console.error("[RelayRuntime] AgentRegistered handler failed", err);
-      });
-    });
-
-    bus.on("AgentUpdated.v1", (e) => {
-      const existing = this.agentsById.get(e.agentId);
-      if (!existing) return;
-      const c = e.changes;
-      const updated: AgentConfig = {
-        ...existing,
-        ...(c.name !== undefined && { name: c.name }),
-        ...(c.url !== undefined && { url: c.url }),
-        ...(c.protocol !== undefined && { protocol: c.protocol }),
-        ...(c.description !== undefined && {
-          description: c.description ?? undefined,
-        }),
-      };
-      this.applyAgentUpsert(updated).catch((err: unknown) => {
-        console.error("[RelayRuntime] AgentUpdated handler failed", err);
-      });
-    });
-
-    bus.on("AgentDeleted.v1", (e) => {
-      this.applyAgentDelete(e.agentId).catch((err: unknown) => {
-        console.error("[RelayRuntime] AgentDeleted handler failed", err);
-      });
-    });
+    await this.applyBindingUpsert(binding);
   }
 
-  // -------------------------------------------------------------------------
-  // Mutation helpers (also reachable directly for tests / back-compat)
-  // -------------------------------------------------------------------------
+  async refreshBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
+    await this.attachBinding(binding, agent);
+  }
+
+  async detachBinding(bindingId: string): Promise<void> {
+    await this.applyBindingDelete(bindingId);
+  }
 
   async applyBindingUpsert(binding: ChannelBinding): Promise<void> {
     const previous = this.bindingsById.get(binding.id);
+    this.ensureOwnershipState(binding);
+
     if (previous && this.areBindingsEquivalent(previous, binding)) {
+      await this.syncBindingConnection(binding);
       return;
     }
 
     this.bindingsById.set(binding.id, binding);
-    this.openClawConfig = buildOpenClawConfigFromBindings(this.listBindings());
+    this.openClawConfig = buildOpenClawConfigFromBindings(
+      this.listBindings(),
+      this.agentsById,
+    );
 
-    await this.connectionManager.restartConnection(binding);
+    await this.syncBindingConnection(binding);
   }
 
   async applyBindingDelete(bindingId: string): Promise<void> {
@@ -230,13 +174,21 @@ export class RelayRuntime {
       return;
     }
 
+    this.clearReconnectTimer(bindingId);
     this.bindingsById.delete(bindingId);
-    this.openClawConfig = buildOpenClawConfigFromBindings(this.listBindings());
+    this.ownershipState.detachBinding(bindingId);
+    this.openClawConfig = buildOpenClawConfigFromBindings(
+      this.listBindings(),
+      this.agentsById,
+    );
 
     await this.connectionManager.stopConnection(bindingId);
   }
 
-  async applyAgentUpsert(agent: AgentConfig): Promise<void> {
+  async applyAgentUpsert(
+    agent: AgentConfig,
+    options: ApplyAgentUpsertOptions = {},
+  ): Promise<void> {
     const previous = this.agentsById.get(agent.id);
     const previousClient = previous?.url
       ? this.clients.get(previous.url)
@@ -263,6 +215,21 @@ export class RelayRuntime {
     const nextClient = this.createAgentClient(agent);
     this.clients.set(agent.url, nextClient);
     await startAgentClients([nextClient]);
+
+    this.openClawConfig = buildOpenClawConfigFromBindings(
+      this.listBindings(),
+      this.agentsById,
+    );
+
+    const affectedBindings = this.listBindings().filter(
+      (binding) =>
+        binding.agentId === agent.id &&
+        !options.skipRestartBindingIds?.includes(binding.id),
+    );
+
+    for (const binding of affectedBindings) {
+      await this.syncBindingConnection(binding);
+    }
   }
 
   async applyAgentDelete(agentId: string): Promise<void> {
@@ -305,26 +272,131 @@ export class RelayRuntime {
     );
   }
 
-  private async getAgentClient(agentUrl: string): Promise<AgentClientHandle> {
-    return (
-      this.clients.get(agentUrl) ??
+  listConnectionStatuses(): RuntimeConnectionStatus[] {
+    return this.ownershipState.listConnectionStatuses();
+  }
+
+  hasActiveConnection(bindingId: string): boolean {
+    return this.connectionManager.hasConnection(bindingId);
+  }
+
+  private ensureOwnershipState(binding: ChannelBinding): boolean {
+    const isOwned = this.ownershipState
+      .listConnectionStatuses()
+      .some((status) => status.bindingId === binding.id);
+
+    if (isOwned) {
+      return false;
+    }
+
+    this.ownershipState.attachBinding(binding);
+    return true;
+  }
+
+  private async syncBindingConnection(binding: ChannelBinding): Promise<void> {
+    this.clearReconnectTimer(binding.id);
+    if (!binding.enabled || !this.isRunnableBinding(binding)) {
+      this.resetOwnershipStatusToIdle(binding);
+      await this.connectionManager.stopConnection(binding.id);
+      return;
+    }
+
+    await this.connectionManager.restartConnection(binding);
+  }
+
+  private resetOwnershipStatusToIdle(binding: ChannelBinding): void {
+    this.ownershipState.detachBinding(binding.id);
+    this.ownershipState.attachBinding(binding);
+  }
+
+  private scheduleReconnect(
+    bindingId: string,
+    delayMs: number,
+  ): void {
+    this.clearReconnectTimer(bindingId);
+    const binding = this.bindingsById.get(bindingId);
+    if (!binding || !binding.enabled || !this.isRunnableBinding(binding)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.reconnectTimers.delete(bindingId);
+      const latestBinding = this.bindingsById.get(bindingId);
+      if (!latestBinding || !latestBinding.enabled || !this.isRunnableBinding(latestBinding)) {
+        return;
+      }
+      void this.connectionManager.restartConnection(latestBinding);
+    }, delayMs);
+
+    this.reconnectTimers.set(bindingId, timer);
+  }
+
+  private clearReconnectTimer(bindingId: string): void {
+    const timer = this.reconnectTimers.get(bindingId);
+    if (timer) {
+      clearTimeout(timer);
+    }
+    this.reconnectTimers.delete(bindingId);
+  }
+
+  private applyOwnedConnectionStatus(
+    bindingId: string,
+    status: RuntimeConnectionStatus["status"],
+    agentUrl?: string,
+    error?: unknown,
+  ): void {
+    const binding = this.bindingsById.get(bindingId);
+    if (!binding) {
+      return;
+    }
+
+    this.ensureOwnershipState(binding);
+
+    switch (status) {
+      case "connecting":
+        this.clearReconnectTimer(bindingId);
+        this.ownershipState.markConnecting(bindingId, agentUrl);
+        return;
+      case "connected":
+        this.clearReconnectTimer(bindingId);
+        this.ownershipState.markConnected(bindingId, agentUrl);
+        return;
+      case "disconnected": {
+        const decision = this.ownershipState.markDisconnected(bindingId, agentUrl);
+        this.scheduleReconnect(bindingId, decision.delayMs);
+        return;
+      }
+      case "error": {
+        const decision = this.ownershipState.markError(
+          bindingId,
+          error ?? new Error("Unknown connection error"),
+          agentUrl,
+        );
+        this.scheduleReconnect(bindingId, decision.delayMs);
+        return;
+      }
+      case "idle":
+        return;
+    }
+  }
+
+  private async getAgentClient(
+    agentId: string,
+  ): Promise<{ client: AgentClientHandle; url: string }> {
+    const agent = this.agentsById.get(agentId);
+    if (!agent) {
+      throw new Error(`Agent ${agentId} not found`);
+    }
+
+    const client =
+      this.clients.get(agent.url) ??
       createAgentClientHandle(
-        {
-          id: agentUrl,
-          name: agentUrl,
-          url: agentUrl,
-          protocol: this.getAgentProtocolForUrl(agentUrl),
-          createdAt: new Date(0).toISOString(),
-        },
-        this.transportRegistry.resolve(this.getAgentProtocolForUrl(agentUrl)),
-      )
-    );
-  }
+        agent,
+        this.transportRegistry.resolve(agent.protocol ?? "a2a"),
+      );
 
-  private getAgentProtocolForUrl(agentUrl: string): string {
-    return this.agentsByUrl.get(agentUrl)?.protocol ?? "a2a";
+    return { client, url: agent.url };
   }
-
   private createAgentClient(agent: AgentConfig): AgentClientHandle {
     return createAgentClientHandle(
       agent,
@@ -333,7 +405,24 @@ export class RelayRuntime {
   }
 
   private isRunnableBinding(binding: ChannelBinding): boolean {
-    if (hasValidFeishuCredentials(binding)) {
+    if (
+      binding.channelType !== "feishu" &&
+      binding.channelType !== "lark"
+    ) {
+      return true;
+    }
+
+    const config = binding.channelConfig as {
+      appId?: unknown;
+      appSecret?: unknown;
+    };
+    const hasCredentials =
+      typeof config.appId === "string" &&
+      config.appId.trim().length > 0 &&
+      typeof config.appSecret === "string" &&
+      config.appSecret.trim().length > 0;
+
+    if (hasCredentials) {
       return true;
     }
 
@@ -351,17 +440,9 @@ export class RelayRuntime {
       left.name === right.name &&
       left.channelType === right.channelType &&
       left.accountId === right.accountId &&
-      left.agentUrl === right.agentUrl &&
+      left.agentId === right.agentId &&
       left.enabled === right.enabled &&
       JSON.stringify(left.channelConfig) === JSON.stringify(right.channelConfig)
-    );
-  }
-
-  private buildAgentClients(
-    agents: AgentConfig[],
-  ): Map<string, AgentClientHandle> {
-    return new Map(
-      agents.map((agent) => [agent.url, this.createAgentClient(agent)]),
     );
   }
 }

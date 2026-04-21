@@ -1,25 +1,8 @@
-/**
- * EventSourcedAgentConfigRepository
- *
- * Loads AgentConfigAggregate instances by replaying their event stream.
- * `findAll()` delegates to Prisma (the read projection) for efficiency and
- * returns snapshots – NOT aggregates – avoiding the incorrect-version problem
- * that would arise if those objects were later saved.
- */
-
-import { randomUUID } from "node:crypto";
-
 import type { AgentConfigRepository, AgentConfigSnapshot } from "@a2a-channels/domain";
 import { AgentConfigAggregate } from "@a2a-channels/domain";
 import type { AgentEvent } from "@a2a-channels/domain";
-import type { EventStore } from "@a2a-channels/event-store";
 
-import type { DomainEventBus } from "../domain/event-bus.js";
 import { prisma } from "../store/prisma.js";
-
-function streamId(agentId: string): string {
-  return `AgentConfig:${agentId}`;
-}
 
 function mapPrismaRowToSnapshot(row: {
   id: string;
@@ -39,21 +22,23 @@ function mapPrismaRowToSnapshot(row: {
   };
 }
 
-export class EventSourcedAgentConfigRepository
-  implements AgentConfigRepository
-{
-  constructor(
-    private readonly eventStore: EventStore,
-    private readonly eventBus: DomainEventBus,
-  ) {}
+function shouldWriteOutbox(event: AgentEvent): boolean {
+  return event.eventType !== "AgentRegistered.v1";
+}
 
+export class AgentConfigStateRepository implements AgentConfigRepository {
   async findById(id: string): Promise<AgentConfigAggregate | null> {
-    const events = await this.eventStore.load(streamId(id));
-    if (events.length === 0) return null;
-    const domainEvents = events.map((e) => e.payload as AgentEvent);
-    const agg = AgentConfigAggregate.reconstitute(domainEvents);
-    if (agg.isDeleted) return null;
-    return agg;
+    const row = await prisma.agent.findUnique({ where: { id } });
+    if (!row) return null;
+    return AgentConfigAggregate.fromSnapshot(mapPrismaRowToSnapshot(row));
+  }
+
+  async findByUrl(url: string): Promise<AgentConfigSnapshot | null> {
+    const row = await prisma.agent.findFirst({
+      where: { url },
+      orderBy: { createdAt: "asc" },
+    });
+    return row ? mapPrismaRowToSnapshot(row) : null;
   }
 
   async findAll(): Promise<AgentConfigSnapshot[]> {
@@ -67,24 +52,45 @@ export class EventSourcedAgentConfigRepository
     const pending = aggregate.pendingEvents;
     if (pending.length === 0) return;
 
-    const sid = streamId(aggregate.id);
-    const baseVersion = aggregate.version - pending.length;
+    await prisma.$transaction(async (tx) => {
+      if (aggregate.isDeleted) {
+        await tx.agent.deleteMany({ where: { id: aggregate.id } });
+      } else {
+        const snapshot = aggregate.snapshot();
+        await tx.agent.upsert({
+          where: { id: snapshot.id },
+          create: {
+            id: snapshot.id,
+            name: snapshot.name,
+            url: snapshot.url,
+            protocol: snapshot.protocol ?? "a2a",
+            description: snapshot.description,
+            createdAt: new Date(snapshot.createdAt),
+          },
+          update: {
+            name: snapshot.name,
+            url: snapshot.url,
+            protocol: snapshot.protocol ?? "a2a",
+            description: snapshot.description,
+          },
+        });
+      }
 
-    const newEvents = pending.map((event, i) => ({
-      id: randomUUID(),
-      streamId: sid,
-      streamVersion: baseVersion + i + 1,
-      eventType: event.eventType,
-      payload: event,
-      metadata: {},
-      occurredAt: new Date(event.occurredAt),
-    }));
+      const outboxEvents = pending.filter(shouldWriteOutbox);
+      if (outboxEvents.length > 0) {
+        await tx.outboxEvent.createMany({
+          data: outboxEvents.map((event) => ({
+            aggregateType: "AgentConfig",
+            aggregateId: event.agentId,
+            eventType: event.eventType,
+            payload: JSON.stringify(event),
+            occurredAt: new Date(event.occurredAt),
+          })),
+        });
+      }
+    });
 
-    await this.eventStore.append(sid, newEvents, baseVersion);
     aggregate.clearPendingEvents();
-
-    for (const event of pending) {
-      this.eventBus.publish(event);
-    }
   }
 }
+

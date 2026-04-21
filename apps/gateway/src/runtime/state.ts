@@ -1,6 +1,7 @@
 import type { AgentConfig, ChannelBinding } from "@a2a-channels/core";
 
-import { listAgentConfigs, listChannelBindings } from "../store/index.js";
+import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
+import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 
 export interface RuntimeStateSnapshot {
   bindings: ChannelBinding[];
@@ -8,11 +9,13 @@ export interface RuntimeStateSnapshot {
 }
 
 export async function loadBindingsSnapshot(): Promise<ChannelBinding[]> {
-  return listChannelBindings();
+  const repo = new ChannelBindingStateRepository();
+  return repo.findAll();
 }
 
 export async function loadAgentsSnapshot(): Promise<AgentConfig[]> {
-  return listAgentConfigs();
+  const repo = new AgentConfigStateRepository();
+  return repo.findAll();
 }
 
 export function buildInMemoryIndexes(
@@ -25,11 +28,15 @@ export function buildInMemoryIndexes(
   };
 }
 
-export async function loadRuntimeStateSnapshot(): Promise<RuntimeStateSnapshot> {
+export async function loadDesiredStateSnapshot(): Promise<RuntimeStateSnapshot> {
   const [bindings, agents] = await Promise.all([
     loadBindingsSnapshot(),
     loadAgentsSnapshot(),
   ]);
 
   return buildInMemoryIndexes(bindings, agents);
+}
+
+export async function loadRuntimeStateSnapshot(): Promise<RuntimeStateSnapshot> {
+  return loadDesiredStateSnapshot();
 }

@@ -43,6 +43,15 @@ interface GatewayRuntimeEnv {
   exit: (code: number) => void;
 }
 
+export interface ChannelBindingStatusUpdate extends ChannelAccountSnapshot {
+  running?: boolean;
+  connected?: boolean;
+}
+
+export interface StartChannelBindingCallbacks {
+  onStatus?: (status: ChannelBindingStatusUpdate) => void;
+}
+
 // ---------------------------------------------------------------------------
 // Logger
 // ---------------------------------------------------------------------------
@@ -110,6 +119,7 @@ export class OpenClawPluginHost {
   async startChannelBinding(
     binding: ChannelBinding,
     abortSignal: AbortSignal,
+    callbacks: StartChannelBindingCallbacks = {},
   ): Promise<void> {
     const { id: bindingId, channelType, accountId } = binding;
     const channel = this.resolveChannel(channelType);
@@ -128,7 +138,14 @@ export class OpenClawPluginHost {
       exit: (code: number) => process.exit(code),
     };
 
-    await channel.gateway.startAccount({
+    const emitStatus = (status: ChannelBindingStatusUpdate): void => {
+      callbacks.onStatus?.(status);
+      logger.info(
+        `account[${channel.id}:${accountId}:${bindingId}] status=${JSON.stringify(status)}`,
+      );
+    };
+
+    const startPromise = channel.gateway.startAccount({
       cfg: this.runtime.getConfig(),
       accountId,
       account: binding.channelConfig,
@@ -137,12 +154,17 @@ export class OpenClawPluginHost {
       getStatus: (): ChannelAccountSnapshot => {
         return { accountId };
       },
-      setStatus: (status) =>
-        logger.info(
-          `account[${channel.id}:${accountId}:${bindingId}] status=${status}`,
-        ),
+      setStatus: (status) => emitStatus(status),
       log: logger,
     });
+
+    emitStatus({
+      accountId,
+      running: true,
+      connected: true,
+    });
+
+    await startPromise;
   }
 
   // -------------------------------------------------------------------------

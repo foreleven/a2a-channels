@@ -38,3 +38,4 @@ node_modules
 db/
 # Prisma generated client
 apps/gateway/src/generated/
+.claude/

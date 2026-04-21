@@ -89,7 +89,7 @@ The gateway exposes a JSON REST API used by the admin UI. All endpoints are unde
   "name": "My Feishu Bot",
   "channelType": "feishu",
   "accountId": "default",
-  "agentUrl": "http://localhost:3001/a2a/jsonrpc",
+  "agentId": "agent-config-id",
   "enabled": true,
   "channelConfig": {
     "appId": "cli_xxxx",
@@ -151,7 +151,7 @@ Register the agent URL in the admin UI (or via `POST /api/agents`), then bind it
 
 ## How it works
 
-1. **Channel binding** – each binding stores a channel type, credentials (`channelConfig`), an `accountId`, and the `agentUrl` to forward messages to. All bindings live in a single SQLite table (`channel_bindings`).
+1. **Channel binding** – each binding stores a channel type, credentials (`channelConfig`), an `accountId`, and an `agentId`. The gateway resolves the target URL from the Agent config before forwarding messages. All bindings live in a single SQLite table (`channel_bindings`).
 2. **Monitor lifecycle** – `MonitorManager` keeps one long-lived WebSocket monitor per `channelType:accountId` pair, started/stopped whenever bindings change.
 3. **Message flow** – inbound messages hit the OpenClaw plugin runtime, which resolves the agent URL from the store and calls the A2A server via `@a2a-channels/agent-transport`. The reply is sent back through the plugin dispatcher.
 4. **Admin UI** – the Next.js app at `apps/web` calls the gateway's `/api/*` endpoints directly. In development, Next.js rewrites `/api/*` to the gateway so no CORS configuration is needed.

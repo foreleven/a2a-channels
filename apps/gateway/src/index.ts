@@ -1,9 +1,9 @@
 /**
  * A2A Channels Gateway – main HTTP server.
  *
- * Composition root: wires together the DDD / event-sourcing infrastructure
- * (EventStore, repositories, projections, DomainEventBus, application
- * services) and starts the Hono HTTP server.
+ * Composition root: wires together the DDD infrastructure
+ * (state repositories, outbox-backed application services) and starts the Hono
+ * HTTP server.
  *
  * Routes:
  *   GET  /                     → Admin Web UI
@@ -25,19 +25,21 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 
-import { DomainEventBus } from "./domain/event-bus.js";
-import { ChannelBindingService } from "./domain/channel-binding-service.js";
-import type { UpdateChannelBindingData } from "./domain/channel-binding-service.js";
-import { AgentService } from "./domain/agent-service.js";
-import type { UpdateAgentData } from "./domain/agent-service.js";
-import { DuplicateEnabledBindingError } from "./services/channel-bindings.js";
-import { PrismaEventStore } from "./infra/prisma-event-store.js";
-import { EventSourcedChannelBindingRepository } from "./infra/channel-binding-repo.js";
-import { EventSourcedAgentConfigRepository } from "./infra/agent-config-repo.js";
-import { ChannelBindingProjection } from "./projections/channel-binding-projection.js";
-import { AgentConfigProjection } from "./projections/agent-config-projection.js";
+import { ChannelBindingService } from "./application/channel-binding-service.js";
+import type { UpdateChannelBindingData } from "./application/channel-binding-service.js";
+import { AgentService, ReferencedAgentError } from "./application/agent-service.js";
+import type { UpdateAgentData } from "./application/agent-service.js";
+import {
+  AgentNotFoundError,
+  DuplicateEnabledBindingError,
+} from "./application/errors.js";
+import { ChannelBindingStateRepository } from "./infra/channel-binding-repo.js";
+import { AgentConfigStateRepository } from "./infra/agent-config-repo.js";
+import { DomainEventBus } from "./infra/domain-event-bus.js";
+import { OutboxWorker } from "./infra/outbox-worker.js";
+import { buildRuntimeBootstrap } from "./runtime/bootstrap.js";
 import { RelayRuntime } from "./runtime/relay-runtime.js";
-import { initStore } from "./store/index.js";
+import { initStore, seedDefaults } from "./services/initialization.js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -46,78 +48,41 @@ import { initStore } from "./store/index.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = join(__dirname, "..", "web");
 const PORT = Number(process.env["PORT"] ?? 7890);
-const DEFAULT_ECHO_AGENT_URL = process.env["ECHO_AGENT_URL"] ?? "http://localhost:3001";
 
 // ---------------------------------------------------------------------------
 // Infrastructure wiring
 // ---------------------------------------------------------------------------
 
 await initStore();
+await seedDefaults();
 
 const eventBus = new DomainEventBus();
-const eventStore = new PrismaEventStore();
+const outboxWorker = new OutboxWorker(eventBus);
+outboxWorker.start();
 
-const bindingRepo = new EventSourcedChannelBindingRepository(eventStore, eventBus);
-const agentRepo = new EventSourcedAgentConfigRepository(eventStore, eventBus);
-
-const bindingProjection = new ChannelBindingProjection(eventBus, eventStore);
-const agentProjection = new AgentConfigProjection(eventBus, eventStore);
-
-// Replay any missed events (projection catch-up), then register live handlers.
-await bindingProjection.catchUp();
-await agentProjection.catchUp();
-bindingProjection.register();
-agentProjection.register();
+const bindingRepo = new ChannelBindingStateRepository();
+const agentRepo = new AgentConfigStateRepository();
 
 // Application services
-const channelBindingService = new ChannelBindingService(bindingRepo);
-const agentService = new AgentService(agentRepo);
+const channelBindingService = new ChannelBindingService(bindingRepo, agentRepo);
+const agentService = new AgentService(agentRepo, bindingRepo);
 
 // ---------------------------------------------------------------------------
-// Seed defaults through application services so domain events are recorded.
-// (Unlike the old seedDefaults() which wrote directly to Prisma, this path
-//  also appends events to the event log so findById() works correctly.)
+// Runtime bootstrap
 // ---------------------------------------------------------------------------
 
-const existingAgents = await agentService.list();
-if (existingAgents.length === 0) {
-  await agentService.register({
-    name: "Echo Agent",
-    url: DEFAULT_ECHO_AGENT_URL,
-    protocol: "a2a",
-    description: "Built-in echo agent – mirrors every message back",
-  });
-}
-
-const bootstrapAppId = process.env["FEISHU_APP_ID"];
-const bootstrapAppSecret = process.env["FEISHU_APP_SECRET"];
-if (bootstrapAppId && bootstrapAppSecret) {
-  const accountId = process.env["FEISHU_ACCOUNT_ID"] ?? "default";
-  const existing = await channelBindingService.list();
-  const hasFeishu = existing.some(
-    (b) => b.channelType === "feishu" && b.accountId === accountId,
-  );
-  if (!hasFeishu) {
-    await channelBindingService.create({
-      name: "Bootstrap Feishu Bot",
-      channelType: "feishu",
-      accountId,
-      channelConfig: {
-        appId: bootstrapAppId,
-        appSecret: bootstrapAppSecret,
-        verificationToken: process.env["FEISHU_VERIFICATION_TOKEN"] || undefined,
-        encryptKey: process.env["FEISHU_ENCRYPT_KEY"] || undefined,
-        allowFrom: ["*"],
-      },
-      agentUrl: DEFAULT_ECHO_AGENT_URL,
-      enabled: true,
-    });
-  }
-}
-
-// RelayRuntime subscribes to the event bus to react to binding/agent changes.
-const relay = await RelayRuntime.load(eventBus);
+// RelayRuntime manages only local owned bindings; bootstrap selects the
+// single-instance or cluster scheduler boundary around it.
+const relay = await RelayRuntime.load();
 await relay.bootstrap();
+const clusterMode = process.env["CLUSTER_MODE"] === "true";
+const bootstrap = buildRuntimeBootstrap({
+  clusterMode,
+  redisUrl: process.env["REDIS_URL"],
+  relay,
+  eventBus,
+});
+bootstrap.scheduler.start();
 
 // ---------------------------------------------------------------------------
 // Hono app
@@ -126,6 +91,9 @@ await relay.bootstrap();
 const app = new Hono();
 
 function channelMutationErrorResponse(c: Context, err: unknown) {
+  if (err instanceof AgentNotFoundError) {
+    return c.json({ error: err.message }, 404);
+  }
   if (err instanceof DuplicateEnabledBindingError) {
     return c.json({ error: err.message }, 409);
   }
@@ -168,9 +136,9 @@ app.post("/api/channels", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  if (!body["name"] || !body["channelConfig"] || !body["agentUrl"]) {
+  if (!body["name"] || !body["channelConfig"] || !body["agentId"]) {
     return c.json(
-      { error: "Missing required fields: name, channelConfig, agentUrl" },
+      { error: "Missing required fields: name, channelConfig, agentId" },
       400,
     );
   }
@@ -180,7 +148,7 @@ app.post("/api/channels", async (c) => {
       channelType: (body["channelType"] as string | undefined) ?? "feishu",
       channelConfig: body["channelConfig"] as Record<string, unknown>,
       accountId: (body["accountId"] as string | undefined) ?? "default",
-      agentUrl: String(body["agentUrl"]),
+      agentId: String(body["agentId"]),
       enabled: (body["enabled"] as boolean | undefined) ?? true,
     });
     return c.json(binding, 201);
@@ -254,14 +222,27 @@ app.patch("/api/agents/:id", async (c) => {
 
 app.delete("/api/agents/:id", async (c) => {
   const id = c.req.param("id");
-  const deleted = await agentService.delete(id);
-  if (!deleted) return c.json({ error: `Agent ${id} not found` }, 404);
-  return c.json({ deleted: true });
+  try {
+    const deleted = await agentService.delete(id);
+    if (!deleted) return c.json({ error: `Agent ${id} not found` }, 404);
+    return c.json({ deleted: true });
+  } catch (err) {
+    if (err instanceof ReferencedAgentError) {
+      return c.json(
+        { error: err.message, bindingIds: err.bindingIds },
+        409,
+      );
+    }
+    throw err;
+  }
 });
 
-// ---------------------------------------------------------------------------
-// Server startup
-// ---------------------------------------------------------------------------
+// ── Runtime status ───────────────────────────────────────────────────────────
+app.get("/api/runtime/connections", async (c) =>
+  c.json(relay.listConnectionStatuses()),
+);
+
+// ── Server startup ───────────────────────────────────────────────────────────
 
 console.log(`🚀 A2A Channels Gateway starting on http://localhost:${PORT}`);
 
@@ -273,6 +254,8 @@ const server = serve({ fetch: app.fetch, port: PORT }, () => {
 
 process.on("SIGINT", async () => {
   console.log("\n[gateway] shutting down…");
+  await bootstrap.scheduler.stop();
+  await outboxWorker.stop();
   await relay.shutdown();
   server.close();
   process.exit(0);

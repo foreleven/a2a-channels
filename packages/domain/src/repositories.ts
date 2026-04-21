@@ -2,21 +2,19 @@
  * Repository interfaces for the domain layer.
  *
  * These are pure interfaces – the concrete implementations live in
- * apps/gateway/src/infra/ and depend on the event store + Prisma.
+ * apps/gateway/src/infra/ and depend on Prisma state tables plus outbox writes.
  */
 
 import type { AgentConfigAggregate, AgentConfigSnapshot } from "./aggregates/agent-config.js";
 import type { ChannelBindingAggregate, ChannelBindingSnapshot } from "./aggregates/channel-binding.js";
 
 export interface ChannelBindingRepository {
-  /** Reconstruct the aggregate from its event stream. Returns null if unknown. */
+  /** Load the aggregate from the current state table. Returns null if unknown. */
   findById(id: string): Promise<ChannelBindingAggregate | null>;
 
   /**
-   * Load all non-deleted bindings as snapshots (from the read projection).
-   * Returns snapshots – not aggregates – since callers only need read access
-   * and loading aggregates from the event stream would be wasteful for list
-   * operations.
+   * Load all non-deleted bindings as snapshots from the current state table.
+   * Returns snapshots – not aggregates – since callers only need read access.
    */
   findAll(): Promise<ChannelBindingSnapshot[]>;
 
@@ -30,22 +28,23 @@ export interface ChannelBindingRepository {
     excludeId?: string,
   ): Promise<ChannelBindingSnapshot | null>;
 
+  findByAgentId(agentId: string): Promise<ChannelBindingSnapshot[]>;
+  findByChannelAccount(
+    channelType: string,
+    accountId: string,
+  ): Promise<ChannelBindingSnapshot | null>;
+
   /**
-   * Persist pending domain events for the aggregate.
-   * Implementations must:
-   *   1. Append events to the event store (with optimistic concurrency check).
-   *   2. Call aggregate.clearPendingEvents().
-   *   3. Publish events to the DomainEventBus.
+   * Persist current aggregate state and write runtime-relevant events to outbox
+   * atomically, then clear pending events.
    */
   save(aggregate: ChannelBindingAggregate): Promise<void>;
 }
 
 export interface AgentConfigRepository {
   findById(id: string): Promise<AgentConfigAggregate | null>;
-  /**
-   * Load all non-deleted agents as snapshots (from the read projection).
-   * Returns snapshots – not aggregates – since callers only need read access.
-   */
+  findByUrl(url: string): Promise<AgentConfigSnapshot | null>;
+  /** Load all non-deleted agents as snapshots from the current state table. */
   findAll(): Promise<AgentConfigSnapshot[]>;
   save(aggregate: AgentConfigAggregate): Promise<void>;
 }

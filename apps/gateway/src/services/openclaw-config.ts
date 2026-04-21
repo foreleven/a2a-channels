@@ -1,24 +1,19 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
+import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
+import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { buildOpenClawConfigFromBindings } from "../runtime/openclaw-config.js";
-import { prisma } from "../store/prisma.js";
 
 export async function buildOpenClawConfig(): Promise<OpenClawConfig> {
-  const bindings = await prisma.channelBinding.findMany({
-    where: { enabled: true, channelType: "feishu" },
-    orderBy: { createdAt: "asc" },
-  });
+  const [bindings, agents] = await Promise.all([
+    new ChannelBindingStateRepository().findAll(),
+    new AgentConfigStateRepository().findAll(),
+  ]);
+
+  const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
 
   return buildOpenClawConfigFromBindings(
-    bindings.map((binding) => ({
-      id: binding.id,
-      name: binding.name,
-      channelType: binding.channelType,
-      channelConfig: JSON.parse(binding.channelConfig) as Record<string, unknown>,
-      accountId: binding.accountId,
-      agentUrl: binding.agentUrl,
-      enabled: binding.enabled,
-      createdAt: binding.createdAt.toISOString(),
-    })),
+    bindings.filter((binding) => binding.enabled && binding.channelType === "feishu"),
+    agentsById,
   );
 }

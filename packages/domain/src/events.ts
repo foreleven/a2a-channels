@@ -17,7 +17,7 @@ export interface ChannelBindingCreated {
   readonly channelType: string;
   readonly accountId: string;
   readonly channelConfig: Record<string, unknown>;
-  readonly agentUrl: string;
+  readonly agentId: string;
   readonly enabled: boolean;
   readonly occurredAt: string;
 }
@@ -30,7 +30,7 @@ export interface ChannelBindingUpdated {
     readonly channelType: string;
     readonly accountId: string;
     readonly channelConfig: Record<string, unknown>;
-    readonly agentUrl: string;
+    readonly agentId: string;
     readonly enabled: boolean;
   }>;
   readonly occurredAt: string;

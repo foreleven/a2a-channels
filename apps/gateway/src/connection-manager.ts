@@ -7,9 +7,14 @@
  * agent client and returning replies to the channel dispatcher.
  */
 
-import type { AgentClientHandle, ChannelBinding } from "@a2a-channels/core";
+import type {
+  AgentClientHandle,
+  ChannelBinding,
+  ConnectionStatus,
+} from "@a2a-channels/core";
 import type {
   ChannelReplyEvent,
+  ChannelBindingStatusUpdate,
   MessageInboundEvent,
   MessageOutboundEvent,
   OpenClawPluginHost,
@@ -18,8 +23,29 @@ import type {
 export interface Connection {
   abortController: AbortController;
   agentClient: AgentClientHandle;
+  agentUrl: string;
   binding: ChannelBinding;
+  hasReportedConnected: boolean;
   promise: Promise<void>;
+  suppressDisconnectStatus: boolean;
+}
+
+export interface ConnectionLifecycleEvent {
+  binding: ChannelBinding;
+  status: ConnectionStatus;
+  agentUrl?: string;
+  error?: unknown;
+}
+
+export interface AgentCallFailureEvent {
+  binding: ChannelBinding;
+  agentUrl: string;
+  error: unknown;
+}
+
+export interface ConnectionManagerCallbacks {
+  onConnectionStatus?: (event: ConnectionLifecycleEvent) => void;
+  onAgentCallFailed?: (event: AgentCallFailureEvent) => void;
 }
 
 export class ConnectionManager {
@@ -31,38 +57,107 @@ export class ConnectionManager {
       | ChannelBinding[]
       | Promise<ChannelBinding[]>,
     private readonly getAgentClient: (
-      agentUrl: string,
-    ) => AgentClientHandle | Promise<AgentClientHandle>,
+      agentId: string,
+    ) =>
+      | { client: AgentClientHandle; url: string }
+      | Promise<{ client: AgentClientHandle; url: string }>,
     private readonly emitMessageInbound?: (event: MessageInboundEvent) => void,
     private readonly emitMessageOutbound?: (
       event: MessageOutboundEvent,
     ) => void,
+    private readonly callbacks: ConnectionManagerCallbacks = {},
   ) {}
 
   private async createConnection(binding: ChannelBinding): Promise<Connection> {
     const abortController = new AbortController();
-    const agentClient = await this.getAgentClient(binding.agentUrl);
+    const target = await this.getAgentClient(binding.agentId);
+    const agentClient = target.client;
 
     console.log(
       `[connection] starting binding ${binding.id} for ${binding.channelType}:${binding.accountId}`,
       binding,
     );
 
-    const promise = this.host
-      .startChannelBinding(binding, abortController.signal)
+    this.callbacks.onConnectionStatus?.({
+      binding,
+      status: "connecting",
+      agentUrl: target.url,
+    });
+
+    let connection!: Connection;
+    const maybeReportConnected = (
+      status: ChannelBindingStatusUpdate,
+    ): void => {
+      if (connection.hasReportedConnected) {
+        return;
+      }
+
+      if (status.connected !== true && status.running !== true) {
+        return;
+      }
+
+      connection.hasReportedConnected = true;
+      this.callbacks.onConnectionStatus?.({
+        binding,
+        status: "connected",
+        agentUrl: target.url,
+      });
+    };
+
+    const promise = Promise.resolve()
+      .then(() =>
+        this.host.startChannelBinding(binding, abortController.signal, {
+          onStatus: maybeReportConnected,
+        }),
+      )
       .then(() => {
-        console.log(`[connection] binding ${binding.id} connected`);
+        if (connection.suppressDisconnectStatus) {
+          return;
+        }
+
+        this.callbacks.onConnectionStatus?.({
+          binding,
+          status: "disconnected",
+          agentUrl: target.url,
+        });
       })
       .catch((err: unknown) => {
-        if ((err as { name?: string })?.name !== "AbortError") {
-          console.error(
-            `[connection] binding ${binding.id} error:`,
-            String(err),
-          );
+        if ((err as { name?: string })?.name === "AbortError") {
+          if (connection.suppressDisconnectStatus) {
+            return;
+          }
+
+          this.callbacks.onConnectionStatus?.({
+            binding,
+            status: "disconnected",
+            agentUrl: target.url,
+          });
+          return;
         }
+
+        this.callbacks.onConnectionStatus?.({
+          binding,
+          status: "error",
+          agentUrl: target.url,
+          error: err,
+        });
+        console.error(
+          `[connection] binding ${binding.id} error:`,
+          String(err),
+        );
       });
 
-    return { abortController, agentClient, binding, promise };
+    connection = {
+      abortController,
+      agentClient,
+      agentUrl: target.url,
+      binding,
+      hasReportedConnected: false,
+      promise,
+      suppressDisconnectStatus: false,
+    };
+
+    return connection;
   }
 
   private async startConnection(binding: ChannelBinding): Promise<void> {
@@ -71,6 +166,7 @@ export class ConnectionManager {
       console.log(
         `[connection] stopping existing connection for ${binding.id}`,
       );
+      existing.suppressDisconnectStatus = true;
       existing.abortController.abort();
       await existing.promise.catch(() => {});
       this.connections.delete(binding.id);
@@ -141,22 +237,32 @@ export class ConnectionManager {
 
     this.emitMessageInbound?.({
       accountId,
-      agentUrl: connection.binding.agentUrl,
+      agentUrl: connection.agentUrl,
       channelType,
       sessionKey,
       userMessage,
     });
 
-    const result = await connection.agentClient.send({
-      userMessage,
-      contextId: sessionKey,
-      accountId,
-    });
+    let result: { text: string } | null;
+    try {
+      result = await connection.agentClient.send({
+        userMessage,
+        contextId: sessionKey,
+        accountId,
+      });
+    } catch (error) {
+      this.callbacks.onAgentCallFailed?.({
+        binding: connection.binding,
+        agentUrl: connection.agentUrl,
+        error,
+      });
+      throw error;
+    }
 
     if (result) {
       this.emitMessageOutbound?.({
         accountId,
-        agentUrl: connection.binding.agentUrl,
+        agentUrl: connection.agentUrl,
         channelType,
         sessionKey,
         replyText: result.text,
@@ -226,10 +332,7 @@ export class ConnectionManager {
 
     for (const [bindingId, connection] of this.connections.entries()) {
       if (!activeIds.has(bindingId)) {
-        console.log(`[connection] stopping removed binding: ${bindingId}`);
-        connection.abortController.abort();
-        await connection.promise.catch(() => {});
-        this.connections.delete(bindingId);
+        await this.stopConnection(bindingId);
       }
     }
 
@@ -249,11 +352,16 @@ export class ConnectionManager {
     await this.startConnection(binding);
   }
 
+  hasConnection(bindingId: string): boolean {
+    return this.connections.has(bindingId);
+  }
+
   async stopConnection(bindingId: string): Promise<void> {
     const connection = this.connections.get(bindingId);
     if (!connection) return;
 
     console.log(`[connection] stopping binding: ${bindingId}`);
+    connection.suppressDisconnectStatus = true;
     connection.abortController.abort();
     await connection.promise.catch(() => {});
     this.connections.delete(bindingId);

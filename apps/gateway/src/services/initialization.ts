@@ -1,6 +1,10 @@
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { AgentService } from "../application/agent-service.js";
+import { ChannelBindingService } from "../application/channel-binding-service.js";
+import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
+import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { DB_PATH, prisma } from "../store/prisma.js";
 
 const GATEWAY_DIR = fileURLToPath(new URL("../../", import.meta.url));
@@ -9,11 +13,9 @@ const DEFAULT_ECHO_AGENT_URL =
 
 export async function initStore(): Promise<void> {
   try {
-    // Verify both the legacy tables AND the new event-sourcing tables exist.
-    // If any one is missing (e.g. an older DB that pre-dates the events table),
-    // run `db push` to bring the schema up to date.
     await prisma.$queryRaw`SELECT 1 FROM "channel_bindings" LIMIT 0`;
-    await prisma.$queryRaw`SELECT 1 FROM "events" LIMIT 0`;
+    await prisma.$queryRaw`SELECT 1 FROM "agents" LIMIT 0`;
+    await prisma.$queryRaw`SELECT 1 FROM "outbox_events" LIMIT 0`;
   } catch {
     execSync("npx prisma db push", {
       cwd: GATEWAY_DIR,
@@ -24,15 +26,18 @@ export async function initStore(): Promise<void> {
 }
 
 export async function seedDefaults(): Promise<void> {
-  const agentCount = await prisma.agent.count();
-  if (agentCount === 0) {
-    await prisma.agent.create({
-      data: {
-        name: "Echo Agent",
-        url: DEFAULT_ECHO_AGENT_URL,
-        protocol: "a2a",
-        description: "Built-in echo agent – mirrors every message back",
-      },
+  const agentRepo = new AgentConfigStateRepository();
+  const bindingRepo = new ChannelBindingStateRepository();
+  const agentService = new AgentService(agentRepo, bindingRepo);
+  const bindingService = new ChannelBindingService(bindingRepo, agentRepo);
+
+  let defaultAgent = (await agentService.list())[0];
+  if (!defaultAgent) {
+    defaultAgent = await agentService.register({
+      name: "Echo Agent",
+      url: DEFAULT_ECHO_AGENT_URL,
+      protocol: "a2a",
+      description: "Built-in echo agent – mirrors every message back",
     });
   }
 
@@ -41,26 +46,21 @@ export async function seedDefaults(): Promise<void> {
 
   if (bootstrapAppId && bootstrapAppSecret) {
     const accountId = process.env["FEISHU_ACCOUNT_ID"] ?? "default";
-    const existing = await prisma.channelBinding.findFirst({
-      where: { channelType: "feishu", accountId },
-    });
+    const existing = await bindingRepo.findByChannelAccount("feishu", accountId);
     if (!existing) {
-      await prisma.channelBinding.create({
-        data: {
-          name: "Bootstrap Feishu Bot",
-          channelType: "feishu",
-          accountId,
-          channelConfig: JSON.stringify({
-            appId: bootstrapAppId,
-            appSecret: bootstrapAppSecret,
-            verificationToken:
-              process.env["FEISHU_VERIFICATION_TOKEN"] || undefined,
-            encryptKey: process.env["FEISHU_ENCRYPT_KEY"] || undefined,
-            allowFrom: ["*"],
-          }),
-          agentUrl: DEFAULT_ECHO_AGENT_URL,
-          enabled: true,
+      await bindingService.create({
+        name: "Bootstrap Feishu Bot",
+        channelType: "feishu",
+        accountId,
+        channelConfig: {
+          appId: bootstrapAppId,
+          appSecret: bootstrapAppSecret,
+          verificationToken: process.env["FEISHU_VERIFICATION_TOKEN"] || undefined,
+          encryptKey: process.env["FEISHU_ENCRYPT_KEY"] || undefined,
+          allowFrom: ["*"],
         },
+        agentId: defaultAgent.id,
+        enabled: true,
       });
     }
   }

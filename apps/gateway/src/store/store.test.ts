@@ -20,7 +20,11 @@ import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
+import { buildRuntimeBootstrap } from "../runtime/bootstrap.js";
+import { buildRedisCoordinationKeys } from "../runtime/cluster/redis-coordination.js";
+import { createLocalOwnershipGate } from "../runtime/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local-scheduler.js";
+import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { initStore, seedDefaults } from "../services/initialization.js";
 import { buildOpenClawConfig } from "../services/openclaw-config.js";
 import {
@@ -84,7 +88,7 @@ function makeInfra() {
   const bindingRepo = new ChannelBindingStateRepository();
   const agentRepo = new AgentConfigStateRepository();
   return {
-    bindingService: new ChannelBindingService(bindingRepo),
+    bindingService: new ChannelBindingService(bindingRepo, agentRepo),
     agentService: new AgentService(agentRepo, bindingRepo),
     bindingRepo,
     agentRepo,
@@ -99,9 +103,29 @@ async function getChannelBinding(id: string) {
   return makeInfra().bindingService.getById(id);
 }
 
+async function ensureTestAgent(
+  agentId: string,
+  url: string = `http://test-agent-${agentId}:3001`,
+) {
+  const existing = await prisma.agent.findUnique({ where: { id: agentId } });
+  if (existing) {
+    return;
+  }
+
+  await prisma.agent.create({
+    data: {
+      id: agentId,
+      name: `Agent ${agentId}`,
+      url,
+      protocol: "a2a",
+    },
+  });
+}
+
 async function createChannelBinding(
   data: Parameters<ChannelBindingService["create"]>[0],
 ) {
+  await ensureTestAgent(data.agentId);
   return makeInfra().bindingService.create(data);
 }
 
@@ -109,6 +133,9 @@ async function updateChannelBinding(
   id: string,
   data: Parameters<ChannelBindingService["update"]>[1],
 ) {
+  if (typeof data.agentId === "string") {
+    await ensureTestAgent(data.agentId);
+  }
   return makeInfra().bindingService.update(id, data);
 }
 
@@ -352,6 +379,33 @@ describe("ChannelBinding CRUD", () => {
 
     assert.equal(slack.channelType, "slack");
   });
+
+  test("rejects creating a binding when the referenced agent id does not exist", async () => {
+    const { bindingService } = makeInfra();
+    await assert.rejects(
+      bindingService.create({
+        ...FEISHU_BINDING_DATA,
+        accountId: "missing-agent-create",
+        agentId: "missing-agent-id",
+      }),
+      /Agent missing-agent-id not found/,
+    );
+  });
+
+  test("rejects updating a binding to reference a missing agent id", async () => {
+    const { bindingService } = makeInfra();
+    const agent = await createTestAgent("http://existing-agent:4000");
+    const binding = await createChannelBinding({
+      ...FEISHU_BINDING_DATA,
+      accountId: "missing-agent-update",
+      agentId: agent.id,
+    });
+
+    await assert.rejects(
+      bindingService.update(binding.id, { agentId: "missing-agent-id" }),
+      /Agent missing-agent-id not found/,
+    );
+  });
 });
 
 describe("RuntimeOwnershipState", () => {
@@ -528,6 +582,370 @@ describe("RuntimeOwnershipState", () => {
     assert.equal(policy.next(3).delayMs, 4000);
     assert.equal(policy.next(4).delayMs, 8000);
     assert.equal(policy.next(5).delayMs, 8000);
+  });
+});
+
+describe("OwnershipGate", () => {
+  test("local ownership gate grants and releases binding ownership", async () => {
+    const gate = createLocalOwnershipGate();
+
+    const lease = await gate.acquire("binding-1");
+    assert.ok(lease);
+    assert.equal(lease.bindingId, "binding-1");
+    assert.equal(await gate.isHeld("binding-1"), true);
+
+    await gate.release(lease);
+    assert.equal(await gate.isHeld("binding-1"), false);
+  });
+});
+
+describe("Redis coordination contracts", () => {
+  test("binding lease keys include the binding id and owner instance id", async () => {
+    const keys = buildRedisCoordinationKeys({
+      instanceId: "gateway-a",
+      bindingId: "binding-1",
+    });
+
+    assert.equal(keys.bindingLeaseKey, "a2a:binding:binding-1:lease");
+    assert.equal(keys.instanceHeartbeatKey, "a2a:instance:gateway-a:heartbeat");
+    assert.equal(keys.leaderLeaseKey, "a2a:cluster:leader");
+  });
+});
+
+describe("cluster bootstrap wiring", () => {
+  test("cluster mode uses the leader scheduler instead of LocalScheduler", async () => {
+    const result = buildRuntimeBootstrap({
+      clusterMode: true,
+      redisUrl: "redis://localhost:6379",
+      relay: {} as RelayRuntime,
+      eventBus: new DomainEventBus(),
+    });
+
+    assert.equal(result.schedulerKind, "leader");
+  });
+
+  test("single-instance mode keeps LocalScheduler", async () => {
+    const result = buildRuntimeBootstrap({
+      clusterMode: false,
+      relay: {} as RelayRuntime,
+      eventBus: new DomainEventBus(),
+    });
+
+    assert.equal(result.schedulerKind, "local");
+    assert.equal(result.scheduler instanceof LocalScheduler, true);
+  });
+});
+
+describe("RelayRuntime ownership semantics", () => {
+  const testTransport = {
+    protocol: "a2a",
+    send: async () => ({ text: "" }),
+  };
+
+  const createBinding = (overrides: Partial<ReturnType<typeof createBindingBase>> = {}) => ({
+    ...createBindingBase(),
+    ...overrides,
+  });
+
+  function createBindingBase() {
+    return {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  const createAgent = () => ({
+    id: "agent-1",
+    name: "Agent One",
+    url: "http://agent-1",
+    protocol: "a2a",
+    createdAt: new Date().toISOString(),
+  });
+
+  type RelayRuntimeHarness = {
+    attachBinding: RelayRuntime["attachBinding"];
+    refreshBinding: RelayRuntime["refreshBinding"];
+    detachBinding: RelayRuntime["detachBinding"];
+    hasActiveConnection: RelayRuntime["hasActiveConnection"];
+    listConnectionStatuses: RelayRuntime["listConnectionStatuses"];
+    connectionManager: RelayRuntime["connectionManager"] & {
+      restartConnection(binding: { id: string }): Promise<void>;
+      stopConnection(bindingId: string): Promise<void>;
+    };
+  };
+
+  type RelayRuntimeLifecycleHarness = RelayRuntimeHarness & {
+    ownershipState: {
+      markDisconnected(
+        bindingId: string,
+        agentUrl?: string,
+      ): { attempt: number; delayMs: number };
+    };
+    pluginHost: {
+      startChannelBinding(
+        binding: { id: string },
+        signal: AbortSignal,
+        callbacks?: {
+          onStatus?: (status: {
+            running?: boolean;
+            connected?: boolean;
+          }) => void;
+        },
+      ): Promise<void>;
+    };
+  };
+
+  const createRelayRuntimeForTest = (hooks?: {
+    restartConnection?: (binding: { id: string }) => Promise<void>;
+    stopConnection?: (bindingId: string) => Promise<void>;
+  }) => {
+    const runtime = new RelayRuntime({
+      name: "test",
+      transports: [testTransport],
+    }) as unknown as RelayRuntimeHarness;
+    runtime.connectionManager.restartConnection =
+      hooks?.restartConnection ?? (async () => {});
+    runtime.connectionManager.stopConnection =
+      hooks?.stopConnection ?? (async () => {});
+    return runtime;
+  };
+
+  const createRelayRuntimeWithLifecycle = (transport = testTransport) => {
+    const runtime = new RelayRuntime({
+      name: "test",
+      transports: [transport],
+    }) as unknown as RelayRuntimeLifecycleHarness;
+    const lifetimes: Array<{ resolve: () => void }> = [];
+
+    runtime.pluginHost.startChannelBinding = async (
+      _binding: { id: string },
+      signal: AbortSignal,
+      callbacks?: {
+        onStatus?: (status: {
+          running?: boolean;
+          connected?: boolean;
+        }) => void;
+      },
+    ) =>
+      new Promise<void>((resolve, reject) => {
+        callbacks?.onStatus?.({
+          running: true,
+          connected: true,
+        });
+
+        const onAbort = () => {
+          signal.removeEventListener("abort", onAbort);
+          const error = new Error("Aborted");
+          Object.assign(error, { name: "AbortError" });
+          reject(error);
+        };
+
+        signal.addEventListener("abort", onAbort, { once: true });
+        lifetimes.push({
+          resolve: () => {
+            signal.removeEventListener("abort", onAbort);
+            resolve();
+          },
+        });
+      });
+
+    return { runtime, lifetimes };
+  };
+
+  const createDispatchEvent = () =>
+    ({
+      type: "channel.reply.dispatch",
+      ctx: {
+        BodyForAgent: "hello",
+        ChannelType: "feishu",
+        AccountId: "default",
+      },
+      dispatcher: {
+        sendFinalReply() {},
+        waitForIdle: async () => {},
+        markComplete() {},
+      },
+    }) as const;
+
+  test("refreshing an unchanged binding with no active connection restarts it", async () => {
+    const restartCalls: string[] = [];
+    const runtime = createRelayRuntimeForTest({
+      restartConnection: async (binding) => {
+        restartCalls.push(binding.id);
+      },
+    });
+    const binding = createBinding();
+    const agent = createAgent();
+
+    await runtime.attachBinding(binding, agent);
+    await runtime.refreshBinding(binding, agent);
+
+    assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
+  });
+
+  test("detaching a binding removes it from runtime connection statuses", async () => {
+    const runtime = createRelayRuntimeForTest();
+    const binding = createBinding();
+    const agent = createAgent();
+
+    await runtime.attachBinding(binding, agent);
+    await runtime.detachBinding(binding.id);
+
+    assert.deepEqual(runtime.listConnectionStatuses(), []);
+  });
+
+  test("binding lifecycle callbacks promote a healthy start to connected before disconnect", async () => {
+    const { runtime, lifetimes } = createRelayRuntimeWithLifecycle();
+    const binding = createBinding();
+    const agent = createAgent();
+
+    await runtime.attachBinding(binding, agent);
+    assert.equal(runtime.listConnectionStatuses()[0]?.status, "connected");
+
+    lifetimes[0]?.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(runtime.listConnectionStatuses()[0]?.status, "disconnected");
+  });
+
+  test("managed refresh does not burn reconnect attempts on the intentional abort", async () => {
+    const { runtime } = createRelayRuntimeWithLifecycle();
+    const binding = createBinding();
+    const agent = createAgent();
+
+    await runtime.attachBinding(binding, agent);
+    assert.equal(runtime.listConnectionStatuses()[0]?.status, "connected");
+
+    await runtime.refreshBinding(binding, agent);
+    assert.equal(runtime.listConnectionStatuses()[0]?.status, "connected");
+
+    const retry = runtime.ownershipState.markDisconnected(binding.id, agent.url);
+    assert.equal(retry.attempt, 1);
+  });
+
+  test("agent send failures do not overwrite connection ownership status", async () => {
+    const failingTransport = {
+      protocol: "a2a",
+      send: async () => {
+        throw new Error("agent send failed");
+      },
+    };
+    const { runtime } = createRelayRuntimeWithLifecycle(failingTransport);
+    const binding = createBinding();
+    const agent = createAgent();
+
+    await runtime.attachBinding(binding, agent);
+    await assert.rejects(
+      runtime.connectionManager.handleEvent(createDispatchEvent() as never),
+      /agent send failed/,
+    );
+
+    assert.equal(runtime.listConnectionStatuses()[0]?.status, "connected");
+  });
+
+  test("refreshing a binding into a non-runnable state clears active-looking ownership status", async () => {
+    const { runtime } = createRelayRuntimeWithLifecycle();
+    const binding = createBinding();
+    const agent = createAgent();
+
+    await runtime.attachBinding(binding, agent);
+    assert.equal(runtime.listConnectionStatuses()[0]?.status, "connected");
+
+    await runtime.refreshBinding(
+      createBinding({
+        channelConfig: { appId: "cli_1", appSecret: "" },
+      }),
+      agent,
+    );
+
+    assert.equal(runtime.listConnectionStatuses()[0]?.status, "idle");
+  });
+
+  test("refreshing a binding after its agent changes restarts it only once", async () => {
+    const restartCalls: string[] = [];
+    const runtime = createRelayRuntimeForTest({
+      restartConnection: async (binding) => {
+        restartCalls.push(binding.id);
+      },
+    });
+    const binding = createBinding();
+    const agent = createAgent();
+    const updatedAgent = {
+      ...agent,
+      url: "http://agent-2",
+    };
+
+    await runtime.attachBinding(binding, agent);
+    await runtime.refreshBinding(binding, updatedAgent);
+
+    assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
+  });
+});
+
+describe("RelayRuntime reconnect policy", () => {
+  const createBinding = () => ({
+    id: "binding-1",
+    name: "Binding One",
+    channelType: "feishu",
+    accountId: "default",
+    channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+    agentId: "agent-1",
+    enabled: true,
+    createdAt: new Date().toISOString(),
+  });
+
+  const createAgent = () => ({
+    id: "agent-1",
+    name: "Agent One",
+    url: "http://agent-1",
+    protocol: "a2a",
+    createdAt: new Date().toISOString(),
+  });
+
+  type RelayRuntimeReconnectHarness = {
+    attachBinding: RelayRuntime["attachBinding"];
+    hasActiveConnection: RelayRuntime["hasActiveConnection"];
+    connectionManager: RelayRuntime["connectionManager"] & {
+      restartConnection(binding: { id: string }): Promise<void>;
+    };
+    applyOwnedConnectionStatus(
+      bindingId: string,
+      status: "error" | "disconnected" | "connecting" | "connected",
+      agentUrl?: string,
+      error?: unknown,
+    ): void;
+  };
+
+  test("connection error schedules one delayed reconnect for the owned binding", async () => {
+    const restartCalls: string[] = [];
+    const runtime = new RelayRuntime({
+      name: "test",
+      reconnectPolicy: createReconnectPolicy({ baseDelayMs: 1, maxDelayMs: 1 }),
+      transports: [{ protocol: "a2a", send: async () => ({ text: "" }) }],
+    }) as unknown as RelayRuntimeReconnectHarness;
+    const binding = createBinding();
+    const agent = createAgent();
+
+    runtime.connectionManager.restartConnection = async (nextBinding) => {
+      restartCalls.push(nextBinding.id);
+    };
+
+    await runtime.attachBinding(binding, agent);
+    runtime.applyOwnedConnectionStatus(
+      binding.id,
+      "error",
+      agent.url,
+      new Error("boom"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
   });
 });
 // ---------------------------------------------------------------------------
@@ -1135,15 +1553,33 @@ describe("initStore", () => {
 // ---------------------------------------------------------------------------
 
 describe("LocalScheduler", () => {
+  const createBinding = () => ({
+    id: "binding-1",
+    name: "Binding One",
+    channelType: "feishu",
+    accountId: "default",
+    channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+    agentId: "agent-1",
+    enabled: true,
+    createdAt: new Date().toISOString(),
+  });
+
+  const createAgent = () => ({
+    id: "agent-1",
+    name: "Agent One",
+    url: "http://agent-1",
+    protocol: "a2a",
+    createdAt: new Date().toISOString(),
+  });
+
   test("start and stop do not accumulate duplicate event listeners", async () => {
     const bus = new DomainEventBus();
-    const calls: string[] = [];
+    let loadCalls = 0;
     const runtime = {
-      async refreshBinding() {
-        calls.push("refresh");
-      },
-      async detachBinding() {
-        calls.push("detach");
+      async refreshBinding() {},
+      async detachBinding() {},
+      hasActiveConnection() {
+        return true;
       },
       listBindings() {
         return [];
@@ -1153,12 +1589,22 @@ describe("LocalScheduler", () => {
     const scheduler = new LocalScheduler(
       runtime as unknown as import("../runtime/relay-runtime.js").RelayRuntime,
       bus,
-      { debounceMs: 0, reconcileIntervalMs: 60_000 },
+      {
+        debounceMs: 0,
+        reconcileIntervalMs: 60_000,
+        loadSnapshot: async () => ({
+          bindings: (++loadCalls, []),
+          agents: [],
+        }),
+      },
     );
 
     scheduler.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
     await scheduler.stop();
     scheduler.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    loadCalls = 0;
 
     bus.publish({
       eventType: "AgentDeleted.v1",
@@ -1169,7 +1615,38 @@ describe("LocalScheduler", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await scheduler.stop();
 
-    assert.ok(calls.length <= 1, "scheduler should not reconcile twice for one event after restart");
+    assert.ok(loadCalls <= 1, "scheduler should not reconcile twice for one event after restart");
+  });
+
+  test("reconcile repairs a missing local connection even when binding config is unchanged", async () => {
+    const refreshed: string[] = [];
+    const runtime = {
+      async refreshBinding(binding: { id: string }) {
+        refreshed.push(binding.id);
+      },
+      async detachBinding() {},
+      hasActiveConnection(bindingId: string) {
+        return bindingId !== "binding-1";
+      },
+      listBindings() {
+        return [createBinding()];
+      },
+    } as const;
+
+    const scheduler = new LocalScheduler(
+      runtime as unknown as import("../runtime/relay-runtime.js").RelayRuntime,
+      new DomainEventBus(),
+      {
+        loadSnapshot: async () => ({
+          bindings: [createBinding()],
+          agents: [createAgent()],
+        }),
+      },
+    );
+
+    await scheduler.reconcile();
+
+    assert.deepEqual(refreshed, ["binding-1"]);
   });
 });
 describe("OutboxWorker", () => {
@@ -1177,6 +1654,7 @@ describe("OutboxWorker", () => {
 
   test("publishes pending outbox events and marks them processed", async () => {
     const { bindingService } = makeInfra();
+    await ensureTestAgent("http://worker-agent:3001", "http://worker-agent:3001");
     const binding = await bindingService.create({
       name: "Worker Feishu Bot",
       channelType: "feishu",
@@ -1208,8 +1686,25 @@ describe("OutboxWorker", () => {
 describe("ChannelBinding aggregate + ChannelBindingService", () => {
   beforeEach(resetDB);
 
+  test("create rejects a missing agent id before writing the binding", async () => {
+    const { bindingService } = makeInfra();
+
+    await assert.rejects(
+      () => bindingService.create({
+        name: "Broken Binding",
+        channelType: "feishu",
+        accountId: "missing-agent",
+        channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+        agentId: "missing-agent-id",
+        enabled: true,
+      }),
+      /Agent missing-agent-id not found/,
+    );
+  });
+
   test("create persists binding and returns snapshot", async () => {
     const { bindingService } = makeInfra();
+    await ensureTestAgent("http://es-agent:3001", "http://es-agent:3001");
     const binding = await bindingService.create({
       name: "ES Feishu Bot",
       channelType: "feishu",
@@ -1228,6 +1723,7 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
 
   test("create writes a ChannelBindingCreated event to the outbox", async () => {
     const { bindingService } = makeInfra();
+    await ensureTestAgent("http://outbox-agent:3001", "http://outbox-agent:3001");
     const binding = await bindingService.create({
       name: "Outbox Feishu Bot",
       channelType: "feishu",
@@ -1247,6 +1743,7 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
 
   test("create persists current binding state", async () => {
     const { bindingService } = makeInfra();
+    await ensureTestAgent("http://state-agent:3001", "http://state-agent:3001");
     const binding = await bindingService.create({
       name: "State Feishu Bot",
       channelType: "feishu",
@@ -1264,6 +1761,7 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
 
   test("update persists changes through state repository", async () => {
     const { bindingService } = makeInfra();
+    await ensureTestAgent("http://upd-agent:3001", "http://upd-agent:3001");
     const created = await bindingService.create({
       name: "Before Update",
       channelType: "feishu",
@@ -1286,6 +1784,7 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
 
   test("update writes create and update events to the outbox", async () => {
     const { bindingService } = makeInfra();
+    await ensureTestAgent("http://2e-agent:3001", "http://2e-agent:3001");
     const created = await bindingService.create({
       name: "Two Events",
       channelType: "feishu",
@@ -1308,6 +1807,7 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
 
   test("delete marks binding as deleted and removes state row", async () => {
     const { bindingService, bindingRepo } = makeInfra();
+    await ensureTestAgent("http://del-agent:3001", "http://del-agent:3001");
     const created = await bindingService.create({
       name: "To Delete",
       channelType: "feishu",
@@ -1325,13 +1825,18 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
   });
 
   test("rejects creating a second enabled binding for the same channel/account", async () => {
-    const { bindingService } = makeInfra();
+    const { bindingService, agentService } = makeInfra();
+    const agent = await agentService.register({
+      name: "First Agent",
+      url: "http://d1:3001",
+      protocol: "a2a",
+    });
     await bindingService.create({
       name: "First",
       channelType: "feishu",
       accountId: "dup-test",
       channelConfig: { appId: "cli_d1", appSecret: "sec_d1" },
-      agentId: "http://d1:3001",
+      agentId: agent.id,
       enabled: true,
     });
 
@@ -1341,15 +1846,51 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
         channelType: "feishu",
         accountId: "dup-test",
         channelConfig: { appId: "cli_d2", appSecret: "sec_d2" },
-        agentId: "http://d2:3001",
+        agentId: agent.id,
         enabled: true,
       }),
       DuplicateEnabledBindingError,
     );
   });
 
+  test("database constraints reject a second enabled binding for the same channel/account", async () => {
+    const { agentService } = makeInfra();
+    const agent = await agentService.register({
+      name: "DB Agent",
+      url: "http://db-agent:3001",
+      protocol: "a2a",
+    });
+
+    await prisma.channelBinding.create({
+      data: {
+        name: "First",
+        channelType: "feishu",
+        accountId: "db-dup-test",
+        channelConfig: JSON.stringify({ appId: "cli_db1", appSecret: "sec_db1" }),
+        agentId: agent.id,
+        enabled: true,
+        enabledKey: "feishu:db-dup-test",
+      },
+    });
+
+    await assert.rejects(
+      prisma.channelBinding.create({
+        data: {
+          name: "Second",
+          channelType: "feishu",
+          accountId: "db-dup-test",
+          channelConfig: JSON.stringify({ appId: "cli_db2", appSecret: "sec_db2" }),
+          agentId: agent.id,
+          enabled: true,
+          enabledKey: "feishu:db-dup-test",
+        },
+      }),
+    );
+  });
+
   test("state table remains the source of truth on cold start", async () => {
     const { bindingService, bindingRepo } = makeInfra();
+    await ensureTestAgent("http://cs-agent:3001", "http://cs-agent:3001");
     const created = await bindingService.create({
       name: "Cold Start Binding",
       channelType: "feishu",
