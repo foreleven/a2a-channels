@@ -28,7 +28,6 @@ export class RuntimeNodeState {
   private lifecycle: LocalRuntimeLifecycle = "stopped";
   private lastError: string | null = null;
   private lastHeartbeatAt: string | null = null;
-  private readonly bindingStatuses = new Map<string, RuntimeConnectionStatus>();
 
   constructor(private readonly config: GatewayConfig) {}
 
@@ -36,67 +35,32 @@ export class RuntimeNodeState {
     return this.updateLifecycle("bootstrapping", null, true);
   }
 
-  markReady(): LocalRuntimeSnapshot {
-    return this.updateLifecycle("ready", null, true);
+  markReady(bindingStatuses: RuntimeConnectionStatus[] = []): LocalRuntimeSnapshot {
+    return this.updateLifecycle("ready", null, true, bindingStatuses);
   }
 
-  markError(error: unknown): LocalRuntimeSnapshot {
-    return this.updateLifecycle("error", String(error), false);
+  markError(
+    error: unknown,
+    bindingStatuses: RuntimeConnectionStatus[] = [],
+  ): LocalRuntimeSnapshot {
+    return this.updateLifecycle("error", String(error), false, bindingStatuses);
   }
 
-  markStopping(): LocalRuntimeSnapshot {
-    return this.updateLifecycle("stopping", null, false);
+  markStopping(bindingStatuses: RuntimeConnectionStatus[] = []): LocalRuntimeSnapshot {
+    return this.updateLifecycle("stopping", null, false, bindingStatuses);
   }
 
   markStopped(): LocalRuntimeSnapshot {
-    this.bindingStatuses.clear();
     return this.updateLifecycle("stopped", null, false);
   }
 
-  attachBinding(bindingId: string): LocalRuntimeSnapshot {
-    return this.setBindingStatus(bindingId, "idle");
-  }
-
-  detachBinding(bindingId: string): LocalRuntimeSnapshot {
-    this.bindingStatuses.delete(bindingId);
-    this.touchHeartbeatIfLive();
-    return this.snapshot();
-  }
-
-  markBindingIdle(bindingId: string): LocalRuntimeSnapshot {
-    return this.setBindingStatus(bindingId, "idle");
-  }
-
-  markBindingConnecting(
-    bindingId: string,
-    agentUrl?: string,
+  snapshot(
+    bindingStatuses: RuntimeConnectionStatus[] = [],
   ): LocalRuntimeSnapshot {
-    return this.setBindingStatus(bindingId, "connecting", agentUrl);
-  }
+    const clonedBindingStatuses = bindingStatuses
+      .map((status) => ({ ...status }))
+      .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
 
-  markBindingConnected(
-    bindingId: string,
-    agentUrl?: string,
-  ): LocalRuntimeSnapshot {
-    return this.setBindingStatus(bindingId, "connected", agentUrl);
-  }
-
-  markBindingDisconnected(
-    bindingId: string,
-    agentUrl?: string,
-  ): LocalRuntimeSnapshot {
-    return this.setBindingStatus(bindingId, "disconnected", agentUrl);
-  }
-
-  markBindingError(
-    bindingId: string,
-    error: unknown,
-    agentUrl?: string,
-  ): LocalRuntimeSnapshot {
-    return this.setBindingStatus(bindingId, "error", agentUrl, String(error));
-  }
-
-  snapshot(): LocalRuntimeSnapshot {
     return {
       nodeId: this.config.nodeId,
       displayName: this.config.nodeDisplayName,
@@ -106,9 +70,7 @@ export class RuntimeNodeState {
       lifecycle: this.lifecycle,
       lastHeartbeatAt: this.lastHeartbeatAt,
       lastError: this.lastError,
-      bindingStatuses: Array.from(this.bindingStatuses.values(), (status) => ({
-        ...status,
-      })).sort((left, right) => left.bindingId.localeCompare(right.bindingId)),
+      bindingStatuses: clonedBindingStatuses,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -117,37 +79,13 @@ export class RuntimeNodeState {
     lifecycle: LocalRuntimeLifecycle,
     lastError: string | null,
     touchHeartbeat: boolean,
+    bindingStatuses: RuntimeConnectionStatus[] = [],
   ): LocalRuntimeSnapshot {
     this.lifecycle = lifecycle;
     this.lastError = lastError;
     if (touchHeartbeat) {
       this.lastHeartbeatAt = new Date().toISOString();
     }
-    return this.snapshot();
-  }
-
-  private setBindingStatus(
-    bindingId: string,
-    status: RuntimeConnectionStatus["status"],
-    agentUrl?: string,
-    error?: string,
-  ): LocalRuntimeSnapshot {
-    this.touchHeartbeatIfLive();
-    this.bindingStatuses.set(bindingId, {
-      bindingId,
-      status,
-      agentUrl,
-      error,
-      updatedAt: new Date().toISOString(),
-    });
-    return this.snapshot();
-  }
-
-  private touchHeartbeatIfLive(): void {
-    if (this.lifecycle !== "bootstrapping" && this.lifecycle !== "ready") {
-      return;
-    }
-
-    this.lastHeartbeatAt = new Date().toISOString();
+    return this.snapshot(bindingStatuses);
   }
 }

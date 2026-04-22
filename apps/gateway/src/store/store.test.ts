@@ -874,6 +874,73 @@ describe("RuntimeNodeStateRepository", () => {
   });
 });
 
+describe("RuntimeNodeState", () => {
+  test("snapshot uses externally supplied binding statuses without mutating them", () => {
+    const config = buildGatewayConfig({
+      clusterMode: false,
+      nodeId: "node-a",
+      nodeDisplayName: "Node A",
+      runtimeAddress: "http://127.0.0.1:7890",
+    });
+    const state = new RuntimeNodeState(config);
+    const bindingStatuses = [
+      {
+        bindingId: "binding-b",
+        status: "connected" as const,
+        agentUrl: "http://agent-b",
+        error: undefined,
+        updatedAt: "2026-04-21T08:00:00.000Z",
+      },
+      {
+        bindingId: "binding-a",
+        status: "idle" as const,
+        agentUrl: undefined,
+        error: undefined,
+        updatedAt: "2026-04-21T08:01:00.000Z",
+      },
+    ];
+
+    const snapshot = state.snapshot(bindingStatuses);
+
+    assert.deepEqual(snapshot.bindingStatuses, [
+      {
+        bindingId: "binding-a",
+        status: "idle",
+        agentUrl: undefined,
+        error: undefined,
+        updatedAt: "2026-04-21T08:01:00.000Z",
+      },
+      {
+        bindingId: "binding-b",
+        status: "connected",
+        agentUrl: "http://agent-b",
+        error: undefined,
+        updatedAt: "2026-04-21T08:00:00.000Z",
+      },
+    ]);
+
+    assert.deepEqual(bindingStatuses, [
+      {
+        bindingId: "binding-b",
+        status: "connected",
+        agentUrl: "http://agent-b",
+        error: undefined,
+        updatedAt: "2026-04-21T08:00:00.000Z",
+      },
+      {
+        bindingId: "binding-a",
+        status: "idle",
+        agentUrl: undefined,
+        error: undefined,
+        updatedAt: "2026-04-21T08:01:00.000Z",
+      },
+    ]);
+
+    snapshot.bindingStatuses[0]!.status = "error";
+    assert.equal(bindingStatuses[0]?.status, "connected");
+  });
+});
+
 describe("RuntimeClusterStateReader", () => {
   beforeEach(resetDB);
 
