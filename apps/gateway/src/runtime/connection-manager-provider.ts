@@ -1,7 +1,6 @@
 import { injectable } from "inversify";
 import type {
   AgentClientHandle,
-  ChannelBinding,
 } from "@a2a-channels/core";
 import type {
   MessageInboundEvent,
@@ -16,7 +15,6 @@ import {
 
 export interface ConnectionManagerProviderOptions {
   host: OpenClawPluginHost;
-  listBindings: () => ChannelBinding[] | Promise<ChannelBinding[]>;
   getAgentClient: (
     agentId: string,
   ) => { client: AgentClientHandle; url: string } | Promise<{
@@ -33,7 +31,6 @@ export class ConnectionManagerProvider {
   create(options: ConnectionManagerProviderOptions): ConnectionManager {
     return new ConnectionManager(
       options.host,
-      options.listBindings,
       options.getAgentClient,
       options.emitMessageInbound,
       options.emitMessageOutbound,

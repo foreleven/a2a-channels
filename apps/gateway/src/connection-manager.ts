@@ -53,9 +53,6 @@ export class ConnectionManager {
 
   constructor(
     private readonly host: OpenClawPluginHost,
-    private readonly listBindings: () =>
-      | ChannelBinding[]
-      | Promise<ChannelBinding[]>,
     private readonly getAgentClient: (
       agentId: string,
     ) =>
@@ -318,28 +315,6 @@ export class ConnectionManager {
         queuedFinal: false,
         counts: { tool: 0, block: 0, final: 0 },
       };
-    }
-  }
-
-  async syncConnections(): Promise<void> {
-    const bindings = (await this.listBindings()).filter(
-      (binding) => binding.enabled,
-    );
-    console.log(
-      `[connection] syncConnections: ${bindings.length} enabled binding(s)`,
-    );
-    const activeIds = new Set(bindings.map((binding) => binding.id));
-
-    for (const [bindingId, connection] of this.connections.entries()) {
-      if (!activeIds.has(bindingId)) {
-        await this.stopConnection(bindingId);
-      }
-    }
-
-    for (const binding of bindings) {
-      if (!this.connections.has(binding.id)) {
-        await this.startConnection(binding);
-      }
     }
   }
 

@@ -12,7 +12,12 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import type { AgentTransport, ChannelBinding } from "@a2a-channels/core";
+import type {
+  AgentClientHandle,
+  AgentTransport,
+  ChannelBinding,
+} from "@a2a-channels/core";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { prisma } from "./prisma.js";
 import { AgentService, ReferencedAgentError } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
@@ -1902,6 +1907,51 @@ describe("RelayRuntime node state snapshots", () => {
     await runtime.bootstrap();
 
     assert.equal(assemblyProvider.createCalls, 1);
+  });
+
+  test("relay runtime assembly provider builds a connection manager without listBindings", async () => {
+    class TrackingConnectionManagerProvider extends ConnectionManagerProvider {
+      seenOptions: {
+        host: unknown;
+        getAgentClient: unknown;
+        emitMessageInbound?: unknown;
+        emitMessageOutbound?: unknown;
+        callbacks?: unknown;
+      } | null = null;
+
+      override create(
+        options: Parameters<ConnectionManagerProvider["create"]>[0],
+      ) {
+        this.seenOptions = options;
+        return super.create(options);
+      }
+    }
+
+    const pluginHostProvider = new PluginHostProvider();
+    const connectionManagerProvider = new TrackingConnectionManagerProvider();
+    const assemblyProvider = new RelayRuntimeAssemblyProvider(
+      pluginHostProvider,
+      connectionManagerProvider,
+    );
+
+    const assembly = assemblyProvider.create({
+      loadConfig: () => ({}) as OpenClawConfig,
+      getAgentClient: async () => ({
+        client: {
+          agentUrl: "http://agent-1",
+          protocol: "a2a",
+          send: async () => ({ text: "" }),
+        } as AgentClientHandle,
+        url: "http://agent-1",
+      }),
+    });
+
+    assert.ok(assembly.connectionManager);
+    assert.ok(connectionManagerProvider.seenOptions);
+    assert.equal(
+      Object.hasOwn(connectionManagerProvider.seenOptions as object, "listBindings"),
+      false,
+    );
   });
 
   test("publishes a stopped snapshot without active binding statuses on shutdown", async () => {

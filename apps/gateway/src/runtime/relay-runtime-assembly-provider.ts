@@ -1,7 +1,6 @@
 import { inject, injectable } from "inversify";
 import type {
   AgentClientHandle,
-  ChannelBinding,
 } from "@a2a-channels/core";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import {
@@ -21,7 +20,6 @@ export interface RelayRuntimeAssembly {
 
 export interface RelayRuntimeAssemblyOptions {
   loadConfig: () => OpenClawConfig;
-  listBindings: () => ChannelBinding[] | Promise<ChannelBinding[]>;
   getAgentClient: (
     agentId: string,
   ) => { client: AgentClientHandle; url: string } | Promise<{
@@ -40,7 +38,9 @@ export class RelayRuntimeAssemblyProvider {
     private readonly connectionManagerProvider: ConnectionManagerProvider,
   ) {}
 
-  create(options: RelayRuntimeAssemblyOptions): RelayRuntimeAssembly {
+  create<T extends RelayRuntimeAssemblyOptions>(
+    options: T,
+  ): RelayRuntimeAssembly {
     let connectionManager!: ConnectionManager;
 
     const runtime = this.pluginHostProvider.createRuntime({
@@ -56,7 +56,6 @@ export class RelayRuntimeAssemblyProvider {
     const pluginHost = this.pluginHostProvider.create(runtime);
     connectionManager = this.connectionManagerProvider.create({
       host: pluginHost,
-      listBindings: options.listBindings,
       getAgentClient: options.getAgentClient,
       emitMessageInbound: (event) =>
         runtime.emit("message:inbound", event),
