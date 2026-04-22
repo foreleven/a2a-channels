@@ -1,14 +1,15 @@
 import { inject, injectable } from "inversify";
-import type {
-  AgentClientHandle,
-} from "@a2a-channels/core";
+import type { AgentClientHandle } from "@a2a-channels/core";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
 
-import { ConnectionManager, type ConnectionManagerCallbacks } from "../connection-manager.js";
+import {
+  ConnectionManager,
+  type ConnectionManagerCallbacks,
+} from "../connection-manager.js";
 import { ConnectionManagerProvider } from "./connection-manager-provider.js";
 import { PluginHostProvider } from "./plugin-host-provider.js";
 
@@ -38,9 +39,7 @@ export class RelayRuntimeAssemblyProvider {
     private readonly connectionManagerProvider: ConnectionManagerProvider,
   ) {}
 
-  create<T extends RelayRuntimeAssemblyOptions>(
-    options: T,
-  ): RelayRuntimeAssembly {
+  create(options: RelayRuntimeAssemblyOptions): RelayRuntimeAssembly {
     let connectionManager!: ConnectionManager;
 
     const runtime = this.pluginHostProvider.createRuntime({

@@ -80,7 +80,6 @@ export class RelayRuntime {
     this.transportRegistry = this.agentClientRegistry.transportRegistry;
     const assembly = assemblyProvider.create({
       loadConfig: () => this.openClawConfig,
-      listBindings: () => this.listEnabledBindings(),
       getAgentClient: (agentId) => this.getAgentClient(agentId),
       callbacks: {
         onConnectionStatus: ({ binding, status, agentUrl, error }) => {
