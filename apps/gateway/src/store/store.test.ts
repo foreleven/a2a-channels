@@ -1910,18 +1910,13 @@ describe("RelayRuntime node state snapshots", () => {
   });
 
   test("relay runtime assembly provider builds a connection manager without listBindings", async () => {
-    class TrackingConnectionManagerProvider extends ConnectionManagerProvider {
-      seenOptions: {
-        host: unknown;
-        getAgentClient: unknown;
-        emitMessageInbound?: unknown;
-        emitMessageOutbound?: unknown;
-        callbacks?: unknown;
-      } | null = null;
+    type ConnectionManagerCreateOptions =
+      Parameters<ConnectionManagerProvider["create"]>[0];
 
-      override create(
-        options: Parameters<ConnectionManagerProvider["create"]>[0],
-      ) {
+    class TrackingConnectionManagerProvider extends ConnectionManagerProvider {
+      seenOptions: ConnectionManagerCreateOptions | null = null;
+
+      override create(options: ConnectionManagerCreateOptions) {
         this.seenOptions = options;
         return super.create(options);
       }
@@ -1949,7 +1944,7 @@ describe("RelayRuntime node state snapshots", () => {
     assert.ok(assembly.connectionManager);
     assert.ok(connectionManagerProvider.seenOptions);
     assert.equal(
-      Object.hasOwn(connectionManagerProvider.seenOptions as object, "listBindings"),
+      Object.hasOwn(connectionManagerProvider.seenOptions, "listBindings"),
       false,
     );
   });
