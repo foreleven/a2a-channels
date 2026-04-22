@@ -12,7 +12,7 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import type { AgentTransport } from "@a2a-channels/core";
+import type { AgentTransport, ChannelBinding } from "@a2a-channels/core";
 import { prisma } from "./prisma.js";
 import { AgentService, ReferencedAgentError } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
@@ -479,9 +479,8 @@ describe("ChannelBinding CRUD", () => {
 });
 
 describe("RuntimeOwnershipState", () => {
-  test("attachBinding seeds an idle runtime status", async () => {
-    const state = createRuntimeOwnershipState();
-    const binding = {
+  function makeRuntimeBinding(overrides: Partial<ChannelBinding> = {}) {
+    return {
       id: "binding-1",
       name: "Binding One",
       channelType: "feishu",
@@ -490,7 +489,13 @@ describe("RuntimeOwnershipState", () => {
       agentId: "agent-1",
       enabled: true,
       createdAt: new Date().toISOString(),
+      ...overrides,
     };
+  }
+
+  test("attachBinding seeds an idle runtime status", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = makeRuntimeBinding();
 
     state.attachBinding(binding);
     const statuses = state.listConnectionStatuses();
@@ -505,18 +510,82 @@ describe("RuntimeOwnershipState", () => {
     assert.equal(state.listConnectionStatuses()[0]?.status, "idle");
   });
 
+  test("upsertBinding stores the binding record and requests a start for a runnable new binding", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = makeRuntimeBinding();
+
+    const result = state.upsertBinding(binding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: true,
+    });
+
+    assert.deepEqual(result, {
+      publishSnapshot: true,
+      shouldRestart: true,
+      shouldStop: false,
+    });
+
+    const owned = state.getOwnedBinding(binding.id);
+    assert.ok(owned);
+    assert.deepEqual(owned?.binding, binding);
+    assert.equal(owned?.status.status, "idle");
+    assert.equal(owned?.reconnectAttempt, 0);
+  });
+
+  test("upsertBinding keeps an unchanged healthy binding in place without restarting", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = makeRuntimeBinding();
+
+    state.upsertBinding(binding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: true,
+    });
+    state.markConnected(binding.id, "http://agent-1");
+
+    const result = state.upsertBinding(makeRuntimeBinding(), {
+      forceRestart: false,
+      hasActiveConnection: true,
+      runnable: true,
+    });
+
+    assert.deepEqual(result, {
+      publishSnapshot: false,
+      shouldRestart: false,
+      shouldStop: false,
+    });
+    assert.equal(state.listConnectionStatuses()[0]?.status, "connected");
+    assert.equal(state.getOwnedBinding(binding.id)?.reconnectAttempt, 0);
+  });
+
+  test("releaseBinding clears the owned record and any scheduled reconnect", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = makeRuntimeBinding();
+    let fired = false;
+
+    state.upsertBinding(binding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: true,
+    });
+    state.scheduleReconnect(binding.id, 5, () => {
+      fired = true;
+    });
+
+    assert.ok(state.getOwnedBinding(binding.id)?.reconnectTimer);
+    assert.equal(state.releaseBinding(binding.id), true);
+    assert.equal(state.getOwnedBinding(binding.id), undefined);
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    assert.equal(fired, false);
+    assert.equal(state.releaseBinding(binding.id), false);
+  });
+
   test("detachBinding removes the record", async () => {
     const state = createRuntimeOwnershipState();
-    const binding = {
-      id: "binding-1",
-      name: "Binding One",
-      channelType: "feishu",
-      accountId: "default",
-      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-      agentId: "agent-1",
-      enabled: true,
-      createdAt: new Date().toISOString(),
-    };
+    const binding = makeRuntimeBinding();
 
     state.attachBinding(binding);
     state.detachBinding("binding-1");
@@ -526,16 +595,7 @@ describe("RuntimeOwnershipState", () => {
 
   test("markConnecting produces an observable connecting status", async () => {
     const state = createRuntimeOwnershipState();
-    const binding = {
-      id: "binding-1",
-      name: "Binding One",
-      channelType: "feishu",
-      accountId: "default",
-      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-      agentId: "agent-1",
-      enabled: true,
-      createdAt: new Date().toISOString(),
-    };
+    const binding = makeRuntimeBinding();
 
     state.attachBinding(binding);
     state.markConnecting("binding-1", "http://agent-1");
@@ -550,16 +610,7 @@ describe("RuntimeOwnershipState", () => {
         maxDelayMs: 8000,
       }),
     });
-    const binding = {
-      id: "binding-1",
-      name: "Binding One",
-      channelType: "feishu",
-      accountId: "default",
-      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-      agentId: "agent-1",
-      enabled: true,
-      createdAt: new Date().toISOString(),
-    };
+    const binding = makeRuntimeBinding();
 
     state.attachBinding(binding);
     const retry = state.markDisconnected("binding-1", "http://agent-1");
@@ -574,16 +625,7 @@ describe("RuntimeOwnershipState", () => {
 
   test("markError updates observable error status and surfaces the error string", async () => {
     const state = createRuntimeOwnershipState();
-    const binding = {
-      id: "binding-1",
-      name: "Binding One",
-      channelType: "feishu",
-      accountId: "default",
-      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-      agentId: "agent-1",
-      enabled: true,
-      createdAt: new Date().toISOString(),
-    };
+    const binding = makeRuntimeBinding();
 
     state.attachBinding(binding);
     state.markError("binding-1", new Error("socket closed"));
@@ -595,16 +637,7 @@ describe("RuntimeOwnershipState", () => {
 
   test("transition results are defensive copies", async () => {
     const state = createRuntimeOwnershipState();
-    const binding = {
-      id: "binding-1",
-      name: "Binding One",
-      channelType: "feishu",
-      accountId: "default",
-      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-      agentId: "agent-1",
-      enabled: true,
-      createdAt: new Date().toISOString(),
-    };
+    const binding = makeRuntimeBinding();
 
     state.attachBinding(binding);
     const status = state.markConnected("binding-1", "http://agent-1");
@@ -620,16 +653,7 @@ describe("RuntimeOwnershipState", () => {
         maxDelayMs: 8000,
       }),
     });
-    const binding = {
-      id: "binding-1",
-      name: "Binding One",
-      channelType: "feishu",
-      accountId: "default",
-      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-      agentId: "agent-1",
-      enabled: true,
-      createdAt: new Date().toISOString(),
-    };
+    const binding = makeRuntimeBinding();
 
     state.attachBinding(binding);
     const firstRetry = state.markError("binding-1", new Error("socket closed"));
