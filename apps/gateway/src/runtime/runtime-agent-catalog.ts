@@ -1,9 +1,5 @@
 import { inject, injectable } from "inversify";
-import type {
-  AgentClientHandle,
-  AgentConfig,
-  TransportRegistry,
-} from "@a2a-channels/core";
+import type { AgentClientHandle, AgentConfig } from "@a2a-channels/core";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import { AgentClientRegistry } from "./agent-client-registry.js";
@@ -12,8 +8,6 @@ import { RuntimeOwnedBindingManager } from "./runtime-owned-binding-manager.js";
 
 @injectable()
 export class RuntimeAgentCatalog {
-  readonly transportRegistry: TransportRegistry;
-
   private agentsById = new Map<string, AgentConfig>();
   private openClawConfig: OpenClawConfig;
 
@@ -23,7 +17,6 @@ export class RuntimeAgentCatalog {
     @inject(RuntimeOwnedBindingManager)
     private readonly ownedBindingManager: RuntimeOwnedBindingManager,
   ) {
-    this.transportRegistry = this.agentClientRegistry.transportRegistry;
     this.openClawConfig = buildOpenClawConfigFromBindings([], this.agentsById);
   }
 
@@ -72,7 +65,7 @@ export class RuntimeAgentCatalog {
     }
 
     return {
-      client: this.agentClientRegistry.get(agent),
+      client: this.agentClientRegistry.require(agent),
       url: agent.url,
     };
   }

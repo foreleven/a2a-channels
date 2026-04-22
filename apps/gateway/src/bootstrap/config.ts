@@ -1,6 +1,6 @@
-export const GatewayConfigToken = Symbol.for("system.GatewayConfig");
+import { inject, injectable, optional } from "inversify";
 
-export interface GatewayConfig {
+export interface GatewayConfigSnapshot {
   port: number;
   corsOrigin: string;
   clusterMode: boolean;
@@ -10,9 +10,58 @@ export interface GatewayConfig {
   runtimeAddress: string;
 }
 
+export const GatewayConfigOverrides = Symbol.for(
+  "system.GatewayConfigOverrides",
+);
+
+@injectable()
+export class GatewayConfigService {
+  private readonly snapshot: GatewayConfigSnapshot;
+
+  constructor(
+    @inject(GatewayConfigOverrides)
+    @optional()
+    overrides: Partial<GatewayConfigSnapshot> = {},
+  ) {
+    this.snapshot = buildGatewayConfig(overrides);
+  }
+
+  get port(): number {
+    return this.snapshot.port;
+  }
+
+  get corsOrigin(): string {
+    return this.snapshot.corsOrigin;
+  }
+
+  get clusterMode(): boolean {
+    return this.snapshot.clusterMode;
+  }
+
+  get redisUrl(): string | undefined {
+    return this.snapshot.redisUrl;
+  }
+
+  get nodeId(): string {
+    return this.snapshot.nodeId;
+  }
+
+  get nodeDisplayName(): string {
+    return this.snapshot.nodeDisplayName;
+  }
+
+  get runtimeAddress(): string {
+    return this.snapshot.runtimeAddress;
+  }
+
+  toSnapshot(): GatewayConfigSnapshot {
+    return { ...this.snapshot };
+  }
+}
+
 export function buildGatewayConfig(
-  overrides: Partial<GatewayConfig> = {},
-): GatewayConfig {
+  overrides: Partial<GatewayConfigSnapshot> = {},
+): GatewayConfigSnapshot {
   const port = overrides.port ?? Number(process.env["PORT"] ?? 7890);
   const runtimeAddress =
     overrides.runtimeAddress ??

@@ -1,29 +1,16 @@
 import { inject, injectable } from "inversify";
-import type {
-  AgentClientHandle,
-  AgentConfig,
-  TransportRegistry,
-} from "@a2a-channels/core";
+import type { AgentClientHandle, AgentConfig } from "@a2a-channels/core";
 
-import {
-  createAgentClientHandle,
-  startAgentClients,
-  stopAgentClients,
-} from "./agent-clients.js";
-import { TransportRegistryProvider } from "./transport-registry-provider.js";
+import { AgentClientFactory } from "./agent-clients.js";
 
 @injectable()
 export class AgentClientRegistry {
-  readonly transportRegistry: TransportRegistry;
-
   private readonly clients = new Map<string, AgentClientHandle>();
 
   constructor(
-    @inject(TransportRegistryProvider)
-    transportProvider: TransportRegistryProvider,
-  ) {
-    this.transportRegistry = transportProvider.transportRegistry;
-  }
+    @inject(AgentClientFactory)
+    private readonly agentClientFactory: AgentClientFactory,
+  ) {}
 
   async upsert(agent: AgentConfig, previous?: AgentConfig): Promise<void> {
     const previousClient = previous?.url
@@ -41,19 +28,16 @@ export class AgentClientRegistry {
 
     if (previousClient && previous?.url) {
       this.clients.delete(previous.url);
-      await stopAgentClients([previousClient]);
+      await this.agentClientFactory.stop(previousClient);
     }
 
     if (this.clients.has(agent.url)) {
       return;
     }
 
-    const client = createAgentClientHandle(
-      agent,
-      this.transportRegistry.resolve(agent.protocol ?? "a2a"),
-    );
+    const client = this.agentClientFactory.create(agent);
     this.clients.set(agent.url, client);
-    await startAgentClients([client]);
+    await this.agentClientFactory.start(client);
   }
 
   async remove(agent: AgentConfig): Promise<void> {
@@ -63,22 +47,21 @@ export class AgentClientRegistry {
     }
 
     this.clients.delete(agent.url);
-    await stopAgentClients([client]);
+    await this.agentClientFactory.stop(client);
   }
 
-  get(agent: AgentConfig): AgentClientHandle {
-    return (
-      this.clients.get(agent.url) ??
-      createAgentClientHandle(
-        agent,
-        this.transportRegistry.resolve(agent.protocol ?? "a2a"),
-      )
-    );
+  require(agent: AgentConfig): AgentClientHandle {
+    const client = this.clients.get(agent.url);
+    if (!client) {
+      throw new Error(`Agent client for ${agent.url} is not registered`);
+    }
+
+    return client;
   }
 
   async stopAll(): Promise<void> {
     const clients = Array.from(this.clients.values());
     this.clients.clear();
-    await stopAgentClients(clients);
+    await this.agentClientFactory.stopAll(clients);
   }
 }

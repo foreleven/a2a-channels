@@ -4,7 +4,7 @@ import { TransportRegistry } from "@a2a-channels/core";
 import { A2ATransport, ACPTransport } from "@a2a-channels/agent-transport";
 
 @injectable()
-export class TransportRegistryProvider {
+export class TransportRegistryAssembler {
   readonly transportRegistry: TransportRegistry;
 
   constructor(

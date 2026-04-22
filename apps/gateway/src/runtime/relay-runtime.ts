@@ -1,21 +1,76 @@
 import { inject, injectable } from "inversify";
+import type {
+  OpenClawPluginHost,
+  OpenClawPluginRuntime,
+} from "@a2a-channels/openclaw-compat";
+
+import { ConnectionManager } from "./connection-manager.js";
+import { OpenClawRuntimeAssembler } from "./openclaw-runtime-assembler.js";
 import { RuntimeAgentCatalog } from "./runtime-agent-catalog.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
+import { RuntimeOwnedBindingManager } from "./runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "./runtime-snapshot-publisher.js";
-import { RelayRuntimeAssemblyHandle } from "./relay-runtime-assembly-handle.js";
 
 @injectable()
 export class RelayRuntime {
+  readonly runtime: OpenClawPluginRuntime;
+  readonly pluginHost: OpenClawPluginHost;
+  readonly connectionManager: ConnectionManager;
+
   constructor(
     @inject(RuntimeAssignmentService)
     private readonly assignments: RuntimeAssignmentService,
     @inject(RuntimeAgentCatalog)
     private readonly agentCatalog: RuntimeAgentCatalog,
-    @inject(RelayRuntimeAssemblyHandle)
-    private readonly assembly: RelayRuntimeAssemblyHandle,
+    @inject(RuntimeOwnedBindingManager)
+    private readonly ownedBindingManager: RuntimeOwnedBindingManager,
+    @inject(OpenClawRuntimeAssembler)
+    runtimeAssembler: OpenClawRuntimeAssembler,
+    @inject(ConnectionManager)
+    connectionManager: ConnectionManager,
     @inject(RuntimeSnapshotPublisher)
     private readonly snapshotPublisher: RuntimeSnapshotPublisher,
-  ) {}
+  ) {
+    this.connectionManager = connectionManager;
+
+    const assembly = runtimeAssembler.assemble({
+      config: {
+        loadConfig: () => this.agentCatalog.getConfig(),
+        writeConfigFile: async () => {
+          throw new Error("Not implemented");
+        },
+      },
+      handleChannelReplyEvent: (event) =>
+        this.connectionManager.handleEvent(event),
+    });
+    this.runtime = assembly.runtime;
+    this.pluginHost = assembly.pluginHost;
+
+    this.connectionManager.initialize({
+      host: this.pluginHost,
+      getAgentClient: (agentId) => this.agentCatalog.getAgentClient(agentId),
+      emitMessageInbound: (event) => this.runtime.emit("message:inbound", event),
+      emitMessageOutbound: (event) =>
+        this.runtime.emit("message:outbound", event),
+      callbacks: {
+        onConnectionStatus: ({ binding, status, agentUrl, error }) => {
+          this.ownedBindingManager.handleOwnedConnectionStatus(binding.id, status, {
+            agentUrl,
+            error,
+            restartConnection: async (nextBinding) => {
+              await this.connectionManager.restartConnection(nextBinding);
+            },
+          });
+        },
+        onAgentCallFailed: ({ binding, error }) => {
+          console.error(
+            `[runtime] agent call failed for binding ${binding.id}:`,
+            String(error),
+          );
+        },
+      },
+    });
+  }
 
   async bootstrap(): Promise<void> {
     await this.snapshotPublisher.publishBootstrapping();
@@ -25,7 +80,7 @@ export class RelayRuntime {
   async shutdown(): Promise<void> {
     await this.snapshotPublisher.publishStoppingSafely();
     this.assignments.clearReconnectsForOwnedBindings();
-    await this.assembly.connectionManager.stopAllConnections();
+    await this.connectionManager.stopAllConnections();
     await this.agentCatalog.stopAllClients();
     await this.snapshotPublisher.publishStoppedSafely();
   }

@@ -1,8 +1,7 @@
 import { inject, injectable } from "inversify";
 import type { RuntimeConnectionStatus } from "@a2a-channels/core";
 
-import type { GatewayConfig } from "../bootstrap/config.js";
-import { GatewayConfigToken } from "../bootstrap/config.js";
+import { GatewayConfigService } from "../bootstrap/config.js";
 
 export type LocalRuntimeLifecycle =
   | "bootstrapping"
@@ -33,15 +32,17 @@ export class RuntimeNodeState {
   private lastHeartbeatAt: string | null = null;
 
   constructor(
-    @inject(GatewayConfigToken)
-    private readonly config: GatewayConfig,
+    @inject(GatewayConfigService)
+    private readonly config: GatewayConfigService,
   ) {}
 
   markBootstrapping(): LocalRuntimeSnapshot {
     return this.updateLifecycle("bootstrapping", null, true);
   }
 
-  markReady(bindingStatuses: RuntimeConnectionStatus[] = []): LocalRuntimeSnapshot {
+  markReady(
+    bindingStatuses: RuntimeConnectionStatus[] = [],
+  ): LocalRuntimeSnapshot {
     return this.updateLifecycle("ready", null, true, bindingStatuses);
   }
 
@@ -52,7 +53,9 @@ export class RuntimeNodeState {
     return this.updateLifecycle("error", String(error), false, bindingStatuses);
   }
 
-  markStopping(bindingStatuses: RuntimeConnectionStatus[] = []): LocalRuntimeSnapshot {
+  markStopping(
+    bindingStatuses: RuntimeConnectionStatus[] = [],
+  ): LocalRuntimeSnapshot {
     return this.updateLifecycle("stopping", null, false, bindingStatuses);
   }
 

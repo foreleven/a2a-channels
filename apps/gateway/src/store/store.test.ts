@@ -20,26 +20,31 @@ import type {
 } from "@a2a-channels/core";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { prisma } from "./prisma.js";
-import { AgentService, ReferencedAgentError } from "../application/agent-service.js";
+import {
+  AgentService,
+  ReferencedAgentError,
+} from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { DuplicateEnabledBindingError } from "../application/errors.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
-import { buildGatewayConfig } from "../bootstrap/config.js";
+import { buildGatewayConfig, GatewayConfigService } from "../bootstrap/config.js";
 import { buildRuntimeBootstrap } from "../runtime/bootstrap.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
-import { ConnectionManagerProvider } from "../runtime/connection-manager-provider.js";
+import { AgentClientFactory } from "../runtime/agent-clients.js";
+import {
+  ConnectionManager,
+  type ConnectionManagerOptions,
+} from "../runtime/connection-manager.js";
 import { LocalNodeRuntimeStateStore } from "../runtime/local-node-runtime-state-store.js";
 import type { NodeRuntimeStateStore } from "../runtime/node-runtime-state-store.js";
-import { PluginHostProvider } from "../runtime/plugin-host-provider.js";
+import { OpenClawRuntimeAssembler } from "../runtime/openclaw-runtime-assembler.js";
 import { buildRedisCoordinationKeys } from "../runtime/cluster/redis-coordination.js";
 import { createLocalOwnershipGate } from "../runtime/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local-scheduler.js";
-import { RelayRuntimeAssemblyHandle } from "../runtime/relay-runtime-assembly-handle.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
-import { RelayRuntimeAssemblyProvider } from "../runtime/relay-runtime-assembly-provider.js";
 import { RuntimeAgentCatalog } from "../runtime/runtime-agent-catalog.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
 import {
@@ -55,7 +60,7 @@ import {
 import { RuntimeOwnedBindingManager } from "../runtime/runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
 import type { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
-import { TransportRegistryProvider } from "../runtime/transport-registry-provider.js";
+import { TransportRegistryAssembler } from "../runtime/transport-registry-assembler.js";
 import { initStore, seedDefaults } from "../services/initialization.js";
 import { buildOpenClawConfig } from "../services/openclaw-config.js";
 import {
@@ -68,7 +73,10 @@ import {
   InMemoryRuntimeOwnershipState,
   RuntimeOwnershipStateToken,
 } from "../runtime/ownership-state.js";
-import { createReconnectPolicy, type ReconnectPolicy } from "../runtime/reconnect-policy.js";
+import {
+  createReconnectPolicy,
+  type ReconnectPolicy,
+} from "../runtime/reconnect-policy.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -81,10 +89,10 @@ const GATEWAY_ROOT = path.resolve(
 
 /** Push the Prisma schema to the test DB (creates tables if absent). */
 function pushSchema(): void {
-  execSync(
-    "node_modules/.bin/prisma db push --schema=prisma/schema.prisma",
-    { cwd: GATEWAY_ROOT, stdio: "pipe" },
-  );
+  execSync("node_modules/.bin/prisma db push --schema=prisma/schema.prisma", {
+    cwd: GATEWAY_ROOT,
+    stdio: "pipe",
+  });
 }
 
 /** Delete all rows from the gateway state, outbox, and legacy event tables. */
@@ -131,15 +139,19 @@ function makeInfra() {
   };
 }
 
+function createGatewayConfigService(
+  overrides: Parameters<typeof buildGatewayConfig>[0] = {},
+) {
+  return new GatewayConfigService(buildGatewayConfig(overrides));
+}
+
 interface RelayRuntimeTestOptions {
   config?: Parameters<typeof buildGatewayConfig>[0];
   stateStore?: NodeRuntimeStateStore;
   runtimeNodeState?: RuntimeNodeState;
-  pluginHostProvider?: PluginHostProvider;
+  runtimeAssembler?: OpenClawRuntimeAssembler;
   agentClientRegistry?: AgentClientRegistry;
-  connectionManagerProvider?: ConnectionManagerProvider;
-  assemblyProvider?: RelayRuntimeAssemblyProvider;
-  assemblyHandle?: RelayRuntimeAssemblyHandle;
+  connectionManager?: ConnectionManager;
   agentCatalog?: RuntimeAgentCatalog;
   assignmentService?: RuntimeAssignmentService;
   ownershipState?: ReturnType<typeof createRuntimeOwnershipState>;
@@ -162,16 +174,15 @@ type RelayRuntimeTestHarness = RelayRuntime & {
   listOwnedBindingIds: RuntimeAssignmentService["listOwnedBindingIds"];
   listAgents: RuntimeAgentCatalog["listAgents"];
   getConfig: RuntimeAgentCatalog["getConfig"];
-  connectionManager: RelayRuntimeAssemblyHandle["connectionManager"];
-  pluginHost: RelayRuntimeAssemblyHandle["pluginHost"];
-  runtime: RelayRuntimeAssemblyHandle["runtime"];
-  transportRegistry: RuntimeAgentCatalog["transportRegistry"];
+  connectionManager: RelayRuntime["connectionManager"];
+  pluginHost: RelayRuntime["pluginHost"];
+  runtime: RelayRuntime["runtime"];
 };
 
 function createRelayRuntime(
   options: RelayRuntimeTestOptions = {},
 ): RelayRuntimeTestHarness {
-  const config = buildGatewayConfig(
+  const config = createGatewayConfigService(
     options.config ?? {
       clusterMode: false,
       nodeId: "node-a",
@@ -180,15 +191,14 @@ function createRelayRuntime(
     },
   );
   const stateStore =
-    options.stateStore ?? ({ publishNodeSnapshot: async () => {} } as NodeRuntimeStateStore);
-  const runtimeNodeState = options.runtimeNodeState ?? new RuntimeNodeState(config);
-  const pluginHostProvider = options.pluginHostProvider ?? new PluginHostProvider();
-  const connectionManagerProvider =
-    options.connectionManagerProvider ?? new ConnectionManagerProvider();
-  const assemblyProvider =
-    options.assemblyProvider ??
-    new RelayRuntimeAssemblyProvider(pluginHostProvider, connectionManagerProvider);
-  const transportRegistryProvider = new TransportRegistryProvider(
+    options.stateStore ??
+    ({ publishNodeSnapshot: async () => {} } as NodeRuntimeStateStore);
+  const runtimeNodeState =
+    options.runtimeNodeState ?? new RuntimeNodeState(config);
+  const runtimeAssembler =
+    options.runtimeAssembler ?? new OpenClawRuntimeAssembler();
+  const connectionManager = options.connectionManager ?? new ConnectionManager();
+  const transportRegistryAssembler = new TransportRegistryAssembler(
     options.transports ?? [
       {
         protocol: "a2a",
@@ -197,7 +207,8 @@ function createRelayRuntime(
     ],
   );
   const agentClientRegistry =
-    options.agentClientRegistry ?? new AgentClientRegistry(transportRegistryProvider);
+    options.agentClientRegistry ??
+    new AgentClientRegistry(new AgentClientFactory(transportRegistryAssembler));
   const ownershipState =
     options.ownershipState ??
     createRuntimeOwnershipState({ reconnectPolicy: options.reconnectPolicy });
@@ -215,51 +226,51 @@ function createRelayRuntime(
   const agentCatalog =
     options.agentCatalog ??
     new RuntimeAgentCatalog(agentClientRegistry, ownedBindingManager);
-  const assemblyHandle =
-    options.assemblyHandle ??
-    new RelayRuntimeAssemblyHandle(
-      assemblyProvider,
-      agentCatalog,
-      ownedBindingManager,
-    );
   const assignmentService =
     options.assignmentService ??
     new RuntimeAssignmentService(
       agentCatalog,
       ownedBindingManager,
-      assemblyHandle,
+      connectionManager,
     );
 
   const relay = new RelayRuntime(
     assignmentService,
     agentCatalog,
-    assemblyHandle,
+    ownedBindingManager,
+    runtimeAssembler,
+    connectionManager,
     snapshotPublisher,
   );
 
   return Object.assign(relay, {
     assignBinding: assignmentService.assignBinding.bind(assignmentService),
     releaseBinding: assignmentService.releaseBinding.bind(assignmentService),
-    applyAgentUpsert: assignmentService.applyAgentUpsert.bind(assignmentService),
+    applyAgentUpsert:
+      assignmentService.applyAgentUpsert.bind(assignmentService),
     applyAgentDelete: agentCatalog.deleteAgent.bind(agentCatalog),
     listBindings: assignmentService.listBindings.bind(assignmentService),
-    listEnabledBindings: assignmentService.listEnabledBindings.bind(assignmentService),
-    listConnectionStatuses: assignmentService.listConnectionStatuses.bind(assignmentService),
-    listOwnedBindingIds: assignmentService.listOwnedBindingIds.bind(assignmentService),
+    listEnabledBindings:
+      assignmentService.listEnabledBindings.bind(assignmentService),
+    listConnectionStatuses:
+      assignmentService.listConnectionStatuses.bind(assignmentService),
+    listOwnedBindingIds:
+      assignmentService.listOwnedBindingIds.bind(assignmentService),
     listAgents: agentCatalog.listAgents.bind(agentCatalog),
     getConfig: agentCatalog.getConfig.bind(agentCatalog),
-    connectionManager: assemblyHandle.connectionManager,
-    pluginHost: assemblyHandle.pluginHost,
-    runtime: assemblyHandle.runtime,
-    transportRegistry: agentCatalog.transportRegistry,
+    connectionManager: relay.connectionManager,
+    pluginHost: relay.pluginHost,
+    runtime: relay.runtime,
   });
 }
 
-function createRuntimeBindingStateService(options: {
-  ownershipState?: ReturnType<typeof createRuntimeOwnershipState>;
-  runtimeBindingPolicy?: RuntimeBindingPolicy;
-  reconnectPolicy?: ReconnectPolicy;
-} = {}) {
+function createRuntimeBindingStateService(
+  options: {
+    ownershipState?: ReturnType<typeof createRuntimeOwnershipState>;
+    runtimeBindingPolicy?: RuntimeBindingPolicy;
+    reconnectPolicy?: ReconnectPolicy;
+  } = {},
+) {
   const ownershipState =
     options.ownershipState ??
     createRuntimeOwnershipState({ reconnectPolicy: options.reconnectPolicy });
@@ -332,7 +343,9 @@ async function getAgentConfig(id: string) {
   return makeInfra().agentService.getById(id);
 }
 
-async function createAgentConfig(data: Parameters<AgentService["register"]>[0]) {
+async function createAgentConfig(
+  data: Parameters<AgentService["register"]>[0],
+) {
   return makeInfra().agentService.register(data);
 }
 
@@ -544,7 +557,9 @@ describe("ChannelBinding CRUD", () => {
     });
 
     await assert.rejects(
-      updateChannelBinding(other.id, { accountId: FEISHU_BINDING_DATA.accountId }),
+      updateChannelBinding(other.id, {
+        accountId: FEISHU_BINDING_DATA.accountId,
+      }),
       DuplicateEnabledBindingError,
     );
   });
@@ -648,10 +663,14 @@ describe("RuntimeOwnershipState", () => {
     const container = new Container({ defaultScope: "Singleton" });
 
     container.bind(InMemoryRuntimeOwnershipState).toSelf().inSingletonScope();
-    container.bind(RuntimeOwnershipStateToken).toService(InMemoryRuntimeOwnershipState);
+    container
+      .bind(RuntimeOwnershipStateToken)
+      .toService(InMemoryRuntimeOwnershipState);
 
     const first = container.get(InMemoryRuntimeOwnershipState);
-    const second = container.get(RuntimeOwnershipStateToken) as InMemoryRuntimeOwnershipState;
+    const second = container.get(
+      RuntimeOwnershipStateToken,
+    ) as InMemoryRuntimeOwnershipState;
 
     assert.equal(first, second);
     assert.equal(second.constructor.name, "InMemoryRuntimeOwnershipState");
@@ -724,16 +743,22 @@ describe("RuntimeOwnershipState", () => {
       shouldStop: true,
     });
     assert.equal(disabledState.listConnectionStatuses()[0]?.status, "idle");
-    assert.equal(disabledState.getOwnedBinding(disabledBinding.id)?.reconnectAttempt, 0);
+    assert.equal(
+      disabledState.getOwnedBinding(disabledBinding.id)?.reconnectAttempt,
+      0,
+    );
 
     const nonRunnableState = createRuntimeOwnershipState();
     const nonRunnableBinding = makeRuntimeBinding();
 
-    const nonRunnableResult = nonRunnableState.upsertBinding(nonRunnableBinding, {
-      forceRestart: false,
-      hasActiveConnection: false,
-      runnable: false,
-    });
+    const nonRunnableResult = nonRunnableState.upsertBinding(
+      nonRunnableBinding,
+      {
+        forceRestart: false,
+        hasActiveConnection: false,
+        runnable: false,
+      },
+    );
 
     assert.deepEqual(nonRunnableResult, {
       publishSnapshot: true,
@@ -741,7 +766,10 @@ describe("RuntimeOwnershipState", () => {
       shouldStop: true,
     });
     assert.equal(nonRunnableState.listConnectionStatuses()[0]?.status, "idle");
-    assert.equal(nonRunnableState.getOwnedBinding(nonRunnableBinding.id)?.reconnectAttempt, 0);
+    assert.equal(
+      nonRunnableState.getOwnedBinding(nonRunnableBinding.id)?.reconnectAttempt,
+      0,
+    );
   });
 
   test("clearReconnect cancels a pending reconnect", async () => {
@@ -811,7 +839,10 @@ describe("RuntimeOwnershipState", () => {
     listed[0]!.binding.name = "Also changed";
     listed[0]!.status.status = "connected";
 
-    assert.equal(state.getOwnedBinding(binding.id)?.binding.name, "Binding One");
+    assert.equal(
+      state.getOwnedBinding(binding.id)?.binding.name,
+      "Binding One",
+    );
     assert.equal(state.getOwnedBinding(binding.id)?.status.status, "idle");
   });
 
@@ -905,7 +936,10 @@ describe("RuntimeOwnershipState", () => {
     state.attachBinding(binding);
     const firstRetry = state.markError("binding-1", new Error("socket closed"));
     state.markConnected("binding-1", "http://agent-1");
-    const secondRetry = state.markError("binding-1", new Error("socket closed"));
+    const secondRetry = state.markError(
+      "binding-1",
+      new Error("socket closed"),
+    );
 
     assert.equal(firstRetry.attempt, 1);
     assert.equal(secondRetry.attempt, 1);
@@ -957,9 +991,8 @@ describe("RuntimeNodeStateRepository", () => {
   beforeEach(resetDB);
 
   test("upserts runtime node records and returns the latest row", async () => {
-    const { RuntimeNodeStateRepository } = await import(
-      "../infra/runtime-node-repo.js"
-    );
+    const { RuntimeNodeStateRepository } =
+      await import("../infra/runtime-node-repo.js");
     const repo = new RuntimeNodeStateRepository();
 
     await repo.upsert({
@@ -995,7 +1028,7 @@ describe("RuntimeNodeStateRepository", () => {
 
 describe("RuntimeNodeState", () => {
   test("snapshot uses externally supplied binding statuses without mutating them", () => {
-    const config = buildGatewayConfig({
+    const config = createGatewayConfigService({
       clusterMode: false,
       nodeId: "node-a",
       nodeDisplayName: "Node A",
@@ -1064,14 +1097,14 @@ describe("RuntimeClusterStateReader", () => {
   beforeEach(resetDB);
 
   test("merges DB bindings with local runtime state", async () => {
-    const { RuntimeClusterStateReader } = await import(
-      "../runtime/runtime-cluster-state-reader.js"
-    );
+    const { RuntimeClusterStateReader } =
+      await import("../runtime/runtime-cluster-state-reader.js");
     const stateStore = new LocalNodeRuntimeStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
-    const runtimeNodeRepo = new (await import("../infra/runtime-node-repo.js"))
-      .RuntimeNodeStateRepository();
+    const runtimeNodeRepo = new (
+      await import("../infra/runtime-node-repo.js")
+    ).RuntimeNodeStateRepository();
 
     const agent = await createAgentConfig({
       name: "Echo",
@@ -1155,14 +1188,14 @@ describe("RuntimeClusterStateReader", () => {
   });
 
   test("prefers the newest snapshot when multiple snapshots exist for a node", async () => {
-    const { RuntimeClusterStateReader } = await import(
-      "../runtime/runtime-cluster-state-reader.js"
-    );
+    const { RuntimeClusterStateReader } =
+      await import("../runtime/runtime-cluster-state-reader.js");
     const stateStore = new LocalNodeRuntimeStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
-    const runtimeNodeRepo = new (await import("../infra/runtime-node-repo.js"))
-      .RuntimeNodeStateRepository();
+    const runtimeNodeRepo = new (
+      await import("../infra/runtime-node-repo.js")
+    ).RuntimeNodeStateRepository();
 
     await runtimeNodeRepo.upsert({
       nodeId: "node-a",
@@ -1221,14 +1254,14 @@ describe("RuntimeClusterStateReader", () => {
   });
 
   test("surfaces bootstrap error snapshots in the read model", async () => {
-    const { RuntimeClusterStateReader } = await import(
-      "../runtime/runtime-cluster-state-reader.js"
-    );
+    const { RuntimeClusterStateReader } =
+      await import("../runtime/runtime-cluster-state-reader.js");
     const stateStore = new LocalNodeRuntimeStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
-    const runtimeNodeRepo = new (await import("../infra/runtime-node-repo.js"))
-      .RuntimeNodeStateRepository();
+    const runtimeNodeRepo = new (
+      await import("../infra/runtime-node-repo.js")
+    ).RuntimeNodeStateRepository();
 
     await runtimeNodeRepo.upsert({
       nodeId: "node-a",
@@ -1275,14 +1308,14 @@ describe("RuntimeClusterStateReader", () => {
   });
 
   test("uses unknown scheduler role for cluster-mode DB nodes without snapshots", async () => {
-    const { RuntimeClusterStateReader } = await import(
-      "../runtime/runtime-cluster-state-reader.js"
-    );
+    const { RuntimeClusterStateReader } =
+      await import("../runtime/runtime-cluster-state-reader.js");
     const stateStore = new LocalNodeRuntimeStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
-    const runtimeNodeRepo = new (await import("../infra/runtime-node-repo.js"))
-      .RuntimeNodeStateRepository();
+    const runtimeNodeRepo = new (
+      await import("../infra/runtime-node-repo.js")
+    ).RuntimeNodeStateRepository();
 
     await runtimeNodeRepo.upsert({
       nodeId: "node-cluster",
@@ -1317,14 +1350,14 @@ describe("RuntimeClusterStateReader", () => {
   });
 
   test("clears ownership when the newest snapshot omits a previously owned binding", async () => {
-    const { RuntimeClusterStateReader } = await import(
-      "../runtime/runtime-cluster-state-reader.js"
-    );
+    const { RuntimeClusterStateReader } =
+      await import("../runtime/runtime-cluster-state-reader.js");
     const stateStore = new LocalNodeRuntimeStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
-    const runtimeNodeRepo = new (await import("../infra/runtime-node-repo.js"))
-      .RuntimeNodeStateRepository();
+    const runtimeNodeRepo = new (
+      await import("../infra/runtime-node-repo.js")
+    ).RuntimeNodeStateRepository();
 
     const agent = await createAgentConfig({
       name: "Echo",
@@ -1419,9 +1452,8 @@ describe("cluster bootstrap wiring", () => {
   });
 
   test("leader scheduler triggers initial and event-driven reconciles", async () => {
-    const { LeaderScheduler } = await import(
-      "../runtime/cluster/leader-scheduler.js"
-    );
+    const { LeaderScheduler } =
+      await import("../runtime/cluster/leader-scheduler.js");
     const bus = new DomainEventBus();
     let reconcileCalls = 0;
     const scheduler = new LeaderScheduler({
@@ -1451,9 +1483,8 @@ describe("cluster bootstrap wiring", () => {
   });
 
   test("leader scheduler waits for in-flight reconcile before releasing leadership", async () => {
-    const { LeaderScheduler } = await import(
-      "../runtime/cluster/leader-scheduler.js"
-    );
+    const { LeaderScheduler } =
+      await import("../runtime/cluster/leader-scheduler.js");
     const bus = new DomainEventBus();
     const events: string[] = [];
     let resolveReconcile: (() => void) | undefined;
@@ -1495,9 +1526,8 @@ describe("cluster bootstrap wiring", () => {
   });
 
   test("leader scheduler skips reconcile when ownership is unavailable", async () => {
-    const { LeaderScheduler } = await import(
-      "../runtime/cluster/leader-scheduler.js"
-    );
+    const { LeaderScheduler } =
+      await import("../runtime/cluster/leader-scheduler.js");
     const bus = new DomainEventBus();
     let reconcileCalls = 0;
     const scheduler = new LeaderScheduler({
@@ -1543,8 +1573,8 @@ describe("cluster bootstrap wiring", () => {
 });
 
 describe("gateway startup sequencing", () => {
-  test("startGateway starts HTTP before runtime bootstrap resolves", async () => {
-    const { startGateway } = await import("../bootstrap/start-gateway.js");
+  test("GatewayServer starts HTTP before runtime bootstrap resolves", async () => {
+    const { GatewayServer } = await import("../bootstrap/gateway-server.js");
     const events: string[] = [];
     let resolveBootstrap!: () => void;
     let bootstrapResolved = false;
@@ -1553,12 +1583,12 @@ describe("gateway startup sequencing", () => {
       resolveBootstrap = resolve;
     });
 
-    const gateway = startGateway({
-      app: {
+    const gateway = new GatewayServer(
+      createGatewayConfigService({ port: 7897 }),
+      {
         fetch: () => new Response("ok"),
       },
-      port: 7897,
-      outboxWorker: {
+      {
         start: () => {
           events.push("outbox:start");
         },
@@ -1566,7 +1596,7 @@ describe("gateway startup sequencing", () => {
           events.push("outbox:stop");
         },
       } as OutboxWorker,
-      runtimeBootstrapper: {
+      {
         bootstrap: async () => {
           events.push("bootstrap:start");
           await bootstrapGate;
@@ -1577,6 +1607,9 @@ describe("gateway startup sequencing", () => {
           events.push("bootstrap:shutdown");
         },
       } as unknown as RuntimeBootstrapper,
+    );
+
+    gateway.start({
       logger: {
         info: (message: string) => {
           events.push(`info:${message}`);
@@ -1613,16 +1646,16 @@ describe("gateway startup sequencing", () => {
     assert.ok(events.includes("http:close"));
   });
 
-  test("startGateway exposes bootstrap rejection", async () => {
-    const { startGateway } = await import("../bootstrap/start-gateway.js");
+  test("GatewayServer exposes bootstrap rejection", async () => {
+    const { GatewayServer } = await import("../bootstrap/gateway-server.js");
     const events: string[] = [];
 
-    const gateway = startGateway({
-      app: {
+    const gateway = new GatewayServer(
+      createGatewayConfigService({ port: 7898 }),
+      {
         fetch: () => new Response("ok"),
       },
-      port: 7898,
-      outboxWorker: {
+      {
         start: () => {
           events.push("outbox:start");
         },
@@ -1630,7 +1663,7 @@ describe("gateway startup sequencing", () => {
           events.push("outbox:stop");
         },
       } as OutboxWorker,
-      runtimeBootstrapper: {
+      {
         bootstrap: async () => {
           events.push("bootstrap:start");
           throw new Error("bootstrap rejection");
@@ -1639,6 +1672,9 @@ describe("gateway startup sequencing", () => {
           events.push("bootstrap:shutdown");
         },
       } as unknown as RuntimeBootstrapper,
+    );
+
+    gateway.start({
       logger: {
         info: (message: string) => {
           events.push(`info:${message}`);
@@ -1663,7 +1699,9 @@ describe("gateway startup sequencing", () => {
 
     assert.ok(
       events.some((event) =>
-        event.includes("error:[gateway] runtime bootstrap failed:Error: bootstrap rejection"),
+        event.includes(
+          "error:[gateway] runtime bootstrap failed:Error: bootstrap rejection",
+        ),
       ),
     );
     assert.ok(events.includes("bootstrap:shutdown"));
@@ -1671,17 +1709,17 @@ describe("gateway startup sequencing", () => {
     assert.ok(events.includes("http:close"));
   });
 
-  test("startGateway retries bootstrap after initial rejection", async () => {
-    const { startGateway } = await import("../bootstrap/start-gateway.js");
+  test("GatewayServer retries bootstrap after initial rejection", async () => {
+    const { GatewayServer } = await import("../bootstrap/gateway-server.js");
     const events: string[] = [];
     let attempts = 0;
 
-    const gateway = startGateway({
-      app: {
+    const gateway = new GatewayServer(
+      createGatewayConfigService({ port: 7901 }),
+      {
         fetch: () => new Response("ok"),
       },
-      port: 7901,
-      outboxWorker: {
+      {
         start: () => {
           events.push("outbox:start");
         },
@@ -1689,7 +1727,7 @@ describe("gateway startup sequencing", () => {
           events.push("outbox:stop");
         },
       } as OutboxWorker,
-      runtimeBootstrapper: {
+      {
         bootstrap: async () => {
           attempts += 1;
           events.push(`bootstrap:start:${attempts}`);
@@ -1702,6 +1740,9 @@ describe("gateway startup sequencing", () => {
           events.push("bootstrap:shutdown");
         },
       } as unknown as RuntimeBootstrapper,
+    );
+
+    gateway.start({
       logger: {
         info: () => {},
         error: (message: string, error?: unknown) => {
@@ -1731,13 +1772,15 @@ describe("gateway startup sequencing", () => {
     );
     assert.ok(
       events.some((event) =>
-        event.includes("error:[gateway] runtime bootstrap failed:Error: bootstrap rejection"),
+        event.includes(
+          "error:[gateway] runtime bootstrap failed:Error: bootstrap rejection",
+        ),
       ),
     );
   });
 
-  test("startGateway shutdown while bootstrap is in flight waits for cleanup", async () => {
-    const { startGateway } = await import("../bootstrap/start-gateway.js");
+  test("GatewayServer shutdown while bootstrap is in flight waits for cleanup", async () => {
+    const { GatewayServer } = await import("../bootstrap/gateway-server.js");
     const events: string[] = [];
     let resolveBootstrap!: () => void;
     let shutdownCompleted = false;
@@ -1746,12 +1789,12 @@ describe("gateway startup sequencing", () => {
       resolveBootstrap = resolve;
     });
 
-    const gateway = startGateway({
-      app: {
+    const gateway = new GatewayServer(
+      createGatewayConfigService({ port: 7899 }),
+      {
         fetch: () => new Response("ok"),
       },
-      port: 7899,
-      outboxWorker: {
+      {
         start: () => {
           events.push("outbox:start");
         },
@@ -1759,7 +1802,7 @@ describe("gateway startup sequencing", () => {
           events.push("outbox:stop");
         },
       } as OutboxWorker,
-      runtimeBootstrapper: {
+      {
         bootstrap: async () => {
           events.push("bootstrap:start");
           await bootstrapGate;
@@ -1769,6 +1812,9 @@ describe("gateway startup sequencing", () => {
           events.push("bootstrap:shutdown");
         },
       } as unknown as RuntimeBootstrapper,
+    );
+
+    gateway.start({
       logger: {
         info: () => {},
         error: () => {},
@@ -1805,15 +1851,14 @@ describe("gateway startup sequencing", () => {
 
 describe("runtime bootstrapper", () => {
   test("runtime bootstrapper retries after bootstrap rejection", async () => {
-    const { RuntimeBootstrapper } = await import(
-      "../runtime/runtime-bootstrapper.js"
-    );
+    const { RuntimeBootstrapper } =
+      await import("../runtime/runtime-bootstrapper.js");
     let relayBootstrapAttempts = 0;
     let relayShutdownCalls = 0;
     const snapshots: LocalRuntimeSnapshot[] = [];
 
     const bootstrapper = new RuntimeBootstrapper(
-      buildGatewayConfig({
+      createGatewayConfigService({
         port: 7900,
         clusterMode: true,
         nodeId: "node-runtime-bootstrapper",
@@ -1859,14 +1904,13 @@ describe("runtime bootstrapper", () => {
   });
 
   test("runtime bootstrapper leaves bootstrap failures in error state after relay cleanup", async () => {
-    const { RuntimeBootstrapper } = await import(
-      "../runtime/runtime-bootstrapper.js"
-    );
+    const { RuntimeBootstrapper } =
+      await import("../runtime/runtime-bootstrapper.js");
     let relayBootstrapAttempts = 0;
     const snapshots: LocalRuntimeSnapshot[] = [];
 
     const bootstrapper = new RuntimeBootstrapper(
-      buildGatewayConfig({
+      createGatewayConfigService({
         port: 7901,
         clusterMode: true,
         nodeId: "node-runtime-bootstrapper-late-failure",
@@ -1916,15 +1960,16 @@ describe("runtime bootstrapper", () => {
         reconcile: async () => {},
       } as unknown as RuntimeAssignmentCoordinator,
       new DomainEventBus(),
-      () => ({
-        schedulerKind: "leader",
-        scheduler: {
-          start: () => {
-            throw new Error("scheduler start failure");
+      () =>
+        ({
+          schedulerKind: "leader",
+          scheduler: {
+            start: () => {
+              throw new Error("scheduler start failure");
+            },
+            stop: async () => {},
           },
-          stop: async () => {},
-        },
-      } as never),
+        }) as never,
     );
 
     await assert.rejects(bootstrapper.bootstrap(), /scheduler start failure/);
@@ -1940,13 +1985,18 @@ describe("runtime bootstrapper", () => {
 });
 
 describe("RelayRuntime node state snapshots", () => {
-  class ConnectedPluginHostProvider extends PluginHostProvider {
-    override create() {
+  class ConnectedOpenClawRuntimeAssembler extends OpenClawRuntimeAssembler {
+    protected override createPluginHost() {
       return {
         startChannelBinding: async (
           _binding: unknown,
           signal: AbortSignal,
-          callbacks?: { onStatus?: (status: { connected?: boolean; running?: boolean }) => void },
+          callbacks?: {
+            onStatus?: (status: {
+              connected?: boolean;
+              running?: boolean;
+            }) => void;
+          },
         ) => {
           callbacks?.onStatus?.({ connected: true, running: true });
           await new Promise<void>((_, reject) => {
@@ -1961,18 +2011,7 @@ describe("RelayRuntime node state snapshots", () => {
             );
           });
         },
-      } as ReturnType<PluginHostProvider["create"]>;
-    }
-  }
-
-  class TrackingRelayRuntimeAssemblyProvider extends RelayRuntimeAssemblyProvider {
-    createCalls = 0;
-
-    override create(
-      ...args: Parameters<RelayRuntimeAssemblyProvider["create"]>
-    ) {
-      this.createCalls += 1;
-      return super.create(...args);
+      } as ReturnType<OpenClawRuntimeAssembler["assemble"]>["pluginHost"];
     }
   }
 
@@ -2025,18 +2064,20 @@ describe("RelayRuntime node state snapshots", () => {
       runtimeAddress: "http://127.0.0.1:7890",
     });
     const stateStore = new LocalNodeRuntimeStateStore();
-    const pluginHostProvider = new PluginHostProvider();
-    const transportRegistryProvider = new TransportRegistryProvider([
+    const runtimeAssembler = new OpenClawRuntimeAssembler();
+    const transportRegistryAssembler = new TransportRegistryAssembler([
       {
         protocol: "a2a",
         send: async () => ({ text: "" }),
       },
     ]);
-    const agentClientRegistry = new AgentClientRegistry(transportRegistryProvider);
+    const agentClientRegistry = new AgentClientRegistry(
+      new AgentClientFactory(transportRegistryAssembler),
+    );
     const runtime = createRelayRuntime({
       config,
       stateStore,
-      pluginHostProvider,
+      runtimeAssembler,
       agentClientRegistry,
     });
 
@@ -2066,7 +2107,7 @@ describe("RelayRuntime node state snapshots", () => {
     assert.equal(snapshots[3]?.lastHeartbeatAt, snapshots[1]?.lastHeartbeatAt);
   });
 
-  test("bootstrap does not reassemble the plugin runtime or host", async () => {
+  test("bootstrap does not rebuild the plugin runtime or host", async () => {
     const config = buildGatewayConfig({
       clusterMode: false,
       nodeId: "node-a",
@@ -2074,47 +2115,53 @@ describe("RelayRuntime node state snapshots", () => {
       runtimeAddress: "http://127.0.0.1:7890",
     });
     const stateStore = new LocalNodeRuntimeStateStore();
-    const pluginHostProvider = new PluginHostProvider();
-    const connectionManagerProvider = new ConnectionManagerProvider();
-    const assemblyProvider = new TrackingRelayRuntimeAssemblyProvider(
-      pluginHostProvider,
-      connectionManagerProvider,
-    );
     const runtime = createRelayRuntime({
       config,
       stateStore,
-      assemblyProvider,
     });
-
-    assert.equal(assemblyProvider.createCalls, 1);
+    const initialPluginRuntime = runtime.runtime;
+    const initialPluginHost = runtime.pluginHost;
+    const initialConnectionManager = runtime.connectionManager;
 
     await runtime.bootstrap();
 
-    assert.equal(assemblyProvider.createCalls, 1);
+    assert.equal(runtime.runtime, initialPluginRuntime);
+    assert.equal(runtime.pluginHost, initialPluginHost);
+    assert.equal(runtime.connectionManager, initialConnectionManager);
   });
 
-  test("relay runtime assembly provider builds a connection manager without listBindings", async () => {
-    type ConnectionManagerCreateOptions =
-      Parameters<ConnectionManagerProvider["create"]>[0];
+  test("relay runtime initializes a connection manager without listBindings", async () => {
+    class TrackingConnectionManager extends ConnectionManager {
+      seenOptions: ConnectionManagerOptions | null = null;
 
-    class TrackingConnectionManagerProvider extends ConnectionManagerProvider {
-      seenOptions: ConnectionManagerCreateOptions | null = null;
-
-      override create(options: ConnectionManagerCreateOptions) {
+      override initialize(options: ConnectionManagerOptions): this {
         this.seenOptions = options;
-        return super.create(options);
+        return super.initialize(options);
       }
     }
 
-    const pluginHostProvider = new PluginHostProvider();
-    const connectionManagerProvider = new TrackingConnectionManagerProvider();
-    const assemblyProvider = new RelayRuntimeAssemblyProvider(
-      pluginHostProvider,
-      connectionManagerProvider,
+    const runtimeAssembler = new OpenClawRuntimeAssembler();
+    const connectionManager = new TrackingConnectionManager();
+    const ownedBindingManager = new RuntimeOwnedBindingManager(
+      new RuntimeBindingStateService(
+        createRuntimeOwnershipState(),
+        new RuntimeBindingPolicy(),
+      ),
+      new RuntimeSnapshotPublisher(
+        new RuntimeNodeState(
+          createGatewayConfigService({
+            clusterMode: false,
+            nodeId: "node-a",
+            nodeDisplayName: "Node A",
+            runtimeAddress: "http://127.0.0.1:7890",
+          }),
+        ),
+        { publishNodeSnapshot: async () => {} },
+        createRuntimeOwnershipState(),
+      ),
     );
-
-    const assembly = assemblyProvider.create({
-      loadConfig: () => ({}) as OpenClawConfig,
+    const agentCatalog = {
+      getConfig: () => ({}) as OpenClawConfig,
       getAgentClient: async () => ({
         client: {
           agentUrl: "http://agent-1",
@@ -2123,12 +2170,37 @@ describe("RelayRuntime node state snapshots", () => {
         } as AgentClientHandle,
         url: "http://agent-1",
       }),
-    });
+    } as Pick<RuntimeAgentCatalog, "getConfig" | "getAgentClient">;
+    const assignmentService = new RuntimeAssignmentService(
+      agentCatalog as RuntimeAgentCatalog,
+      ownedBindingManager,
+      connectionManager,
+    );
 
-    assert.ok(assembly.connectionManager);
-    assert.ok(connectionManagerProvider.seenOptions);
+    const relayRuntime = new RelayRuntime(
+      assignmentService,
+      agentCatalog as RuntimeAgentCatalog,
+      ownedBindingManager,
+      runtimeAssembler,
+      connectionManager,
+      new RuntimeSnapshotPublisher(
+        new RuntimeNodeState(
+          createGatewayConfigService({
+            clusterMode: false,
+            nodeId: "node-a",
+            nodeDisplayName: "Node A",
+            runtimeAddress: "http://127.0.0.1:7890",
+          }),
+        ),
+        { publishNodeSnapshot: async () => {} },
+        createRuntimeOwnershipState(),
+      ),
+    );
+
+    assert.ok(relayRuntime.connectionManager);
+    assert.ok(connectionManager.seenOptions);
     assert.equal(
-      Object.hasOwn(connectionManagerProvider.seenOptions, "listBindings"),
+      Object.hasOwn(connectionManager.seenOptions, "listBindings"),
       false,
     );
   });
@@ -2141,17 +2213,19 @@ describe("RelayRuntime node state snapshots", () => {
       runtimeAddress: "http://127.0.0.1:7890",
     });
     const stateStore = new LocalNodeRuntimeStateStore();
-    const transportRegistryProvider = new TransportRegistryProvider([
+    const transportRegistryAssembler = new TransportRegistryAssembler([
       {
         protocol: "a2a",
         send: async () => ({ text: "" }),
       },
     ]);
-    const agentClientRegistry = new AgentClientRegistry(transportRegistryProvider);
+    const agentClientRegistry = new AgentClientRegistry(
+      new AgentClientFactory(transportRegistryAssembler),
+    );
     const runtime = createRelayRuntime({
       config,
       stateStore,
-      pluginHostProvider: new ConnectedPluginHostProvider(),
+      runtimeAssembler: new ConnectedOpenClawRuntimeAssembler(),
       agentClientRegistry,
     });
     const agent = {
@@ -2176,12 +2250,11 @@ describe("RelayRuntime node state snapshots", () => {
     await waitFor(() =>
       stateStore
         .listNodeSnapshots()
-        .some(
-          (snapshot) =>
-            snapshot.bindingStatuses.some(
-              (status) =>
-                status.bindingId === binding.id && status.status === "connected",
-            ),
+        .some((snapshot) =>
+          snapshot.bindingStatuses.some(
+            (status) =>
+              status.bindingId === binding.id && status.status === "connected",
+          ),
         ),
     );
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -2217,17 +2290,19 @@ describe("RelayRuntime node state snapshots", () => {
       runtimeAddress: "http://127.0.0.1:7890",
     });
     const stateStore = new LocalNodeRuntimeStateStore();
-    const transportRegistryProvider = new TransportRegistryProvider([
+    const transportRegistryAssembler = new TransportRegistryAssembler([
       {
         protocol: "a2a",
         send: async () => ({ text: "" }),
       },
     ]);
-    const agentClientRegistry = new AgentClientRegistry(transportRegistryProvider);
+    const agentClientRegistry = new AgentClientRegistry(
+      new AgentClientFactory(transportRegistryAssembler),
+    );
     const runtime = createRelayRuntime({
       config,
       stateStore,
-      pluginHostProvider: new ConnectedPluginHostProvider(),
+      runtimeAssembler: new ConnectedOpenClawRuntimeAssembler(),
       agentClientRegistry,
     });
     const agent = {
@@ -2259,12 +2334,11 @@ describe("RelayRuntime node state snapshots", () => {
     await waitFor(() =>
       stateStore
         .listNodeSnapshots()
-        .some(
-          (snapshot) =>
-            snapshot.bindingStatuses.some(
-              (status) =>
-                status.bindingId === binding.id && status.status === "connected",
-            ),
+        .some((snapshot) =>
+          snapshot.bindingStatuses.some(
+            (status) =>
+              status.bindingId === binding.id && status.status === "connected",
+          ),
         ),
     );
 
@@ -2276,7 +2350,10 @@ describe("RelayRuntime node state snapshots", () => {
       ),
     );
     assert.ok(connectedSnapshot?.lastHeartbeatAt);
-    assert.equal(connectedSnapshot?.lastHeartbeatAt, readySnapshot?.lastHeartbeatAt);
+    assert.equal(
+      connectedSnapshot?.lastHeartbeatAt,
+      readySnapshot?.lastHeartbeatAt,
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 5));
     await runtime.shutdown();
@@ -2285,12 +2362,18 @@ describe("RelayRuntime node state snapshots", () => {
     const stoppingSnapshot = shutdownSnapshots.at(-2);
     const stoppedSnapshot = shutdownSnapshots.at(-1);
 
-    assert.equal(stoppingSnapshot?.lastHeartbeatAt, connectedSnapshot?.lastHeartbeatAt);
-    assert.equal(stoppedSnapshot?.lastHeartbeatAt, connectedSnapshot?.lastHeartbeatAt);
+    assert.equal(
+      stoppingSnapshot?.lastHeartbeatAt,
+      connectedSnapshot?.lastHeartbeatAt,
+    );
+    assert.equal(
+      stoppedSnapshot?.lastHeartbeatAt,
+      connectedSnapshot?.lastHeartbeatAt,
+    );
   });
 
   test("serializes async state store publications for owned connection status updates", async () => {
-    const config = buildGatewayConfig({
+    const config = createGatewayConfigService({
       clusterMode: false,
       nodeId: "node-a",
       nodeDisplayName: "Node A",
@@ -2352,7 +2435,9 @@ describe("RelayRuntime node state snapshots", () => {
   });
 });
 
-function cloneRuntimeSnapshot(snapshot: LocalRuntimeSnapshot): LocalRuntimeSnapshot {
+function cloneRuntimeSnapshot(
+  snapshot: LocalRuntimeSnapshot,
+): LocalRuntimeSnapshot {
   return {
     ...snapshot,
     bindingStatuses: snapshot.bindingStatuses.map((status) => ({ ...status })),
@@ -2378,7 +2463,9 @@ describe("RelayRuntime ownership semantics", () => {
     send: async () => ({ text: "" }),
   };
 
-  const createBinding = (overrides: Partial<ReturnType<typeof createBindingBase>> = {}) => ({
+  const createBinding = (
+    overrides: Partial<ReturnType<typeof createBindingBase>> = {},
+  ) => ({
     ...createBindingBase(),
     ...overrides,
   });
@@ -2410,7 +2497,7 @@ describe("RelayRuntime ownership semantics", () => {
     shutdown: RelayRuntime["shutdown"];
     listBindings: RuntimeAssignmentService["listBindings"];
     listConnectionStatuses: RuntimeAssignmentService["listConnectionStatuses"];
-    connectionManager: RelayRuntimeAssemblyHandle["connectionManager"] & {
+    connectionManager: RelayRuntime["connectionManager"] & {
       restartConnection(binding: { id: string }): Promise<void>;
       stopConnection(bindingId: string): Promise<void>;
       stopAllConnections(): Promise<void>;
@@ -2456,10 +2543,7 @@ describe("RelayRuntime ownership semantics", () => {
       _binding: { id: string },
       signal: AbortSignal,
       callbacks?: {
-        onStatus?: (status: {
-          running?: boolean;
-          connected?: boolean;
-        }) => void;
+        onStatus?: (status: { running?: boolean; connected?: boolean }) => void;
       },
     ) =>
       new Promise<void>((resolve, reject) => {
@@ -2553,10 +2637,7 @@ describe("RelayRuntime ownership semantics", () => {
       _binding: { id: string },
       signal: AbortSignal,
       callbacks?: {
-        onStatus?: (status: {
-          running?: boolean;
-          connected?: boolean;
-        }) => void;
+        onStatus?: (status: { running?: boolean; connected?: boolean }) => void;
       },
     ) =>
       new Promise<void>((resolve, reject) => {
@@ -2655,7 +2736,10 @@ describe("RelayRuntime ownership semantics", () => {
     const agent = createAgent();
 
     await runtime.assignBinding(binding, agent);
-    assert.deepEqual(ownershipState.getOwnedBinding(binding.id)?.binding, binding);
+    assert.deepEqual(
+      ownershipState.getOwnedBinding(binding.id)?.binding,
+      binding,
+    );
     assert.equal(runtime.listBindings()[0]?.id, binding.id);
 
     await runtime.releaseBinding(binding.id);
@@ -2715,7 +2799,7 @@ describe("RelayRuntime ownership semantics", () => {
   test("shutdown still stops runtime connections and clients when snapshot publication fails", async () => {
     const events: string[] = [];
     const agentClientRegistry = new AgentClientRegistry(
-      new TransportRegistryProvider([testTransport]),
+      new AgentClientFactory(new TransportRegistryAssembler([testTransport])),
     );
     const runtime = createRelayRuntime({
       stateStore: {
@@ -2736,10 +2820,7 @@ describe("RelayRuntime ownership semantics", () => {
 
     await runtime.shutdown();
 
-    assert.deepEqual(events, [
-      "stop-all-connections",
-      "stop-all-clients",
-    ]);
+    assert.deepEqual(events, ["stop-all-connections", "stop-all-clients"]);
   });
 });
 
@@ -3067,7 +3148,11 @@ describe("agent routing", () => {
       agentId: agent.id,
     });
 
-    const url = await getAgentUrlForChannelAccount(undefined, undefined, DEFAULT_URL);
+    const url = await getAgentUrlForChannelAccount(
+      undefined,
+      undefined,
+      DEFAULT_URL,
+    );
     assert.equal(url, agent.url);
   });
 
@@ -3181,7 +3266,10 @@ describe("buildOpenClawConfig", () => {
     assert.equal(feishuConfig["encryptKey"], "enc456");
     assert.equal(feishuConfig["enabled"], true);
     assert.deepEqual(feishuConfig["allowFrom"], ["*"]);
-    assert.ok(!("accounts" in feishuConfig), "default account should not create accounts block");
+    assert.ok(
+      !("accounts" in feishuConfig),
+      "default account should not create accounts block",
+    );
   });
 
   test("returns feishu config with an accounts block for non-default bindings", async () => {
@@ -3335,7 +3423,10 @@ describe("seedDefaults", () => {
         (b) => b.channelType === "feishu" && b.accountId === "seed-account",
       );
 
-      assert.ok(feishuBinding, "feishu binding should be created from env vars");
+      assert.ok(
+        feishuBinding,
+        "feishu binding should be created from env vars",
+      );
       const cfg = feishuBinding.channelConfig as Record<string, unknown>;
       assert.equal(cfg["appId"], "cli_seed_app");
       assert.equal(cfg["appSecret"], "seed_secret");
@@ -3615,23 +3706,27 @@ describe("RuntimeAssignmentCoordinator", () => {
       isRunnableBinding: () => false,
     };
 
-    const coordinator = makeCoordinator(assignments, {
-      loadSnapshot: async () => ({
-        bindings: [
-          {
-            id: "binding-policy",
-            name: "Binding Policy",
-            channelType: "slack",
-            accountId: "default",
-            channelConfig: {},
-            agentId: "agent-1",
-            enabled: true,
-            createdAt: new Date().toISOString(),
-          },
-        ],
-        agents: [createAgent()],
-      }),
-    }, policy);
+    const coordinator = makeCoordinator(
+      assignments,
+      {
+        loadSnapshot: async () => ({
+          bindings: [
+            {
+              id: "binding-policy",
+              name: "Binding Policy",
+              channelType: "slack",
+              accountId: "default",
+              channelConfig: {},
+              agentId: "agent-1",
+              enabled: true,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          agents: [createAgent()],
+        }),
+      },
+      policy,
+    );
 
     await coordinator.reconcile();
 
@@ -3655,44 +3750,47 @@ describe("RuntimeAssignmentCoordinator", () => {
     const policy: RuntimeBindingPolicy = {
       isRunnableBinding: (binding: ChannelBinding) =>
         binding.channelType === "feishu" &&
-        typeof (binding.channelConfig as { appSecret?: unknown }).appSecret === "string" &&
-        typeof (binding.channelConfig as { appId?: unknown }).appId === "string",
+        typeof (binding.channelConfig as { appSecret?: unknown }).appSecret ===
+          "string" &&
+        typeof (binding.channelConfig as { appId?: unknown }).appId ===
+          "string",
     };
 
-    const coordinator = makeCoordinator(assignments, {
-      loadSnapshot: async () => ({
-        bindings: [
-          {
-            id: "binding-invalid",
-            name: "Binding Invalid",
-            channelType: "feishu",
-            accountId: "default",
-            channelConfig: { appId: "cli_1" },
-            agentId: "agent-1",
-            enabled: true,
-            createdAt: new Date().toISOString(),
-          },
-          {
-            id: "binding-1",
-            name: "Binding One",
-            channelType: "feishu",
-            accountId: "default",
-            channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-            agentId: "agent-1",
-            enabled: true,
-            createdAt: new Date().toISOString(),
-          },
-        ],
-        agents: [createAgent()],
-      }),
-    }, policy);
+    const coordinator = makeCoordinator(
+      assignments,
+      {
+        loadSnapshot: async () => ({
+          bindings: [
+            {
+              id: "binding-invalid",
+              name: "Binding Invalid",
+              channelType: "feishu",
+              accountId: "default",
+              channelConfig: { appId: "cli_1" },
+              agentId: "agent-1",
+              enabled: true,
+              createdAt: new Date().toISOString(),
+            },
+            {
+              id: "binding-1",
+              name: "Binding One",
+              channelType: "feishu",
+              accountId: "default",
+              channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+              agentId: "agent-1",
+              enabled: true,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          agents: [createAgent()],
+        }),
+      },
+      policy,
+    );
 
     await coordinator.reconcile();
 
-    assert.deepEqual(events, [
-      "release:binding-invalid",
-      "assign:binding-1",
-    ]);
+    assert.deepEqual(events, ["release:binding-invalid", "assign:binding-1"]);
   });
 });
 
@@ -3803,7 +3901,10 @@ describe("OutboxWorker", () => {
 
   test("publishes pending outbox events and marks them processed", async () => {
     const { bindingService } = makeInfra();
-    await ensureTestAgent("http://worker-agent:3001", "http://worker-agent:3001");
+    await ensureTestAgent(
+      "http://worker-agent:3001",
+      "http://worker-agent:3001",
+    );
     const binding = await bindingService.create({
       name: "Worker Feishu Bot",
       channelType: "feishu",
@@ -3820,10 +3921,7 @@ describe("OutboxWorker", () => {
     await new OutboxWorker(bus).drain();
 
     assert.equal(received.length, 1);
-    assert.equal(
-      (received[0] as { bindingId?: string }).bindingId,
-      binding.id,
-    );
+    assert.equal((received[0] as { bindingId?: string }).bindingId, binding.id);
 
     const row = await prisma.outboxEvent.findFirst({
       where: { aggregateId: binding.id },
@@ -3839,14 +3937,15 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
     const { bindingService } = makeInfra();
 
     await assert.rejects(
-      () => bindingService.create({
-        name: "Broken Binding",
-        channelType: "feishu",
-        accountId: "missing-agent",
-        channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-        agentId: "missing-agent-id",
-        enabled: true,
-      }),
+      () =>
+        bindingService.create({
+          name: "Broken Binding",
+          channelType: "feishu",
+          accountId: "missing-agent",
+          channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+          agentId: "missing-agent-id",
+          enabled: true,
+        }),
       /Agent missing-agent-id not found/,
     );
   });
@@ -3872,7 +3971,10 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
 
   test("create writes a ChannelBindingCreated event to the outbox", async () => {
     const { bindingService } = makeInfra();
-    await ensureTestAgent("http://outbox-agent:3001", "http://outbox-agent:3001");
+    await ensureTestAgent(
+      "http://outbox-agent:3001",
+      "http://outbox-agent:3001",
+    );
     const binding = await bindingService.create({
       name: "Outbox Feishu Bot",
       channelType: "feishu",
@@ -3902,7 +4004,9 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
       enabled: true,
     });
 
-    const row = await prisma.channelBinding.findUnique({ where: { id: binding.id } });
+    const row = await prisma.channelBinding.findUnique({
+      where: { id: binding.id },
+    });
     assert.ok(row);
     assert.equal(row.name, "State Feishu Bot");
     assert.equal(row.channelType, "feishu");
@@ -4015,7 +4119,10 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
         name: "First",
         channelType: "feishu",
         accountId: "db-dup-test",
-        channelConfig: JSON.stringify({ appId: "cli_db1", appSecret: "sec_db1" }),
+        channelConfig: JSON.stringify({
+          appId: "cli_db1",
+          appSecret: "sec_db1",
+        }),
         agentId: agent.id,
         enabled: true,
         enabledKey: "feishu:db-dup-test",
@@ -4028,7 +4135,10 @@ describe("ChannelBinding aggregate + ChannelBindingService", () => {
           name: "Second",
           channelType: "feishu",
           accountId: "db-dup-test",
-          channelConfig: JSON.stringify({ appId: "cli_db2", appSecret: "sec_db2" }),
+          channelConfig: JSON.stringify({
+            appId: "cli_db2",
+            appSecret: "sec_db2",
+          }),
           agentId: agent.id,
           enabled: true,
           enabledKey: "feishu:db-dup-test",

@@ -2,6 +2,11 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
+## Project-wide implementation constraints
+
+- All new features and functional changes in this project must default to OOP, EventSource, and clean architecture.
+- When extending existing code, prefer refactoring toward these constraints instead of adding more procedural or tightly coupled logic.
+
 ## Commands
 
 - Install dependencies: `pnpm install` (the repo declares `pnpm@10.32.0`)

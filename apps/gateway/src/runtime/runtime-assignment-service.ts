@@ -5,7 +5,7 @@ import type {
   RuntimeConnectionStatus,
 } from "@a2a-channels/core";
 
-import { RelayRuntimeAssemblyHandle } from "./relay-runtime-assembly-handle.js";
+import { ConnectionManager } from "./connection-manager.js";
 import { RuntimeAgentCatalog } from "./runtime-agent-catalog.js";
 import {
   RuntimeOwnedBindingManager,
@@ -25,20 +25,20 @@ export class RuntimeAssignmentService {
     private readonly agentCatalog: RuntimeAgentCatalog,
     @inject(RuntimeOwnedBindingManager)
     private readonly ownedBindingManager: RuntimeOwnedBindingManager,
-    @inject(RelayRuntimeAssemblyHandle)
-    private readonly assembly: RelayRuntimeAssemblyHandle,
+    @inject(ConnectionManager)
+    private readonly connectionManager: ConnectionManager,
   ) {
     this.ownedBindingHooks = {
       hasActiveConnection: (bindingId) =>
-        this.assembly.connectionManager.hasConnection(bindingId),
+        this.connectionManager.hasConnection(bindingId),
       onBindingsChanged: () => {
         this.agentCatalog.rebuildConfig();
       },
       restartConnection: async (binding) => {
-        await this.assembly.connectionManager.restartConnection(binding);
+        await this.connectionManager.restartConnection(binding);
       },
       stopConnection: async (bindingId) => {
-        await this.assembly.connectionManager.stopConnection(bindingId);
+        await this.connectionManager.stopConnection(bindingId);
       },
     };
   }

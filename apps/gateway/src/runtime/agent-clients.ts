@@ -1,24 +1,36 @@
-import type { AgentClientHandle, AgentConfig, AgentTransport } from "@a2a-channels/core";
+import { inject, injectable } from "inversify";
+import type { AgentClientHandle, AgentConfig } from "@a2a-channels/core";
 
-export function createAgentClientHandle(
-  agent: AgentConfig,
-  transport: AgentTransport,
-): AgentClientHandle {
-  return {
-    agentUrl: agent.url,
-    protocol: agent.protocol ?? transport.protocol,
-    send: (request) => transport.send(agent.url, request),
-  };
-}
+import { TransportRegistryAssembler } from "./transport-registry-assembler.js";
 
-export async function startAgentClients(
-  clients: Iterable<AgentClientHandle>,
-): Promise<void> {
-  await Promise.all(Array.from(clients, (client) => client.start?.()));
-}
+@injectable()
+export class AgentClientFactory {
+  constructor(
+    @inject(TransportRegistryAssembler)
+    private readonly transportRegistryAssembler: TransportRegistryAssembler,
+  ) {}
 
-export async function stopAgentClients(
-  clients: Iterable<AgentClientHandle>,
-): Promise<void> {
-  await Promise.all(Array.from(clients, (client) => client.stop?.()));
+  create(agent: AgentConfig): AgentClientHandle {
+    const transport = this.transportRegistryAssembler.transportRegistry.resolve(
+      agent.protocol ?? "a2a",
+    );
+
+    return {
+      agentUrl: agent.url,
+      protocol: agent.protocol ?? transport.protocol,
+      send: (request) => transport.send(agent.url, request),
+    };
+  }
+
+  async start(client: AgentClientHandle): Promise<void> {
+    await client.start?.();
+  }
+
+  async stop(client: AgentClientHandle): Promise<void> {
+    await client.stop?.();
+  }
+
+  async stopAll(clients: Iterable<AgentClientHandle>): Promise<void> {
+    await Promise.all(Array.from(clients, (client) => this.stop(client)));
+  }
 }

@@ -17,73 +17,27 @@
  *   DELETE /api/agents/:id     → delete agent config
  */
 
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-import {
-  AgentConfigRepository,
-  ChannelBindingRepository,
-} from "@a2a-channels/domain";
-
-import { buildGatewayConfig } from "./bootstrap/config.js";
 import { buildGatewayContainer } from "./bootstrap/container.js";
-import { startGateway } from "./bootstrap/start-gateway.js";
-import { buildHttpApp } from "./http/app.js";
-import { AgentService } from "./application/agent-service.js";
-import { ChannelBindingService } from "./application/channel-binding-service.js";
-import { OutboxWorker } from "./infra/outbox-worker.js";
-import { RuntimeBootstrapper } from "./runtime/runtime-bootstrapper.js";
-import { RuntimeClusterStateReader } from "./runtime/runtime-cluster-state-reader.js";
-import { initStore, seedDefaults } from "./services/initialization.js";
-
-// ---------------------------------------------------------------------------
-// Bootstrap
-// ---------------------------------------------------------------------------
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const WEB_DIR = join(__dirname, "..", "web");
-const gatewayConfig = buildGatewayConfig();
-const { port: PORT, corsOrigin: CORS_ORIGIN } = gatewayConfig;
+import { GatewayServer } from "./bootstrap/gateway-server.js";
+import { InitializationService } from "./services/initialization.js";
 
 // ---------------------------------------------------------------------------
 // Infrastructure wiring
 // ---------------------------------------------------------------------------
 
-const container = buildGatewayContainer(gatewayConfig);
-const outboxWorker = container.get(OutboxWorker);
-const bindingRepo = container.get<ChannelBindingRepository>(
-  ChannelBindingRepository,
-);
-const agentRepo = container.get<AgentConfigRepository>(AgentConfigRepository);
-const channelBindingService = container.get(ChannelBindingService);
-const agentService = container.get(AgentService);
-const runtimeBootstrapper = container.get(RuntimeBootstrapper);
-const runtimeStateReader = container.get(RuntimeClusterStateReader);
+const container = buildGatewayContainer();
 
-await initStore();
+const initializationService = container.get(InitializationService);
+await initializationService.initStore();
+await initializationService.seedDefaults();
 
-await seedDefaults({
-  agentService,
-  bindingService: channelBindingService,
-  agentRepo,
-  bindingRepo,
-});
-const app = buildHttpApp(container, {
-  corsOrigin: CORS_ORIGIN,
-  runtime: runtimeStateReader,
-  webDir: WEB_DIR,
-});
-const gateway = startGateway({
-  app,
-  port: PORT,
-  outboxWorker,
-  runtimeBootstrapper,
-});
+const server = container.get(GatewayServer);
+server.start();
 
 process.on("SIGINT", async () => {
   console.log("\n[gateway] shutting down…");
-  await gateway.shutdown();
+  await server.shutdown();
   process.exit(0);
 });
 
-export default app;
+export default server;

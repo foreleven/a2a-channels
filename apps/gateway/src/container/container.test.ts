@@ -10,17 +10,21 @@ import {
 
 import { AgentService } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
-import { buildGatewayConfig } from "../bootstrap/config.js";
-import type { GatewayConfig } from "../bootstrap/config.js";
-import { GatewayConfigToken } from "../bootstrap/config.js";
+import { buildGatewayConfig, GatewayConfigService } from "../bootstrap/config.js";
+import type { GatewayConfigSnapshot } from "../bootstrap/config.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
+import { GatewayServer } from "../bootstrap/gateway-server.js";
+import { GatewayApp } from "../http/app.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
-import { InMemoryRuntimeOwnershipState, RuntimeOwnershipStateToken } from "../runtime/ownership-state.js";
-import { RelayRuntimeAssemblyHandle } from "../runtime/relay-runtime-assembly-handle.js";
+import {
+  InMemoryRuntimeOwnershipState,
+  RuntimeOwnershipStateToken,
+} from "../runtime/ownership-state.js";
+import { ConnectionManager } from "../runtime/connection-manager.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RuntimeAgentCatalog } from "../runtime/runtime-agent-catalog.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
@@ -33,8 +37,11 @@ import { NodeRuntimeStateStoreToken } from "../runtime/node-runtime-state-store.
 import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
 import { RuntimeOwnedBindingManager } from "../runtime/runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
-import { TransportRegistryProvider } from "../runtime/transport-registry-provider.js";
-import { initStore } from "../services/initialization.js";
+import { TransportRegistryAssembler } from "../runtime/transport-registry-assembler.js";
+import {
+  InitializationService,
+  initStore,
+} from "../services/initialization.js";
 
 describe("buildGatewayContainer", () => {
   before(async () => {
@@ -44,7 +51,7 @@ describe("buildGatewayContainer", () => {
   test("resolves typed config", async () => {
     const config = buildGatewayConfig({ port: 7891 });
     const container: Container = buildGatewayContainer(config);
-    const resolved = container.get<GatewayConfig>(GatewayConfigToken);
+    const resolved = container.get(GatewayConfigService);
 
     assert.equal(resolved.port, 7891);
   });
@@ -59,7 +66,7 @@ describe("buildGatewayContainer", () => {
       runtimeAddress: "http://127.0.0.1:7891",
     });
     const container: Container = buildGatewayContainer(config);
-    const resolved = container.get<GatewayConfig>(GatewayConfigToken);
+    const resolved = container.get(GatewayConfigService);
 
     assert.equal(resolved.clusterMode, true);
     assert.equal(resolved.redisUrl, "redis://localhost:6379");
@@ -131,6 +138,10 @@ describe("buildGatewayContainer", () => {
       container.get<ChannelBindingRepository>(ChannelBindingRepository),
       container.get<ChannelBindingRepository>(ChannelBindingRepository),
     );
+    assert.strictEqual(
+      container.get(GatewayConfigService),
+      container.get(GatewayConfigService),
+    );
   });
 
   test("resolves application services and basic reads", async () => {
@@ -139,15 +150,21 @@ describe("buildGatewayContainer", () => {
 
     const channelBindingService = container.get(ChannelBindingService);
     const agentService = container.get(AgentService);
+    const initializationService = container.get(InitializationService);
 
     assert.strictEqual(
       channelBindingService,
       container.get(ChannelBindingService),
     );
     assert.strictEqual(agentService, container.get(AgentService));
+    assert.strictEqual(
+      initializationService,
+      container.get(InitializationService),
+    );
 
     assert.ok(Array.isArray(await channelBindingService.list()));
     assert.ok(Array.isArray(await agentService.list()));
+    await initializationService.initStore();
 
     const missingId = randomUUID();
     assert.equal(await channelBindingService.getById(missingId), null);
@@ -169,6 +186,8 @@ describe("buildGatewayContainer", () => {
 
     assert.ok(container.get(RuntimeBootstrapper));
     assert.ok(container.get(RuntimeClusterStateReader));
+    assert.ok(container.get(GatewayServer));
+    assert.ok(container.get(GatewayApp));
   });
 
   test("resolves runtime singleton collaborators through direct singleton bindings", () => {
@@ -182,7 +201,10 @@ describe("buildGatewayContainer", () => {
       container.get(LocalNodeRuntimeStateStore),
       container.get(NodeRuntimeStateStoreToken),
     );
-    assert.strictEqual(container.get(RuntimeNodeState), container.get(RuntimeNodeState));
+    assert.strictEqual(
+      container.get(RuntimeNodeState),
+      container.get(RuntimeNodeState),
+    );
     assert.strictEqual(
       container.get(RuntimeBindingStateService),
       container.get(RuntimeBindingStateService),
@@ -196,8 +218,8 @@ describe("buildGatewayContainer", () => {
       container.get(RuntimeAgentCatalog),
     );
     assert.strictEqual(
-      container.get(RelayRuntimeAssemblyHandle),
-      container.get(RelayRuntimeAssemblyHandle),
+      container.get(ConnectionManager),
+      container.get(ConnectionManager),
     );
     assert.strictEqual(
       container.get(RuntimeAssignmentService),
@@ -208,8 +230,8 @@ describe("buildGatewayContainer", () => {
       container.get(RuntimeSnapshotPublisher),
     );
     assert.strictEqual(
-      container.get(TransportRegistryProvider),
-      container.get(TransportRegistryProvider),
+      container.get(TransportRegistryAssembler),
+      container.get(TransportRegistryAssembler),
     );
     assert.strictEqual(
       container.get(AgentClientRegistry),

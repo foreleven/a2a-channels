@@ -1,7 +1,6 @@
 import { inject, injectable, unmanaged } from "inversify";
 
-import type { GatewayConfig } from "../bootstrap/config.js";
-import { GatewayConfigToken } from "../bootstrap/config.js";
+import { GatewayConfigService } from "../bootstrap/config.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { buildRuntimeBootstrap, type RuntimeBootstrap } from "./bootstrap.js";
@@ -22,8 +21,8 @@ export class RuntimeBootstrapper {
   private bootstrapped = false;
 
   constructor(
-    @inject(GatewayConfigToken)
-    private readonly config: GatewayConfig,
+    @inject(GatewayConfigService)
+    private readonly config: GatewayConfigService,
     @inject(RuntimeNodeStateRepository)
     private readonly runtimeNodeRepository: RuntimeNodeStateRepository,
     @inject(NodeRuntimeStateStoreToken)
@@ -151,12 +150,10 @@ export class RuntimeBootstrapper {
     }
   }
 
-  private async cleanupFailedBootstrap(
-    context: {
-      relayBootstrapped: boolean;
-      runtimeBootstrap: RuntimeBootstrap | null;
-    },
-  ): Promise<unknown[]> {
+  private async cleanupFailedBootstrap(context: {
+    relayBootstrapped: boolean;
+    runtimeBootstrap: RuntimeBootstrap | null;
+  }): Promise<unknown[]> {
     const cleanupErrors: unknown[] = [];
 
     if (context.runtimeBootstrap) {

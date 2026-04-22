@@ -19,6 +19,7 @@ import type {
   MessageOutboundEvent,
   OpenClawPluginHost,
 } from "@a2a-channels/openclaw-compat";
+import { injectable } from "inversify";
 
 export interface Connection {
   abortController: AbortController;
@@ -48,26 +49,41 @@ export interface ConnectionManagerCallbacks {
   onAgentCallFailed?: (event: AgentCallFailureEvent) => void;
 }
 
+export interface ConnectionManagerOptions {
+  host: OpenClawPluginHost;
+  getAgentClient: (
+    agentId: string,
+  ) =>
+    | { client: AgentClientHandle; url: string }
+    | Promise<{ client: AgentClientHandle; url: string }>;
+  emitMessageInbound?: (event: MessageInboundEvent) => void;
+  emitMessageOutbound?: (event: MessageOutboundEvent) => void;
+  callbacks?: ConnectionManagerCallbacks;
+}
+
+@injectable()
 export class ConnectionManager {
   private readonly connections = new Map<string, Connection>();
+  private host: OpenClawPluginHost | null = null;
+  private getAgentClient:
+    | ConnectionManagerOptions["getAgentClient"]
+    | null = null;
+  private emitMessageInbound?: (event: MessageInboundEvent) => void;
+  private emitMessageOutbound?: (event: MessageOutboundEvent) => void;
+  private callbacks: ConnectionManagerCallbacks = {};
 
-  constructor(
-    private readonly host: OpenClawPluginHost,
-    private readonly getAgentClient: (
-      agentId: string,
-    ) =>
-      | { client: AgentClientHandle; url: string }
-      | Promise<{ client: AgentClientHandle; url: string }>,
-    private readonly emitMessageInbound?: (event: MessageInboundEvent) => void,
-    private readonly emitMessageOutbound?: (
-      event: MessageOutboundEvent,
-    ) => void,
-    private readonly callbacks: ConnectionManagerCallbacks = {},
-  ) {}
+  initialize(options: ConnectionManagerOptions): this {
+    this.host = options.host;
+    this.getAgentClient = options.getAgentClient;
+    this.emitMessageInbound = options.emitMessageInbound;
+    this.emitMessageOutbound = options.emitMessageOutbound;
+    this.callbacks = options.callbacks ?? {};
+    return this;
+  }
 
   private async createConnection(binding: ChannelBinding): Promise<Connection> {
     const abortController = new AbortController();
-    const target = await this.getAgentClient(binding.agentId);
+    const target = await this.requireAgentClientFactory()(binding.agentId);
     const agentClient = target.client;
 
     console.log(
@@ -103,7 +119,7 @@ export class ConnectionManager {
 
     const promise = Promise.resolve()
       .then(() =>
-        this.host.startChannelBinding(binding, abortController.signal, {
+        this.requireHost().startChannelBinding(binding, abortController.signal, {
           onStatus: maybeReportConnected,
         }),
       )
@@ -346,5 +362,23 @@ export class ConnectionManager {
     for (const bindingId of Array.from(this.connections.keys())) {
       await this.stopConnection(bindingId);
     }
+  }
+
+  private requireHost(): OpenClawPluginHost {
+    if (!this.host) {
+      throw new Error("ConnectionManager has not been initialized");
+    }
+
+    return this.host;
+  }
+
+  private requireAgentClientFactory(): NonNullable<
+    ConnectionManager["getAgentClient"]
+  > {
+    if (!this.getAgentClient) {
+      throw new Error("ConnectionManager has not been initialized");
+    }
+
+    return this.getAgentClient;
   }
 }
