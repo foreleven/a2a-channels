@@ -3,9 +3,12 @@ import { A2ATransport, ACPTransport } from "@a2a-channels/agent-transport";
 
 import { GatewayConfigToken } from "../../bootstrap/config.js";
 import { AgentClientRegistry } from "../../runtime/agent-client-registry.js";
+import { ConnectionManagerProvider } from "../../runtime/connection-manager-provider.js";
 import { LocalNodeRuntimeStateStore } from "../../runtime/local-node-runtime-state-store.js";
 import { NodeRuntimeStateStoreToken } from "../../runtime/node-runtime-state-store.js";
 import { PluginHostProvider } from "../../runtime/plugin-host-provider.js";
+import { RuntimeOwnershipStateToken, createRuntimeOwnershipState } from "../../runtime/ownership-state.js";
+import { RelayRuntimeAssemblyProvider } from "../../runtime/relay-runtime-assembly-provider.js";
 import { RelayRuntime } from "../../runtime/relay-runtime.js";
 import { RuntimeAssignmentCoordinator } from "../../runtime/runtime-assignment-coordinator.js";
 import { RuntimeBootstrapper } from "../../runtime/runtime-bootstrapper.js";
@@ -20,9 +23,9 @@ export function buildRuntimeModule(): ContainerModule {
       .inSingletonScope();
     bind(NodeRuntimeStateStoreToken).toService(LocalNodeRuntimeStateStore);
 
-    bind(PluginHostProvider)
-      .toDynamicValue(() => new PluginHostProvider())
-      .inSingletonScope();
+    bind(PluginHostProvider).toSelf().inSingletonScope();
+    bind(ConnectionManagerProvider).toSelf().inSingletonScope();
+    bind(RelayRuntimeAssemblyProvider).toSelf().inSingletonScope();
 
     bind(TransportRegistryProvider)
       .toDynamicValue(
@@ -40,19 +43,11 @@ export function buildRuntimeModule(): ContainerModule {
       )
       .inSingletonScope();
 
-    bind(RelayRuntime)
-      .toDynamicValue(
-        (context) =>
-          new RelayRuntime({
-            name: "local",
-            config: context.get(GatewayConfigToken),
-            runtimeNodeState: context.get(RuntimeNodeState),
-            stateStore: context.get(NodeRuntimeStateStoreToken),
-            pluginHostProvider: context.get(PluginHostProvider),
-            agentClientRegistry: context.get(AgentClientRegistry),
-          }),
-      )
+    bind(RuntimeOwnershipStateToken)
+      .toDynamicValue(() => createRuntimeOwnershipState())
       .inSingletonScope();
+
+    bind(RelayRuntime).toSelf().inSingletonScope();
 
     bind(RuntimeAssignmentCoordinator).toDynamicValue(
       (context) => new RuntimeAssignmentCoordinator(context.get(RelayRuntime)),

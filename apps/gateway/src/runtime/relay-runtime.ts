@@ -1,48 +1,35 @@
+import { inject, injectable } from "inversify";
 import type {
   AgentClientHandle,
   AgentConfig,
-  AgentTransport,
   ChannelBinding,
   RuntimeConnectionStatus,
   TransportRegistry,
 } from "@a2a-channels/core";
-import { A2ATransport, ACPTransport } from "@a2a-channels/agent-transport";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
 
-import { buildGatewayConfig, type GatewayConfig } from "../bootstrap/config.js";
-import { ConnectionManager } from "../connection-manager.js";
-import { registerAllPlugins } from "../register-plugins.js";
 import { AgentClientRegistry } from "./agent-client-registry.js";
+import { NodeRuntimeStateStoreToken } from "./node-runtime-state-store.js";
 import type { NodeRuntimeStateStore } from "./node-runtime-state-store.js";
 import {
   buildOpenClawConfigFromBindings,
 } from "./openclaw-config.js";
 import {
-  createRuntimeOwnershipState,
   type RuntimeOwnershipState,
+  RuntimeOwnershipStateToken,
 } from "./ownership-state.js";
-import { PluginHostProvider } from "./plugin-host-provider.js";
-import type { ReconnectPolicy } from "./reconnect-policy.js";
+import {
+  RelayRuntimeAssemblyProvider,
+  type RelayRuntimeAssembly,
+} from "./relay-runtime-assembly-provider.js";
 import {
   RuntimeNodeState,
   type LocalRuntimeSnapshot,
 } from "./runtime-node-state.js";
-import { TransportRegistryProvider } from "./transport-registry-provider.js";
-
-export interface RelayRuntimeOptions {
-  name?: string;
-  reconnectPolicy?: ReconnectPolicy;
-  transports?: AgentTransport[];
-  config?: GatewayConfig;
-  runtimeNodeState?: RuntimeNodeState;
-  stateStore?: NodeRuntimeStateStore;
-  pluginHostProvider?: PluginHostProvider;
-  agentClientRegistry?: AgentClientRegistry;
-}
 
 interface ApplyAgentUpsertOptions {
   skipRestartBindingIds?: string[];
@@ -52,18 +39,18 @@ interface ApplyBindingUpsertOptions {
   forceRestart?: boolean;
 }
 
+@injectable()
 export class RelayRuntime {
-  readonly name: string;
+  readonly name = "local";
   readonly transportRegistry: TransportRegistry;
   readonly runtime: OpenClawPluginRuntime;
   readonly pluginHost: OpenClawPluginHost;
-  readonly connectionManager: ConnectionManager;
+  readonly connectionManager: RelayRuntimeAssembly["connectionManager"];
 
   private bindingsById = new Map<string, ChannelBinding>();
   private agentsById = new Map<string, AgentConfig>();
   private agentsByUrl = new Map<string, AgentConfig>();
   private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly config: GatewayConfig;
   private readonly nodeState: RuntimeNodeState;
   private readonly stateStore: NodeRuntimeStateStore;
   private readonly agentClientRegistry: AgentClientRegistry;
@@ -71,57 +58,31 @@ export class RelayRuntime {
   private openClawConfig: OpenClawConfig;
   private nodeSnapshotPublishQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly options: RelayRuntimeOptions) {
-    this.name = options.name ?? "local";
-    this.config = options.config ?? buildGatewayConfig();
+  constructor(
+    @inject(RuntimeNodeState) runtimeNodeState: RuntimeNodeState,
+    @inject(NodeRuntimeStateStoreToken)
+    stateStore: NodeRuntimeStateStore,
+    @inject(AgentClientRegistry) agentClientRegistry: AgentClientRegistry,
+    @inject(RelayRuntimeAssemblyProvider)
+    assemblyProvider: RelayRuntimeAssemblyProvider,
+    @inject(RuntimeOwnershipStateToken)
+    ownershipState: RuntimeOwnershipState,
+  ) {
+    this.nodeState = runtimeNodeState;
+    this.stateStore = stateStore;
+    this.agentClientRegistry = agentClientRegistry;
+    this.ownershipState = ownershipState;
     this.bindingsById = new Map();
     this.agentsById = new Map();
     this.agentsByUrl = new Map();
     this.reconnectTimers = new Map();
-    this.nodeState = options.runtimeNodeState ?? new RuntimeNodeState(this.config);
-    this.stateStore = options.stateStore ?? {
-      publishNodeSnapshot: async () => {},
-    };
-    this.agentClientRegistry =
-      options.agentClientRegistry ??
-      new AgentClientRegistry(
-        new TransportRegistryProvider(
-          options.transports ?? [new A2ATransport(), new ACPTransport()],
-        ),
-      );
-    this.ownershipState = createRuntimeOwnershipState({
-      reconnectPolicy: options.reconnectPolicy,
-    });
     this.openClawConfig = buildOpenClawConfigFromBindings([], this.agentsById);
-
-    console.log("[RelayRuntime] config=", this.openClawConfig);
-
     this.transportRegistry = this.agentClientRegistry.transportRegistry;
-
-    let connectionManager!: ConnectionManager;
-
-    this.runtime = new OpenClawPluginRuntime({
-      config: {
-        loadConfig: () => {
-          return this.openClawConfig;
-        },
-        writeConfigFile: async () => {
-          throw Error("Not implemented");
-        },
-      },
-      handleChannelReplyEvent: (event) => connectionManager.handleEvent(event),
-    });
-
-    this.pluginHost = (options.pluginHostProvider ?? new PluginHostProvider()).create(
-      this.runtime,
-    );
-    connectionManager = new ConnectionManager(
-      this.pluginHost,
-      () => this.listEnabledBindings(),
-      (agentId) => this.getAgentClient(agentId),
-      (event) => this.runtime.emit("message:inbound", event),
-      (event) => this.runtime.emit("message:outbound", event),
-      {
+    const assembly = assemblyProvider.create({
+      loadConfig: () => this.openClawConfig,
+      listBindings: () => this.listEnabledBindings(),
+      getAgentClient: (agentId) => this.getAgentClient(agentId),
+      callbacks: {
         onConnectionStatus: ({ binding, status, agentUrl, error }) => {
           this.applyOwnedConnectionStatus(binding.id, status, agentUrl, error);
         },
@@ -132,21 +93,15 @@ export class RelayRuntime {
           );
         },
       },
-    );
-    this.connectionManager = connectionManager;
-  }
-
-  static async load(): Promise<RelayRuntime> {
-    return new RelayRuntime({
-      name: "local",
-      config: buildGatewayConfig(),
-      transports: [new A2ATransport(), new ACPTransport()],
     });
+
+    this.runtime = assembly.runtime;
+    this.pluginHost = assembly.pluginHost;
+    this.connectionManager = assembly.connectionManager;
   }
 
   async bootstrap(): Promise<void> {
     await this.publishNodeSnapshot(this.nodeState.markBootstrapping());
-    registerAllPlugins(this.pluginHost);
     await this.publishNodeSnapshot(this.nodeState.markReady());
   }
 

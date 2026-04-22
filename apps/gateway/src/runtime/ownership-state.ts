@@ -6,6 +6,10 @@ import {
   type ReconnectPolicy,
 } from "./reconnect-policy.js";
 
+export const RuntimeOwnershipStateToken = Symbol.for(
+  "runtime.RuntimeOwnershipState",
+);
+
 interface OwnedRuntimeBinding {
   status: RuntimeConnectionStatus;
   reconnectAttempt: number;

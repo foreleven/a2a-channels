@@ -12,6 +12,7 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+import type { AgentTransport } from "@a2a-channels/core";
 import { prisma } from "./prisma.js";
 import { AgentService, ReferencedAgentError } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
@@ -23,6 +24,7 @@ import { OutboxWorker } from "../infra/outbox-worker.js";
 import { buildGatewayConfig } from "../bootstrap/config.js";
 import { buildRuntimeBootstrap } from "../runtime/bootstrap.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
+import { ConnectionManagerProvider } from "../runtime/connection-manager-provider.js";
 import { LocalNodeRuntimeStateStore } from "../runtime/local-node-runtime-state-store.js";
 import type { NodeRuntimeStateStore } from "../runtime/node-runtime-state-store.js";
 import { PluginHostProvider } from "../runtime/plugin-host-provider.js";
@@ -30,6 +32,7 @@ import { buildRedisCoordinationKeys } from "../runtime/cluster/redis-coordinatio
 import { createLocalOwnershipGate } from "../runtime/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local-scheduler.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
+import { RelayRuntimeAssemblyProvider } from "../runtime/relay-runtime-assembly-provider.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import {
   RuntimeNodeState,
@@ -45,7 +48,7 @@ import {
   getAgentProtocolForUrl,
 } from "../services/routing.js";
 import { createRuntimeOwnershipState } from "../runtime/ownership-state.js";
-import { createReconnectPolicy } from "../runtime/reconnect-policy.js";
+import { createReconnectPolicy, type ReconnectPolicy } from "../runtime/reconnect-policy.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -106,6 +109,60 @@ function makeInfra() {
     bindingRepo,
     agentRepo,
   };
+}
+
+interface RelayRuntimeTestOptions {
+  config?: Parameters<typeof buildGatewayConfig>[0];
+  stateStore?: NodeRuntimeStateStore;
+  runtimeNodeState?: RuntimeNodeState;
+  pluginHostProvider?: PluginHostProvider;
+  agentClientRegistry?: AgentClientRegistry;
+  connectionManagerProvider?: ConnectionManagerProvider;
+  assemblyProvider?: RelayRuntimeAssemblyProvider;
+  ownershipState?: ReturnType<typeof createRuntimeOwnershipState>;
+  reconnectPolicy?: ReconnectPolicy;
+  transports?: AgentTransport[];
+}
+
+function createRelayRuntime(options: RelayRuntimeTestOptions = {}) {
+  const config = buildGatewayConfig(
+    options.config ?? {
+      clusterMode: false,
+      nodeId: "node-a",
+      nodeDisplayName: "Node A",
+      runtimeAddress: "http://127.0.0.1:7890",
+    },
+  );
+  const stateStore =
+    options.stateStore ?? ({ publishNodeSnapshot: async () => {} } as NodeRuntimeStateStore);
+  const runtimeNodeState = options.runtimeNodeState ?? new RuntimeNodeState(config);
+  const pluginHostProvider = options.pluginHostProvider ?? new PluginHostProvider();
+  const connectionManagerProvider =
+    options.connectionManagerProvider ?? new ConnectionManagerProvider();
+  const assemblyProvider =
+    options.assemblyProvider ??
+    new RelayRuntimeAssemblyProvider(pluginHostProvider, connectionManagerProvider);
+  const transportRegistryProvider = new TransportRegistryProvider(
+    options.transports ?? [
+      {
+        protocol: "a2a",
+        send: async () => ({ text: "" }),
+      },
+    ],
+  );
+  const agentClientRegistry =
+    options.agentClientRegistry ?? new AgentClientRegistry(transportRegistryProvider);
+  const ownershipState =
+    options.ownershipState ??
+    createRuntimeOwnershipState({ reconnectPolicy: options.reconnectPolicy });
+
+  return new RelayRuntime(
+    runtimeNodeState,
+    stateStore,
+    agentClientRegistry,
+    assemblyProvider,
+    ownershipState,
+  );
 }
 
 async function listChannelBindings() {
@@ -1364,6 +1421,17 @@ describe("RelayRuntime node state snapshots", () => {
     }
   }
 
+  class TrackingRelayRuntimeAssemblyProvider extends RelayRuntimeAssemblyProvider {
+    createCalls = 0;
+
+    override create(
+      ...args: Parameters<RelayRuntimeAssemblyProvider["create"]>
+    ) {
+      this.createCalls += 1;
+      return super.create(...args);
+    }
+  }
+
   class ControlledAsyncNodeRuntimeStateStore implements NodeRuntimeStateStore {
     private readonly committedSnapshots: LocalRuntimeSnapshot[] = [];
     private readonly pendingSnapshots: Array<{
@@ -1421,7 +1489,7 @@ describe("RelayRuntime node state snapshots", () => {
       },
     ]);
     const agentClientRegistry = new AgentClientRegistry(transportRegistryProvider);
-    const runtime = new RelayRuntime({
+    const runtime = createRelayRuntime({
       config,
       stateStore,
       pluginHostProvider,
@@ -1448,6 +1516,33 @@ describe("RelayRuntime node state snapshots", () => {
     }
   });
 
+  test("bootstrap does not reassemble the plugin runtime or host", async () => {
+    const config = buildGatewayConfig({
+      clusterMode: false,
+      nodeId: "node-a",
+      nodeDisplayName: "Node A",
+      runtimeAddress: "http://127.0.0.1:7890",
+    });
+    const stateStore = new LocalNodeRuntimeStateStore();
+    const pluginHostProvider = new PluginHostProvider();
+    const connectionManagerProvider = new ConnectionManagerProvider();
+    const assemblyProvider = new TrackingRelayRuntimeAssemblyProvider(
+      pluginHostProvider,
+      connectionManagerProvider,
+    );
+    const runtime = createRelayRuntime({
+      config,
+      stateStore,
+      assemblyProvider,
+    });
+
+    assert.equal(assemblyProvider.createCalls, 1);
+
+    await runtime.bootstrap();
+
+    assert.equal(assemblyProvider.createCalls, 1);
+  });
+
   test("publishes a stopped snapshot without active binding statuses on shutdown", async () => {
     const config = buildGatewayConfig({
       clusterMode: false,
@@ -1463,7 +1558,7 @@ describe("RelayRuntime node state snapshots", () => {
       },
     ]);
     const agentClientRegistry = new AgentClientRegistry(transportRegistryProvider);
-    const runtime = new RelayRuntime({
+    const runtime = createRelayRuntime({
       config,
       stateStore,
       pluginHostProvider: new ConnectedPluginHostProvider(),
@@ -1529,7 +1624,7 @@ describe("RelayRuntime node state snapshots", () => {
     });
     const stateStore = new ControlledAsyncNodeRuntimeStateStore();
     const runtimeNodeState = new RuntimeNodeState(config);
-    const runtime = new RelayRuntime({
+    const runtime = createRelayRuntime({
       config,
       stateStore,
       runtimeNodeState,
@@ -1675,8 +1770,7 @@ describe("RelayRuntime ownership semantics", () => {
     restartConnection?: (binding: { id: string }) => Promise<void>;
     stopConnection?: (bindingId: string) => Promise<void>;
   }) => {
-    const runtime = new RelayRuntime({
-      name: "test",
+    const runtime = createRelayRuntime({
       transports: [testTransport],
     }) as unknown as RelayRuntimeHarness;
     runtime.connectionManager.restartConnection =
@@ -1687,8 +1781,7 @@ describe("RelayRuntime ownership semantics", () => {
   };
 
   const createRelayRuntimeWithLifecycle = (transport = testTransport) => {
-    const runtime = new RelayRuntime({
-      name: "test",
+    const runtime = createRelayRuntime({
       transports: [transport],
     }) as unknown as RelayRuntimeLifecycleHarness;
     const lifetimes: Array<{ resolve: () => void }> = [];
@@ -1912,8 +2005,7 @@ describe("RelayRuntime reconnect policy", () => {
 
   test("connection error schedules one delayed reconnect for the owned binding", async () => {
     const restartCalls: string[] = [];
-    const runtime = new RelayRuntime({
-      name: "test",
+    const runtime = createRelayRuntime({
       reconnectPolicy: createReconnectPolicy({ baseDelayMs: 1, maxDelayMs: 1 }),
       transports: [{ protocol: "a2a", send: async () => ({ text: "" }) }],
     }) as unknown as RelayRuntimeReconnectHarness;
