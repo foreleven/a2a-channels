@@ -1,12 +1,19 @@
-import { inject, injectable } from "inversify";
+import { inject, injectable, unmanaged } from "inversify";
 
 import type { GatewayConfig } from "../bootstrap/config.js";
 import { GatewayConfigToken } from "../bootstrap/config.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { buildRuntimeBootstrap, type RuntimeBootstrap } from "./bootstrap.js";
+import { NodeRuntimeStateStoreToken } from "./node-runtime-state-store.js";
+import type { NodeRuntimeStateStore } from "./node-runtime-state-store.js";
 import { RelayRuntime } from "./relay-runtime.js";
 import { RuntimeAssignmentCoordinator } from "./runtime-assignment-coordinator.js";
+import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
+
+export type RuntimeBootstrapFactory = (
+  options: Parameters<typeof buildRuntimeBootstrap>[0],
+) => RuntimeBootstrap;
 
 @injectable()
 export class RuntimeBootstrapper {
@@ -19,12 +26,16 @@ export class RuntimeBootstrapper {
     private readonly config: GatewayConfig,
     @inject(RuntimeNodeStateRepository)
     private readonly runtimeNodeRepository: RuntimeNodeStateRepository,
+    @inject(NodeRuntimeStateStoreToken)
+    private readonly stateStore: NodeRuntimeStateStore,
     @inject(RelayRuntime)
     private readonly relay: RelayRuntime,
     @inject(RuntimeAssignmentCoordinator)
     private readonly coordinator: RuntimeAssignmentCoordinator,
     @inject(DomainEventBus)
     private readonly eventBus: DomainEventBus,
+    @unmanaged()
+    private readonly bootstrapFactory: RuntimeBootstrapFactory = buildRuntimeBootstrap,
   ) {}
 
   async bootstrap(): Promise<void> {
@@ -90,7 +101,7 @@ export class RuntimeBootstrapper {
       await this.relay.bootstrap();
       relayBootstrapped = true;
 
-      runtimeBootstrap = buildRuntimeBootstrap({
+      runtimeBootstrap = this.bootstrapFactory({
         clusterMode: this.config.clusterMode,
         redisUrl: this.config.redisUrl,
         coordinator: this.coordinator,
@@ -100,20 +111,53 @@ export class RuntimeBootstrapper {
       runtimeBootstrap.scheduler.start();
       this.runtimeBootstrap = runtimeBootstrap;
     } catch (error) {
-      await this.cleanupFailedBootstrap(error, {
+      const cleanupErrors = await this.cleanupFailedBootstrap({
         relayBootstrapped,
         runtimeBootstrap,
       });
+      await this.publishErrorSnapshot(error);
+
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...cleanupErrors],
+          "Runtime bootstrap failed and cleanup did not complete cleanly",
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  private async publishErrorSnapshot(error: unknown): Promise<void> {
+    const snapshot: LocalRuntimeSnapshot = {
+      nodeId: this.config.nodeId,
+      displayName: this.config.nodeDisplayName,
+      mode: this.config.clusterMode ? "cluster" : "local",
+      schedulerRole: this.config.clusterMode ? "unknown" : "local",
+      lastKnownAddress: this.config.runtimeAddress,
+      lifecycle: "error",
+      lastHeartbeatAt: null,
+      lastError: String(error),
+      bindingStatuses: [],
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      await this.stateStore.publishNodeSnapshot(snapshot);
+    } catch (publishError) {
+      console.error(
+        "[runtime] failed to publish bootstrap error snapshot:",
+        publishError,
+      );
     }
   }
 
   private async cleanupFailedBootstrap(
-    error: unknown,
     context: {
       relayBootstrapped: boolean;
       runtimeBootstrap: RuntimeBootstrap | null;
     },
-  ): Promise<never> {
+  ): Promise<unknown[]> {
     const cleanupErrors: unknown[] = [];
 
     if (context.runtimeBootstrap) {
@@ -133,14 +177,6 @@ export class RuntimeBootstrapper {
     }
 
     this.runtimeBootstrap = null;
-
-    if (cleanupErrors.length > 0) {
-      throw new AggregateError(
-        [error, ...cleanupErrors],
-        "Runtime bootstrap failed and cleanup did not complete cleanly",
-      );
-    }
-
-    throw error;
+    return cleanupErrors;
   }
 }

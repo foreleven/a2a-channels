@@ -99,8 +99,11 @@ export class RuntimeClusterStateReader {
       nodeId: snapshot?.nodeId ?? record?.nodeId ?? "",
       displayName: snapshot?.displayName ?? record?.displayName ?? "",
       mode: snapshot?.mode ?? this.mapRecordMode(record),
+      schedulerRole: snapshot?.schedulerRole ?? this.mapRecordSchedulerRole(record),
       lastKnownAddress: snapshot?.lastKnownAddress ?? record?.lastKnownAddress ?? "",
       lifecycle: snapshot?.lifecycle ?? "stopped",
+      lastHeartbeatAt: snapshot?.lastHeartbeatAt ?? null,
+      lastError: snapshot?.lastError ?? null,
       bindingCount: snapshot?.bindingStatuses.length ?? 0,
       updatedAt,
     };
@@ -151,6 +154,12 @@ export class RuntimeClusterStateReader {
     record: RuntimeNodeStateRecord | null,
   ): RuntimeNodeListItem["mode"] {
     return record?.mode === "cluster" ? "cluster" : "local";
+  }
+
+  private mapRecordSchedulerRole(
+    record: RuntimeNodeStateRecord | null,
+  ): RuntimeNodeListItem["schedulerRole"] {
+    return record?.mode === "cluster" ? "unknown" : "local";
   }
 
   private async readSnapshots(): Promise<LocalRuntimeSnapshot[]> {

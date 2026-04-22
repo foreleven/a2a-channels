@@ -761,8 +761,11 @@ describe("RuntimeClusterStateReader", () => {
       nodeId: "node-a",
       displayName: "Gateway Node A",
       mode: "local",
+      schedulerRole: "local",
       lastKnownAddress: "http://127.0.0.1:7890",
       lifecycle: "ready",
+      lastHeartbeatAt: "2026-04-21T08:00:00.000Z",
+      lastError: null,
       bindingStatuses: [
         {
           bindingId: binding.id,
@@ -789,8 +792,11 @@ describe("RuntimeClusterStateReader", () => {
         nodeId: "node-a",
         displayName: "Gateway Node A",
         mode: "local",
+        schedulerRole: "local",
         lastKnownAddress: "http://127.0.0.1:7890",
         lifecycle: "ready",
+        lastHeartbeatAt: "2026-04-21T08:00:00.000Z",
+        lastError: null,
         bindingCount: 1,
         updatedAt: "2026-04-21T08:00:00.000Z",
       },
@@ -832,8 +838,11 @@ describe("RuntimeClusterStateReader", () => {
       nodeId: "node-a",
       displayName: "Gateway Node A",
       mode: "local",
+      schedulerRole: "local",
       lastKnownAddress: "http://127.0.0.1:7890",
       lifecycle: "bootstrapping",
+      lastHeartbeatAt: "2026-04-21T08:00:00.000Z",
+      lastError: null,
       bindingStatuses: [],
       updatedAt: "2026-04-21T08:00:00.000Z",
     });
@@ -841,8 +850,11 @@ describe("RuntimeClusterStateReader", () => {
       nodeId: "node-a",
       displayName: "Gateway Node A Updated",
       mode: "cluster",
+      schedulerRole: "unknown",
       lastKnownAddress: "http://127.0.0.1:7891",
       lifecycle: "ready",
+      lastHeartbeatAt: null,
+      lastError: null,
       bindingStatuses: [],
       updatedAt: "2026-04-21T09:00:00.000Z",
     });
@@ -859,10 +871,109 @@ describe("RuntimeClusterStateReader", () => {
         nodeId: "node-a",
         displayName: "Gateway Node A Updated",
         mode: "cluster",
+        schedulerRole: "unknown",
         lastKnownAddress: "http://127.0.0.1:7891",
         lifecycle: "ready",
+        lastHeartbeatAt: null,
+        lastError: null,
         bindingCount: 0,
         updatedAt: "2026-04-21T09:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("surfaces bootstrap error snapshots in the read model", async () => {
+    const { RuntimeClusterStateReader } = await import(
+      "../runtime/runtime-cluster-state-reader.js"
+    );
+    const stateStore = new LocalNodeRuntimeStateStore();
+    const bindingRepo = new ChannelBindingStateRepository();
+    const agentRepo = new AgentConfigStateRepository();
+    const runtimeNodeRepo = new (await import("../infra/runtime-node-repo.js"))
+      .RuntimeNodeStateRepository();
+
+    await runtimeNodeRepo.upsert({
+      nodeId: "node-a",
+      displayName: "Gateway Node A",
+      mode: "local",
+      lastKnownAddress: "http://127.0.0.1:7890",
+      registeredAt: new Date("2026-04-21T08:00:00.000Z"),
+      updatedAt: new Date("2026-04-21T08:00:00.000Z"),
+    });
+    await stateStore.publishNodeSnapshot({
+      nodeId: "node-a",
+      displayName: "Gateway Node A",
+      mode: "local",
+      schedulerRole: "local",
+      lastKnownAddress: "http://127.0.0.1:7890",
+      lifecycle: "error",
+      lastHeartbeatAt: null,
+      lastError: "Error: bootstrap rejection",
+      bindingStatuses: [],
+      updatedAt: "2026-04-21T08:05:00.000Z",
+    });
+
+    const reader = new RuntimeClusterStateReader(
+      bindingRepo,
+      agentRepo,
+      runtimeNodeRepo,
+      stateStore,
+    );
+
+    assert.deepEqual(await reader.listNodes(), [
+      {
+        nodeId: "node-a",
+        displayName: "Gateway Node A",
+        mode: "local",
+        schedulerRole: "local",
+        lastKnownAddress: "http://127.0.0.1:7890",
+        lifecycle: "error",
+        lastHeartbeatAt: null,
+        lastError: "Error: bootstrap rejection",
+        bindingCount: 0,
+        updatedAt: "2026-04-21T08:05:00.000Z",
+      },
+    ]);
+  });
+
+  test("uses unknown scheduler role for cluster-mode DB nodes without snapshots", async () => {
+    const { RuntimeClusterStateReader } = await import(
+      "../runtime/runtime-cluster-state-reader.js"
+    );
+    const stateStore = new LocalNodeRuntimeStateStore();
+    const bindingRepo = new ChannelBindingStateRepository();
+    const agentRepo = new AgentConfigStateRepository();
+    const runtimeNodeRepo = new (await import("../infra/runtime-node-repo.js"))
+      .RuntimeNodeStateRepository();
+
+    await runtimeNodeRepo.upsert({
+      nodeId: "node-cluster",
+      displayName: "Cluster Node",
+      mode: "cluster",
+      lastKnownAddress: "http://127.0.0.1:7891",
+      registeredAt: new Date("2026-04-21T08:00:00.000Z"),
+      updatedAt: new Date("2026-04-21T08:00:00.000Z"),
+    });
+
+    const reader = new RuntimeClusterStateReader(
+      bindingRepo,
+      agentRepo,
+      runtimeNodeRepo,
+      stateStore,
+    );
+
+    assert.deepEqual(await reader.listNodes(), [
+      {
+        nodeId: "node-cluster",
+        displayName: "Cluster Node",
+        mode: "cluster",
+        schedulerRole: "unknown",
+        lastKnownAddress: "http://127.0.0.1:7891",
+        lifecycle: "stopped",
+        lastHeartbeatAt: null,
+        lastError: null,
+        bindingCount: 0,
+        updatedAt: "2026-04-21T08:00:00.000Z",
       },
     ]);
   });
@@ -903,8 +1014,11 @@ describe("RuntimeClusterStateReader", () => {
       nodeId: "node-a",
       displayName: "Gateway Node A",
       mode: "local",
+      schedulerRole: "local",
       lastKnownAddress: "http://127.0.0.1:7890",
       lifecycle: "ready",
+      lastHeartbeatAt: "2026-04-21T08:00:00.000Z",
+      lastError: null,
       bindingStatuses: [
         {
           bindingId: binding.id,
@@ -919,8 +1033,11 @@ describe("RuntimeClusterStateReader", () => {
       nodeId: "node-a",
       displayName: "Gateway Node A",
       mode: "local",
+      schedulerRole: "local",
       lastKnownAddress: "http://127.0.0.1:7890",
       lifecycle: "ready",
+      lastHeartbeatAt: "2026-04-21T09:00:00.000Z",
+      lastError: null,
       bindingStatuses: [],
       updatedAt: "2026-04-21T09:00:00.000Z",
     });
@@ -1357,6 +1474,7 @@ describe("runtime bootstrapper", () => {
     );
     let relayBootstrapAttempts = 0;
     let relayShutdownCalls = 0;
+    const snapshots: LocalRuntimeSnapshot[] = [];
 
     const bootstrapper = new RuntimeBootstrapper(
       buildGatewayConfig({
@@ -1369,6 +1487,11 @@ describe("runtime bootstrapper", () => {
       {
         upsert: async () => {},
       } as never,
+      {
+        publishNodeSnapshot: async (snapshot: LocalRuntimeSnapshot) => {
+          snapshots.push(cloneRuntimeSnapshot(snapshot));
+        },
+      } as NodeRuntimeStateStore,
       {
         bootstrap: async () => {
           relayBootstrapAttempts += 1;
@@ -1387,11 +1510,96 @@ describe("runtime bootstrapper", () => {
     );
 
     await assert.rejects(bootstrapper.bootstrap(), /bootstrap rejection/);
+    assert.equal(snapshots.length, 1);
+    assert.equal(snapshots[0]?.lifecycle, "error");
+    assert.equal(snapshots[0]?.schedulerRole, "unknown");
+    assert.equal(snapshots[0]?.lastError, "Error: bootstrap rejection");
+    assert.equal(snapshots[0]?.lastHeartbeatAt, null);
     await bootstrapper.bootstrap();
     await bootstrapper.shutdown();
 
     assert.equal(relayBootstrapAttempts, 2);
     assert.equal(relayShutdownCalls, 1);
+  });
+
+  test("runtime bootstrapper leaves bootstrap failures in error state after relay cleanup", async () => {
+    const { RuntimeBootstrapper } = await import(
+      "../runtime/runtime-bootstrapper.js"
+    );
+    let relayBootstrapAttempts = 0;
+    const snapshots: LocalRuntimeSnapshot[] = [];
+
+    const bootstrapper = new RuntimeBootstrapper(
+      buildGatewayConfig({
+        port: 7901,
+        clusterMode: true,
+        nodeId: "node-runtime-bootstrapper-late-failure",
+        nodeDisplayName: "Runtime Bootstrapper Late Failure",
+        runtimeAddress: "http://localhost:7901",
+      }),
+      {
+        upsert: async () => {},
+      } as never,
+      {
+        publishNodeSnapshot: async (snapshot: LocalRuntimeSnapshot) => {
+          snapshots.push(cloneRuntimeSnapshot(snapshot));
+        },
+      } as NodeRuntimeStateStore,
+      {
+        bootstrap: async () => {
+          relayBootstrapAttempts += 1;
+        },
+        shutdown: async () => {
+          snapshots.push({
+            nodeId: "node-runtime-bootstrapper-late-failure",
+            displayName: "Runtime Bootstrapper Late Failure",
+            mode: "cluster",
+            schedulerRole: "unknown",
+            lastKnownAddress: "http://localhost:7901",
+            lifecycle: "stopping",
+            lastHeartbeatAt: null,
+            lastError: null,
+            bindingStatuses: [],
+            updatedAt: new Date("2026-04-21T08:10:00.000Z").toISOString(),
+          });
+          snapshots.push({
+            nodeId: "node-runtime-bootstrapper-late-failure",
+            displayName: "Runtime Bootstrapper Late Failure",
+            mode: "cluster",
+            schedulerRole: "unknown",
+            lastKnownAddress: "http://localhost:7901",
+            lifecycle: "stopped",
+            lastHeartbeatAt: null,
+            lastError: null,
+            bindingStatuses: [],
+            updatedAt: new Date("2026-04-21T08:10:01.000Z").toISOString(),
+          });
+        },
+      } as RelayRuntime,
+      {
+        reconcile: async () => {},
+      } as unknown as RuntimeAssignmentCoordinator,
+      new DomainEventBus(),
+      () => ({
+        schedulerKind: "leader",
+        scheduler: {
+          start: () => {
+            throw new Error("scheduler start failure");
+          },
+          stop: async () => {},
+        },
+      } as never),
+    );
+
+    await assert.rejects(bootstrapper.bootstrap(), /scheduler start failure/);
+    assert.equal(relayBootstrapAttempts, 1);
+    assert.deepEqual(
+      snapshots.map((snapshot) => snapshot.lifecycle),
+      ["stopping", "stopped", "error"],
+    );
+    assert.equal(snapshots.at(-1)?.lifecycle, "error");
+    assert.equal(snapshots.at(-1)?.lastHeartbeatAt, null);
+    assert.equal(snapshots.at(-1)?.schedulerRole, "unknown");
   });
 });
 
@@ -1506,14 +1714,20 @@ describe("RelayRuntime node state snapshots", () => {
       ["bootstrapping", "ready", "stopping", "stopped"],
     );
 
-    for (const snapshot of snapshots) {
-      assert.equal(snapshot.nodeId, "node-a");
-      assert.equal(snapshot.displayName, "Node A");
-      assert.equal(snapshot.mode, "local");
-      assert.equal(snapshot.lastKnownAddress, "http://127.0.0.1:7890");
-      assert.deepEqual(snapshot.bindingStatuses, []);
-      assert.match(snapshot.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
-    }
+    assert.equal(snapshots[0]?.nodeId, "node-a");
+    assert.equal(snapshots[0]?.displayName, "Node A");
+    assert.equal(snapshots[0]?.mode, "local");
+    assert.equal(snapshots[0]?.schedulerRole, "local");
+    assert.equal(snapshots[0]?.lastKnownAddress, "http://127.0.0.1:7890");
+    assert.equal(snapshots[0]?.lastError, null);
+    assert.match(snapshots[0]?.lastHeartbeatAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(snapshots[0]?.bindingStatuses, []);
+    assert.match(snapshots[0]?.updatedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
+
+    assert.equal(snapshots[1]?.nodeId, "node-a");
+    assert.ok(snapshots[1]?.lastHeartbeatAt);
+    assert.equal(snapshots[2]?.lastHeartbeatAt, snapshots[1]?.lastHeartbeatAt);
+    assert.equal(snapshots[3]?.lastHeartbeatAt, snapshots[1]?.lastHeartbeatAt);
   });
 
   test("bootstrap does not reassemble the plugin runtime or host", async () => {
@@ -1588,13 +1802,13 @@ describe("RelayRuntime node state snapshots", () => {
         .listNodeSnapshots()
         .some(
           (snapshot) =>
-            snapshot.lifecycle === "stopped" ||
             snapshot.bindingStatuses.some(
               (status) =>
                 status.bindingId === binding.id && status.status === "connected",
             ),
         ),
     );
+    await new Promise((resolve) => setTimeout(resolve, 5));
     await runtime.shutdown();
 
     const snapshots = stateStore.listNodeSnapshots().reverse();
@@ -1611,8 +1825,92 @@ describe("RelayRuntime node state snapshots", () => {
         updatedAt: stoppingSnapshot?.bindingStatuses[0]?.updatedAt,
       },
     ]);
+    assert.equal(stoppingSnapshot?.schedulerRole, "local");
+    assert.equal(stoppingSnapshot?.lastError, null);
     assert.equal(stoppedSnapshot?.lifecycle, "stopped");
+    assert.equal(stoppedSnapshot?.schedulerRole, "local");
+    assert.equal(stoppedSnapshot?.lastError, null);
     assert.deepEqual(stoppedSnapshot?.bindingStatuses, []);
+  });
+
+  test("refreshes heartbeat for live binding activity and preserves it through shutdown", async () => {
+    const config = buildGatewayConfig({
+      clusterMode: false,
+      nodeId: "node-a",
+      nodeDisplayName: "Node A",
+      runtimeAddress: "http://127.0.0.1:7890",
+    });
+    const stateStore = new LocalNodeRuntimeStateStore();
+    const transportRegistryProvider = new TransportRegistryProvider([
+      {
+        protocol: "a2a",
+        send: async () => ({ text: "" }),
+      },
+    ]);
+    const agentClientRegistry = new AgentClientRegistry(transportRegistryProvider);
+    const runtime = createRelayRuntime({
+      config,
+      stateStore,
+      pluginHostProvider: new ConnectedPluginHostProvider(),
+      agentClientRegistry,
+    });
+    const agent = {
+      id: "agent-1",
+      name: "Agent One",
+      url: "http://agent-1",
+      protocol: "a2a" as const,
+      createdAt: new Date().toISOString(),
+    };
+    const binding = {
+      id: "binding-1",
+      name: "Binding One",
+      channelType: "feishu",
+      accountId: "default",
+      channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+      agentId: agent.id,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    await runtime.bootstrap();
+    const readySnapshot = stateStore
+      .listNodeSnapshots()
+      .find((snapshot) => snapshot.lifecycle === "ready");
+    assert.ok(readySnapshot?.lastHeartbeatAt);
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await runtime.attachBinding(binding, agent);
+    await waitFor(() =>
+      stateStore
+        .listNodeSnapshots()
+        .some(
+          (snapshot) =>
+            snapshot.bindingStatuses.some(
+              (status) =>
+                status.bindingId === binding.id && status.status === "connected",
+            ),
+        ),
+    );
+
+    const beforeShutdownSnapshots = stateStore.listNodeSnapshots().reverse();
+    const connectedSnapshot = beforeShutdownSnapshots.find((snapshot) =>
+      snapshot.bindingStatuses.some(
+        (status) =>
+          status.bindingId === binding.id && status.status === "connected",
+      ),
+    );
+    assert.ok(connectedSnapshot?.lastHeartbeatAt);
+    assert.notEqual(connectedSnapshot?.lastHeartbeatAt, readySnapshot?.lastHeartbeatAt);
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await runtime.shutdown();
+
+    const shutdownSnapshots = stateStore.listNodeSnapshots().reverse();
+    const stoppingSnapshot = shutdownSnapshots.at(-2);
+    const stoppedSnapshot = shutdownSnapshots.at(-1);
+
+    assert.equal(stoppingSnapshot?.lastHeartbeatAt, connectedSnapshot?.lastHeartbeatAt);
+    assert.equal(stoppedSnapshot?.lastHeartbeatAt, connectedSnapshot?.lastHeartbeatAt);
   });
 
   test("serializes async state store publications for owned connection status updates", async () => {
@@ -1661,6 +1959,7 @@ describe("RelayRuntime node state snapshots", () => {
     relayRuntime.applyOwnedConnectionStatus(binding.id, "connecting", "http://agent-1");
     await stateStore.waitForPending(1);
 
+    await new Promise((resolve) => setTimeout(resolve, 5));
     relayRuntime.applyOwnedConnectionStatus(binding.id, "connected", "http://agent-1");
     assert.equal(stateStore.getPendingCount(), 1);
 
@@ -1669,10 +1968,9 @@ describe("RelayRuntime node state snapshots", () => {
     stateStore.releasePending(0);
     await stateStore.waitForCommitted(2);
 
+    const committedSnapshots = stateStore.listCommittedSnapshots();
     assert.deepEqual(
-      stateStore
-        .listCommittedSnapshots()
-        .map((snapshot) => snapshot.bindingStatuses[0]?.status),
+      committedSnapshots.map((snapshot) => snapshot.bindingStatuses[0]?.status),
       ["connecting", "connected"],
     );
   });

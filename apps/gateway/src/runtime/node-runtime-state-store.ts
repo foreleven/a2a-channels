@@ -10,8 +10,11 @@ export interface RuntimeNodeListItem {
   nodeId: string;
   displayName: string;
   mode: LocalRuntimeSnapshot["mode"];
+  schedulerRole: LocalRuntimeSnapshot["schedulerRole"];
   lastKnownAddress: string;
   lifecycle: LocalRuntimeSnapshot["lifecycle"];
+  lastHeartbeatAt: string | null;
+  lastError: string | null;
   bindingCount: number;
   updatedAt: string;
 }
