@@ -2092,7 +2092,7 @@ describe("RelayRuntime node state snapshots", () => {
     assert.deepEqual(stoppedSnapshot?.bindingStatuses, []);
   });
 
-  test("refreshes heartbeat for live binding activity and preserves it through shutdown", async () => {
+  test("preserves the ready heartbeat through live binding activity and shutdown", async () => {
     const config = buildGatewayConfig({
       clusterMode: false,
       nodeId: "node-a",
@@ -2159,7 +2159,7 @@ describe("RelayRuntime node state snapshots", () => {
       ),
     );
     assert.ok(connectedSnapshot?.lastHeartbeatAt);
-    assert.notEqual(connectedSnapshot?.lastHeartbeatAt, readySnapshot?.lastHeartbeatAt);
+    assert.equal(connectedSnapshot?.lastHeartbeatAt, readySnapshot?.lastHeartbeatAt);
 
     await new Promise((resolve) => setTimeout(resolve, 5));
     await runtime.shutdown();
@@ -2211,10 +2211,27 @@ describe("RelayRuntime node state snapshots", () => {
         agentUrl?: string,
         error?: unknown,
       ): void;
-      bindingsById: Map<string, typeof binding>;
+      ownershipState: {
+        upsertBinding(
+          ownedBinding: typeof binding,
+          options: {
+            forceRestart: boolean;
+            hasActiveConnection: boolean;
+            runnable: boolean;
+          },
+        ): {
+          publishSnapshot: boolean;
+          shouldRestart: boolean;
+          shouldStop: boolean;
+        };
+      };
     };
 
-    relayRuntime.bindingsById.set(binding.id, binding);
+    relayRuntime.ownershipState.upsertBinding(binding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: true,
+    });
     relayRuntime.applyOwnedConnectionStatus(binding.id, "connecting", "http://agent-1");
     await stateStore.waitForPending(1);
 
@@ -2296,6 +2313,15 @@ describe("RelayRuntime ownership semantics", () => {
     hasActiveConnection: RelayRuntime["hasActiveConnection"];
     listBindings: RelayRuntime["listBindings"];
     listConnectionStatuses: RelayRuntime["listConnectionStatuses"];
+    ownershipState: {
+      getOwnedBinding(
+        bindingId: string,
+      ): {
+        binding: ReturnType<typeof createBindingBase>;
+        status: { bindingId: string; status: string };
+        reconnectAttempt: number;
+      } | undefined;
+    };
     connectionManager: RelayRuntime["connectionManager"] & {
       restartConnection(binding: { id: string }): Promise<void>;
       stopConnection(bindingId: string): Promise<void>;
@@ -2507,22 +2533,18 @@ describe("RelayRuntime ownership semantics", () => {
     assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
   });
 
-  test("assignBinding seeds a new binding and releaseBinding removes it", async () => {
+  test("assignBinding stores the owned binding inside ownership state", async () => {
     const runtime = createRelayRuntimeForTest();
     const binding = createBinding();
     const agent = createAgent();
 
     await runtime.assignBinding(binding, agent);
-    assert.equal(
-      runtime.listBindings().some((item) => item.id === binding.id),
-      true,
-    );
+    assert.deepEqual(runtime.ownershipState.getOwnedBinding(binding.id)?.binding, binding);
+    assert.equal(runtime.listBindings()[0]?.id, binding.id);
 
     await runtime.releaseBinding(binding.id);
-    assert.equal(
-      runtime.listBindings().some((item) => item.id === binding.id),
-      false,
-    );
+    assert.equal(runtime.ownershipState.getOwnedBinding(binding.id), undefined);
+    assert.deepEqual(runtime.listBindings(), []);
   });
 });
 
@@ -2549,6 +2571,16 @@ describe("RelayRuntime reconnect policy", () => {
   type RelayRuntimeReconnectHarness = {
     attachBinding: RelayRuntime["attachBinding"];
     hasActiveConnection: RelayRuntime["hasActiveConnection"];
+    ownershipState: {
+      getOwnedBinding(
+        bindingId: string,
+      ): { binding: ReturnType<typeof createBinding> } | undefined;
+      scheduleReconnect(
+        bindingId: string,
+        delayMs: number,
+        callback: () => void | Promise<void>,
+      ): void;
+    };
     connectionManager: RelayRuntime["connectionManager"] & {
       restartConnection(binding: { id: string }): Promise<void>;
     };
@@ -2581,6 +2613,43 @@ describe("RelayRuntime reconnect policy", () => {
       new Error("boom"),
     );
     await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
+  });
+
+  test("schedules reconnect through ownership state", async () => {
+    const restartCalls: string[] = [];
+    const scheduledReconnects: Array<{
+      bindingId: string;
+      delayMs: number;
+      callback: () => void | Promise<void>;
+    }> = [];
+    const runtime = createRelayRuntime({
+      reconnectPolicy: createReconnectPolicy({ baseDelayMs: 1, maxDelayMs: 1 }),
+      transports: [{ protocol: "a2a", send: async () => ({ text: "" }) }],
+    }) as unknown as RelayRuntimeReconnectHarness;
+    const binding = createBinding();
+    const agent = createAgent();
+
+    runtime.connectionManager.restartConnection = async (nextBinding) => {
+      restartCalls.push(nextBinding.id);
+    };
+    runtime.ownershipState.scheduleReconnect = (bindingId, delayMs, callback) => {
+      scheduledReconnects.push({ bindingId, delayMs, callback });
+    };
+
+    await runtime.attachBinding(binding, agent);
+    runtime.applyOwnedConnectionStatus(
+      binding.id,
+      "error",
+      agent.url,
+      new Error("boom"),
+    );
+
+    assert.equal(scheduledReconnects.length, 1);
+    assert.equal(scheduledReconnects[0]?.bindingId, binding.id);
+    assert.equal(scheduledReconnects[0]?.delayMs, 1);
+    await scheduledReconnects[0]?.callback();
 
     assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
   });

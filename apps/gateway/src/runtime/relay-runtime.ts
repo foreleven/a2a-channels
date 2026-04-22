@@ -47,10 +47,8 @@ export class RelayRuntime {
   readonly pluginHost: OpenClawPluginHost;
   readonly connectionManager: RelayRuntimeAssembly["connectionManager"];
 
-  private bindingsById = new Map<string, ChannelBinding>();
   private agentsById = new Map<string, AgentConfig>();
   private agentsByUrl = new Map<string, AgentConfig>();
-  private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly nodeState: RuntimeNodeState;
   private readonly stateStore: NodeRuntimeStateStore;
   private readonly agentClientRegistry: AgentClientRegistry;
@@ -72,10 +70,8 @@ export class RelayRuntime {
     this.stateStore = stateStore;
     this.agentClientRegistry = agentClientRegistry;
     this.ownershipState = ownershipState;
-    this.bindingsById = new Map();
     this.agentsById = new Map();
     this.agentsByUrl = new Map();
-    this.reconnectTimers = new Map();
     this.openClawConfig = buildOpenClawConfigFromBindings([], this.agentsById);
     this.transportRegistry = this.agentClientRegistry.transportRegistry;
     const assembly = assemblyProvider.create({
@@ -101,13 +97,17 @@ export class RelayRuntime {
 
   async bootstrap(): Promise<void> {
     await this.publishNodeSnapshot(this.nodeState.markBootstrapping());
-    await this.publishNodeSnapshot(this.nodeState.markReady());
+    await this.publishNodeSnapshot(
+      this.nodeState.markReady(this.ownershipState.listConnectionStatuses()),
+    );
   }
 
   async shutdown(): Promise<void> {
-    await this.publishNodeSnapshot(this.nodeState.markStopping());
-    for (const bindingId of Array.from(this.reconnectTimers.keys())) {
-      this.clearReconnectTimer(bindingId);
+    await this.publishNodeSnapshot(
+      this.nodeState.markStopping(this.ownershipState.listConnectionStatuses()),
+    );
+    for (const bindingId of this.listOwnedBindingIds()) {
+      this.ownershipState.clearReconnect(bindingId);
     }
     await this.connectionManager.stopAllConnections();
     await this.agentClientRegistry.stopAll();
@@ -156,50 +156,39 @@ export class RelayRuntime {
     binding: ChannelBinding,
     options: ApplyBindingUpsertOptions = {},
   ): Promise<void> {
-    const previous = this.bindingsById.get(binding.id);
-    if (this.ensureOwnershipState(binding)) {
-      await this.publishNodeSnapshot(this.nodeState.attachBinding(binding.id));
+    const ownershipUpdate = this.ownershipState.upsertBinding(binding, {
+      forceRestart: options.forceRestart ?? false,
+      hasActiveConnection: this.hasActiveConnection(binding.id),
+      runnable: this.isRunnableBinding(binding),
+    });
+
+    this.rebuildOpenClawConfig();
+
+    if (ownershipUpdate.publishSnapshot) {
+      await this.publishNodeSnapshot();
     }
 
-    if (
-      previous &&
-      this.areBindingsEquivalent(previous, binding) &&
-      this.hasActiveConnection(binding.id) &&
-      !options.forceRestart
-    ) {
-      this.bindingsById.set(binding.id, binding);
+    if (ownershipUpdate.shouldStop) {
+      this.ownershipState.clearReconnect(binding.id);
+      await this.connectionManager.stopConnection(binding.id);
       return;
     }
 
-    this.bindingsById.set(binding.id, binding);
-    this.openClawConfig = buildOpenClawConfigFromBindings(
-      this.listBindings(),
-      this.agentsById,
-    );
-
-    if (previous && this.areBindingsEquivalent(previous, binding) && !options.forceRestart) {
-      await this.syncBindingConnection(binding);
+    if (!ownershipUpdate.shouldRestart) {
       return;
     }
 
-    await this.syncBindingConnection(binding);
+    this.ownershipState.clearReconnect(binding.id);
+    await this.connectionManager.restartConnection(binding);
   }
 
   async applyBindingDelete(bindingId: string): Promise<void> {
-    const existing = this.bindingsById.get(bindingId);
-    if (!existing) {
+    if (!this.ownershipState.releaseBinding(bindingId)) {
       return;
     }
 
-    this.clearReconnectTimer(bindingId);
-    this.bindingsById.delete(bindingId);
-    this.ownershipState.detachBinding(bindingId);
-    await this.publishNodeSnapshot(this.nodeState.detachBinding(bindingId));
-    this.openClawConfig = buildOpenClawConfigFromBindings(
-      this.listBindings(),
-      this.agentsById,
-    );
-
+    this.rebuildOpenClawConfig();
+    await this.publishNodeSnapshot();
     await this.connectionManager.stopConnection(bindingId);
   }
 
@@ -216,10 +205,7 @@ export class RelayRuntime {
 
     await this.agentClientRegistry.upsert(agent, previous);
 
-    this.openClawConfig = buildOpenClawConfigFromBindings(
-      this.listBindings(),
-      this.agentsById,
-    );
+    this.rebuildOpenClawConfig();
 
     const affectedBindings = this.listBindings().filter(
       (binding) =>
@@ -228,7 +214,7 @@ export class RelayRuntime {
     );
 
     for (const binding of affectedBindings) {
-      await this.syncBindingConnection(binding);
+      await this.applyBindingUpsert(binding, { forceRestart: true });
     }
   }
 
@@ -240,6 +226,7 @@ export class RelayRuntime {
 
     this.agentsById.delete(agentId);
     this.agentsByUrl.delete(existing.url);
+    this.rebuildOpenClawConfig();
     await this.agentClientRegistry.remove(existing);
   }
 
@@ -248,9 +235,10 @@ export class RelayRuntime {
   }
 
   listBindings(): ChannelBinding[] {
-    return Array.from(this.bindingsById.values()).sort((a, b) =>
-      a.createdAt.localeCompare(b.createdAt),
-    );
+    return this.ownershipState
+      .listOwnedBindings()
+      .map(({ binding }) => binding)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   listEnabledBindings(): ChannelBinding[] {
@@ -270,73 +258,11 @@ export class RelayRuntime {
   }
 
   listOwnedBindingIds(): string[] {
-    return this.ownershipState.listConnectionStatuses().map(
-      (status) => status.bindingId,
-    );
+    return this.ownershipState.listOwnedBindings().map(({ binding }) => binding.id);
   }
 
   hasActiveConnection(bindingId: string): boolean {
     return this.connectionManager.hasConnection(bindingId);
-  }
-
-  private ensureOwnershipState(binding: ChannelBinding): boolean {
-    const isOwned = this.ownershipState
-      .listConnectionStatuses()
-      .some((status) => status.bindingId === binding.id);
-
-    if (isOwned) {
-      return false;
-    }
-
-    this.ownershipState.attachBinding(binding);
-    return true;
-  }
-
-  private async syncBindingConnection(binding: ChannelBinding): Promise<void> {
-    this.clearReconnectTimer(binding.id);
-    if (!binding.enabled || !this.isRunnableBinding(binding)) {
-      await this.publishNodeSnapshot(this.resetOwnershipStatusToIdle(binding));
-      await this.connectionManager.stopConnection(binding.id);
-      return;
-    }
-
-    await this.connectionManager.restartConnection(binding);
-  }
-
-  private resetOwnershipStatusToIdle(binding: ChannelBinding): LocalRuntimeSnapshot {
-    this.ownershipState.detachBinding(binding.id);
-    this.ownershipState.attachBinding(binding);
-    return this.nodeState.markBindingIdle(binding.id);
-  }
-
-  private scheduleReconnect(
-    bindingId: string,
-    delayMs: number,
-  ): void {
-    this.clearReconnectTimer(bindingId);
-    const binding = this.bindingsById.get(bindingId);
-    if (!binding || !binding.enabled || !this.isRunnableBinding(binding)) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      this.reconnectTimers.delete(bindingId);
-      const latestBinding = this.bindingsById.get(bindingId);
-      if (!latestBinding || !latestBinding.enabled || !this.isRunnableBinding(latestBinding)) {
-        return;
-      }
-      void this.connectionManager.restartConnection(latestBinding);
-    }, delayMs);
-
-    this.reconnectTimers.set(bindingId, timer);
-  }
-
-  private clearReconnectTimer(bindingId: string): void {
-    const timer = this.reconnectTimers.get(bindingId);
-    if (timer) {
-      clearTimeout(timer);
-    }
-    this.reconnectTimers.delete(bindingId);
   }
 
   private applyOwnedConnectionStatus(
@@ -345,29 +271,32 @@ export class RelayRuntime {
     agentUrl?: string,
     error?: unknown,
   ): void {
-    const binding = this.bindingsById.get(bindingId);
-    if (!binding) {
+    if (!this.ownershipState.getOwnedBinding(bindingId)) {
       return;
     }
 
-    this.ensureOwnershipState(binding);
-    let snapshot: LocalRuntimeSnapshot | undefined;
-
     switch (status) {
       case "connecting":
-        this.clearReconnectTimer(bindingId);
         this.ownershipState.markConnecting(bindingId, agentUrl);
-        snapshot = this.nodeState.markBindingConnecting(bindingId, agentUrl);
         break;
       case "connected":
-        this.clearReconnectTimer(bindingId);
         this.ownershipState.markConnected(bindingId, agentUrl);
-        snapshot = this.nodeState.markBindingConnected(bindingId, agentUrl);
         break;
       case "disconnected": {
         const decision = this.ownershipState.markDisconnected(bindingId, agentUrl);
-        snapshot = this.nodeState.markBindingDisconnected(bindingId, agentUrl);
-        this.scheduleReconnect(bindingId, decision.delayMs);
+        this.ownershipState.scheduleReconnect(bindingId, decision.delayMs, async () => {
+          const latestOwnedBinding = this.ownershipState.getOwnedBinding(bindingId);
+          if (!latestOwnedBinding) {
+            return;
+          }
+
+          const latestBinding = latestOwnedBinding.binding;
+          if (!latestBinding.enabled || !this.isRunnableBinding(latestBinding)) {
+            return;
+          }
+
+          await this.connectionManager.restartConnection(latestBinding);
+        });
         break;
       }
       case "error": {
@@ -376,22 +305,27 @@ export class RelayRuntime {
           error ?? new Error("Unknown connection error"),
           agentUrl,
         );
-        snapshot = this.nodeState.markBindingError(
-          bindingId,
-          error ?? new Error("Unknown connection error"),
-          agentUrl,
-        );
-        this.scheduleReconnect(bindingId, decision.delayMs);
+        this.ownershipState.scheduleReconnect(bindingId, decision.delayMs, async () => {
+          const latestOwnedBinding = this.ownershipState.getOwnedBinding(bindingId);
+          if (!latestOwnedBinding) {
+            return;
+          }
+
+          const latestBinding = latestOwnedBinding.binding;
+          if (!latestBinding.enabled || !this.isRunnableBinding(latestBinding)) {
+            return;
+          }
+
+          await this.connectionManager.restartConnection(latestBinding);
+        });
         break;
       }
       case "idle":
-        snapshot = this.nodeState.markBindingIdle(bindingId);
+        this.ownershipState.markIdle(bindingId);
         break;
     }
 
-    if (snapshot) {
-      this.publishNodeSnapshotInBackground(snapshot);
-    }
+    this.publishNodeSnapshotInBackground();
   }
 
   private async getAgentClient(
@@ -436,22 +370,17 @@ export class RelayRuntime {
     return false;
   }
 
-  private areBindingsEquivalent(
-    left: ChannelBinding,
-    right: ChannelBinding,
-  ): boolean {
-    return (
-      left.name === right.name &&
-      left.channelType === right.channelType &&
-      left.accountId === right.accountId &&
-      left.agentId === right.agentId &&
-      left.enabled === right.enabled &&
-      JSON.stringify(left.channelConfig) === JSON.stringify(right.channelConfig)
+  private rebuildOpenClawConfig(): void {
+    this.openClawConfig = buildOpenClawConfigFromBindings(
+      this.ownershipState.listOwnedBindings().map(({ binding }) => binding),
+      this.agentsById,
     );
   }
 
   private async publishNodeSnapshot(
-    snapshot: LocalRuntimeSnapshot = this.nodeState.snapshot(),
+    snapshot: LocalRuntimeSnapshot = this.nodeState.snapshot(
+      this.ownershipState.listConnectionStatuses(),
+    ),
   ): Promise<void> {
     const publish = this.nodeSnapshotPublishQueue.then(() =>
       this.stateStore.publishNodeSnapshot(snapshot),
@@ -461,7 +390,9 @@ export class RelayRuntime {
   }
 
   private publishNodeSnapshotInBackground(
-    snapshot: LocalRuntimeSnapshot = this.nodeState.snapshot(),
+    snapshot: LocalRuntimeSnapshot = this.nodeState.snapshot(
+      this.ownershipState.listConnectionStatuses(),
+    ),
   ): void {
     void this.publishNodeSnapshot(snapshot).catch((error) => {
       console.error("[runtime] failed to publish node snapshot:", error);
