@@ -111,3 +111,4 @@ It exposes:
 - Channel bindings persist `agentId`; the gateway resolves the effective target URL from the Agent config when building runtime/OpenClaw config or routing messages.
 - All OpenClaw-compatible channel plugins should work without a dedicated wrapper package — registering them in `register-plugins.ts` is sufficient.
 - Gateway environment variables include `PORT`, `DB_PATH`, `CORS_ORIGIN`, `ECHO_AGENT_URL`, and Feishu bootstrap credentials; see `.env.example` and `README.md` for details.
+- Runtime boundary rule: `RuntimeAssignmentCoordinator` must not route binding reconciliation through `RelayRuntime`. Do not call `assignBinding`, `releaseBinding`, `listOwnedBindingIds`, or similar methods via the runtime facade from the coordinator. Reconcile logic must depend on a dedicated narrow boundary for binding ownership/assignment commands and queries, and `RelayRuntime` may consume that same lower-level service rather than acting as an extra hop.

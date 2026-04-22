@@ -105,7 +105,6 @@ export class RuntimeBootstrapper {
         clusterMode: this.config.clusterMode,
         redisUrl: this.config.redisUrl,
         coordinator: this.coordinator,
-        relay: this.relay,
         eventBus: this.eventBus,
       });
       runtimeBootstrap.scheduler.start();

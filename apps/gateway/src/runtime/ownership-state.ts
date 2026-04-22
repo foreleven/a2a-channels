@@ -1,4 +1,5 @@
 import type { ChannelBinding, RuntimeConnectionStatus } from "@a2a-channels/core";
+import { injectable } from "inversify";
 
 import {
   createReconnectPolicy,
@@ -106,16 +107,17 @@ function createOwnedBinding(binding: ChannelBinding): OwnedRuntimeBindingRecord 
   };
 }
 
-export function createRuntimeOwnershipState(
-  options: CreateRuntimeOwnershipStateOptions = {},
-): RuntimeOwnershipState {
-  const reconnectPolicy = options.reconnectPolicy ?? createReconnectPolicy();
-  const bindings = new Map<string, OwnedRuntimeBindingRecord>();
+@injectable()
+export class InMemoryRuntimeOwnershipState implements RuntimeOwnershipState {
+  private readonly reconnectPolicy: ReconnectPolicy;
+  private readonly bindings = new Map<string, OwnedRuntimeBindingRecord>();
 
-  function getOwnedBindingOrThrow(
-    bindingId: string,
-  ): OwnedRuntimeBindingRecord {
-    const owned = bindings.get(bindingId);
+  constructor(options: CreateRuntimeOwnershipStateOptions = {}) {
+    this.reconnectPolicy = options.reconnectPolicy ?? createReconnectPolicy();
+  }
+
+  private getOwnedBindingOrThrow(bindingId: string): OwnedRuntimeBindingRecord {
+    const owned = this.bindings.get(bindingId);
     if (!owned) {
       throw new Error(`Binding ${bindingId} not found`);
     }
@@ -123,13 +125,13 @@ export function createRuntimeOwnershipState(
     return owned;
   }
 
-  function setStatus(
+  private setStatus(
     bindingId: string,
     status: RuntimeConnectionStatus["status"],
     agentUrl?: string,
     error?: unknown,
   ): RuntimeConnectionStatus {
-    const owned = getOwnedBindingOrThrow(bindingId);
+    const owned = this.getOwnedBindingOrThrow(bindingId);
 
     owned.status = {
       bindingId,
@@ -142,8 +144,8 @@ export function createRuntimeOwnershipState(
     return cloneStatus(owned.status);
   }
 
-  function clearReconnectTimer(bindingId: string): void {
-    const owned = bindings.get(bindingId);
+  private clearReconnectTimer(bindingId: string): void {
+    const owned = this.bindings.get(bindingId);
     if (!owned || !owned.reconnectTimer) {
       return;
     }
@@ -152,46 +154,46 @@ export function createRuntimeOwnershipState(
     owned.reconnectTimer = null;
   }
 
-  function resetToIdle(bindingId: string): RuntimeConnectionStatus {
-    clearReconnectTimer(bindingId);
-    const owned = getOwnedBindingOrThrow(bindingId);
+  private resetToIdle(bindingId: string): RuntimeConnectionStatus {
+    this.clearReconnectTimer(bindingId);
+    const owned = this.getOwnedBindingOrThrow(bindingId);
     owned.reconnectAttempt = 0;
-    return setStatus(bindingId, "idle");
+    return this.setStatus(bindingId, "idle");
   }
 
-  function advanceReconnect(
+  private advanceReconnect(
     bindingId: string,
     status: "disconnected" | "error",
     agentUrl?: string,
     error?: unknown,
   ): ReconnectDecision {
-    const owned = getOwnedBindingOrThrow(bindingId);
+    const owned = this.getOwnedBindingOrThrow(bindingId);
 
     const attempt = owned.reconnectAttempt + 1;
     owned.reconnectAttempt = attempt;
-    setStatus(bindingId, status, agentUrl, error);
-    return reconnectPolicy.next(attempt);
+    this.setStatus(bindingId, status, agentUrl, error);
+    return this.reconnectPolicy.next(attempt);
   }
 
-  function upsertBinding(
+  upsertBinding(
     binding: ChannelBinding,
     options: RuntimeOwnershipUpsertOptions,
   ): RuntimeOwnershipUpsertResult {
-    const existing = bindings.get(binding.id);
+    const existing = this.bindings.get(binding.id);
     const equivalent = existing
       ? areBindingsEquivalent(existing.binding, binding)
       : false;
 
     if (!existing) {
-      bindings.set(binding.id, createOwnedBinding(binding));
+      this.bindings.set(binding.id, createOwnedBinding(binding));
     } else {
       existing.binding = cloneBinding(binding);
     }
 
-    const owned = getOwnedBindingOrThrow(binding.id);
+    const owned = this.getOwnedBindingOrThrow(binding.id);
 
     if (!binding.enabled || !options.runnable) {
-      resetToIdle(binding.id);
+      this.resetToIdle(binding.id);
       return {
         publishSnapshot: true,
         shouldRestart: false,
@@ -212,7 +214,7 @@ export function createRuntimeOwnershipState(
       };
     }
 
-    resetToIdle(binding.id);
+    this.resetToIdle(binding.id);
     owned.binding = cloneBinding(binding);
 
     return {
@@ -222,107 +224,109 @@ export function createRuntimeOwnershipState(
     };
   }
 
-    return {
-      attachBinding(binding: ChannelBinding): void {
-        upsertBinding(binding, {
-        forceRestart: false,
-        hasActiveConnection: false,
-        runnable: false,
-      });
-    },
+  attachBinding(binding: ChannelBinding): void {
+    this.upsertBinding(binding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: false,
+    });
+  }
 
-    detachBinding(bindingId: string): void {
-      this.releaseBinding(bindingId);
-    },
+  detachBinding(bindingId: string): void {
+    this.releaseBinding(bindingId);
+  }
 
-    upsertBinding,
+  releaseBinding(bindingId: string): boolean {
+    const owned = this.bindings.get(bindingId);
+    if (!owned) {
+      return false;
+    }
 
-    releaseBinding(bindingId: string): boolean {
-      const owned = bindings.get(bindingId);
-      if (!owned) {
-        return false;
+    this.clearReconnectTimer(bindingId);
+    this.bindings.delete(bindingId);
+    return true;
+  }
+
+  getOwnedBinding(bindingId: string): OwnedRuntimeBinding | undefined {
+    const owned = this.bindings.get(bindingId);
+    return owned ? cloneOwnedBinding(owned) : undefined;
+  }
+
+  listOwnedBindings(): OwnedRuntimeBinding[] {
+    return Array.from(this.bindings.values())
+      .map((entry) => cloneOwnedBinding(entry))
+      .sort((left, right) => left.binding.id.localeCompare(right.binding.id));
+  }
+
+  listConnectionStatuses(): RuntimeConnectionStatus[] {
+    return Array.from(this.bindings.values())
+      .map((entry) => cloneStatus(entry.status))
+      .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
+  }
+
+  scheduleReconnect(
+    bindingId: string,
+    delayMs: number,
+    callback: () => void | Promise<void>,
+  ): void {
+    const owned = this.getOwnedBindingOrThrow(bindingId);
+
+    this.clearReconnectTimer(bindingId);
+    const timer = setTimeout(() => {
+      const current = this.bindings.get(bindingId);
+      if (current) {
+        current.reconnectTimer = null;
       }
 
-      clearReconnectTimer(bindingId);
-      bindings.delete(bindingId);
-      return true;
-    },
+      void Promise.resolve(callback()).catch((error) => {
+        console.error(
+          `[runtime] reconnect callback failed for binding ${bindingId}:`,
+          error,
+        );
+      });
+    }, delayMs);
 
-    getOwnedBinding(bindingId: string): OwnedRuntimeBinding | undefined {
-      const owned = bindings.get(bindingId);
-      return owned ? cloneOwnedBinding(owned) : undefined;
-    },
+    owned.reconnectTimer = timer;
+  }
 
-    listOwnedBindings(): OwnedRuntimeBinding[] {
-      return Array.from(bindings.values())
-        .map((entry) => cloneOwnedBinding(entry))
-        .sort((left, right) => left.binding.id.localeCompare(right.binding.id));
-    },
+  clearReconnect(bindingId: string): void {
+    this.clearReconnectTimer(bindingId);
+  }
 
-    listConnectionStatuses(): RuntimeConnectionStatus[] {
-      return Array.from(bindings.values())
-        .map((entry) => cloneStatus(entry.status))
-        .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
-    },
+  markIdle(bindingId: string): RuntimeConnectionStatus {
+    return this.resetToIdle(bindingId);
+  }
 
-    scheduleReconnect(
-      bindingId: string,
-      delayMs: number,
-      callback: () => void | Promise<void>,
-    ): void {
-      const owned = getOwnedBindingOrThrow(bindingId);
+  markConnecting(bindingId: string, agentUrl?: string): RuntimeConnectionStatus {
+    this.clearReconnectTimer(bindingId);
+    return this.setStatus(bindingId, "connecting", agentUrl);
+  }
 
-      clearReconnectTimer(bindingId);
-      const timer = setTimeout(() => {
-        const current = bindings.get(bindingId);
-        if (current) {
-          current.reconnectTimer = null;
-        }
+  markConnected(bindingId: string, agentUrl?: string): RuntimeConnectionStatus {
+    this.clearReconnectTimer(bindingId);
+    const owned = this.getOwnedBindingOrThrow(bindingId);
+    owned.reconnectAttempt = 0;
+    return this.setStatus(bindingId, "connected", agentUrl);
+  }
 
-        void Promise.resolve(callback()).catch((error) => {
-          console.error(
-            `[runtime] reconnect callback failed for binding ${bindingId}:`,
-            error,
-          );
-        });
-      }, delayMs);
+  markDisconnected(
+    bindingId: string,
+    agentUrl?: string,
+  ): ReconnectDecision {
+    return this.advanceReconnect(bindingId, "disconnected", agentUrl);
+  }
 
-      owned.reconnectTimer = timer;
-    },
+  markError(
+    bindingId: string,
+    error: unknown,
+    agentUrl?: string,
+  ): ReconnectDecision {
+    return this.advanceReconnect(bindingId, "error", agentUrl, error);
+  }
+}
 
-    clearReconnect(bindingId: string): void {
-      clearReconnectTimer(bindingId);
-    },
-
-    markIdle(bindingId: string): RuntimeConnectionStatus {
-      return resetToIdle(bindingId);
-    },
-
-    markConnecting(bindingId: string, agentUrl?: string): RuntimeConnectionStatus {
-      clearReconnectTimer(bindingId);
-      return setStatus(bindingId, "connecting", agentUrl);
-    },
-
-    markConnected(bindingId: string, agentUrl?: string): RuntimeConnectionStatus {
-      clearReconnectTimer(bindingId);
-      const owned = getOwnedBindingOrThrow(bindingId);
-      owned.reconnectAttempt = 0;
-      return setStatus(bindingId, "connected", agentUrl);
-    },
-
-    markDisconnected(
-      bindingId: string,
-      agentUrl?: string,
-    ): ReconnectDecision {
-      return advanceReconnect(bindingId, "disconnected", agentUrl);
-    },
-
-    markError(
-      bindingId: string,
-      error: unknown,
-      agentUrl?: string,
-    ): ReconnectDecision {
-      return advanceReconnect(bindingId, "error", agentUrl, error);
-    },
-  };
+export function createRuntimeOwnershipState(
+  options: CreateRuntimeOwnershipStateOptions = {},
+): RuntimeOwnershipState {
+  return new InMemoryRuntimeOwnershipState(options);
 }

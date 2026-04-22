@@ -1,6 +1,8 @@
+import { inject, injectable } from "inversify";
 import type { RuntimeConnectionStatus } from "@a2a-channels/core";
 
 import type { GatewayConfig } from "../bootstrap/config.js";
+import { GatewayConfigToken } from "../bootstrap/config.js";
 
 export type LocalRuntimeLifecycle =
   | "bootstrapping"
@@ -24,12 +26,16 @@ export interface LocalRuntimeSnapshot {
   updatedAt: string;
 }
 
+@injectable()
 export class RuntimeNodeState {
   private lifecycle: LocalRuntimeLifecycle = "stopped";
   private lastError: string | null = null;
   private lastHeartbeatAt: string | null = null;
 
-  constructor(private readonly config: GatewayConfig) {}
+  constructor(
+    @inject(GatewayConfigToken)
+    private readonly config: GatewayConfig,
+  ) {}
 
   markBootstrapping(): LocalRuntimeSnapshot {
     return this.updateLifecycle("bootstrapping", null, true);

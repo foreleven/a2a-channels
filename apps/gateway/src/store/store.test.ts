@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { Container } from "inversify";
 
 import type {
   AgentClientHandle,
@@ -36,13 +37,23 @@ import { PluginHostProvider } from "../runtime/plugin-host-provider.js";
 import { buildRedisCoordinationKeys } from "../runtime/cluster/redis-coordination.js";
 import { createLocalOwnershipGate } from "../runtime/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local-scheduler.js";
+import { RelayRuntimeAssemblyHandle } from "../runtime/relay-runtime-assembly-handle.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RelayRuntimeAssemblyProvider } from "../runtime/relay-runtime-assembly-provider.js";
-import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
+import { RuntimeAgentCatalog } from "../runtime/runtime-agent-catalog.js";
+import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
+import {
+  RuntimeAssignmentCoordinator,
+  type RuntimeAssignmentCoordinatorOptions,
+} from "../runtime/runtime-assignment-coordinator.js";
+import { RuntimeBindingStateService } from "../runtime/runtime-binding-state-service.js";
+import { RuntimeBindingPolicy } from "../runtime/runtime-binding-policy.js";
 import {
   RuntimeNodeState,
   type LocalRuntimeSnapshot,
 } from "../runtime/runtime-node-state.js";
+import { RuntimeOwnedBindingManager } from "../runtime/runtime-owned-binding-manager.js";
+import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
 import type { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 import { TransportRegistryProvider } from "../runtime/transport-registry-provider.js";
 import { initStore, seedDefaults } from "../services/initialization.js";
@@ -52,7 +63,11 @@ import {
   getAgentUrlForChannelAccount,
   getAgentProtocolForUrl,
 } from "../services/routing.js";
-import { createRuntimeOwnershipState } from "../runtime/ownership-state.js";
+import {
+  createRuntimeOwnershipState,
+  InMemoryRuntimeOwnershipState,
+  RuntimeOwnershipStateToken,
+} from "../runtime/ownership-state.js";
 import { createReconnectPolicy, type ReconnectPolicy } from "../runtime/reconnect-policy.js";
 
 // ---------------------------------------------------------------------------
@@ -124,12 +139,38 @@ interface RelayRuntimeTestOptions {
   agentClientRegistry?: AgentClientRegistry;
   connectionManagerProvider?: ConnectionManagerProvider;
   assemblyProvider?: RelayRuntimeAssemblyProvider;
+  assemblyHandle?: RelayRuntimeAssemblyHandle;
+  agentCatalog?: RuntimeAgentCatalog;
+  assignmentService?: RuntimeAssignmentService;
   ownershipState?: ReturnType<typeof createRuntimeOwnershipState>;
   reconnectPolicy?: ReconnectPolicy;
   transports?: AgentTransport[];
+  runtimeBindingPolicy?: RuntimeBindingPolicy;
+  bindingStateService?: RuntimeBindingStateService;
+  ownedBindingManager?: RuntimeOwnedBindingManager;
+  snapshotPublisher?: RuntimeSnapshotPublisher;
 }
 
-function createRelayRuntime(options: RelayRuntimeTestOptions = {}) {
+type RelayRuntimeTestHarness = RelayRuntime & {
+  assignBinding: RuntimeAssignmentService["assignBinding"];
+  releaseBinding: RuntimeAssignmentService["releaseBinding"];
+  applyAgentUpsert: RuntimeAssignmentService["applyAgentUpsert"];
+  applyAgentDelete(agentId: string): Promise<void>;
+  listBindings: RuntimeAssignmentService["listBindings"];
+  listEnabledBindings: RuntimeAssignmentService["listEnabledBindings"];
+  listConnectionStatuses: RuntimeAssignmentService["listConnectionStatuses"];
+  listOwnedBindingIds: RuntimeAssignmentService["listOwnedBindingIds"];
+  listAgents: RuntimeAgentCatalog["listAgents"];
+  getConfig: RuntimeAgentCatalog["getConfig"];
+  connectionManager: RelayRuntimeAssemblyHandle["connectionManager"];
+  pluginHost: RelayRuntimeAssemblyHandle["pluginHost"];
+  runtime: RelayRuntimeAssemblyHandle["runtime"];
+  transportRegistry: RuntimeAgentCatalog["transportRegistry"];
+};
+
+function createRelayRuntime(
+  options: RelayRuntimeTestOptions = {},
+): RelayRuntimeTestHarness {
   const config = buildGatewayConfig(
     options.config ?? {
       clusterMode: false,
@@ -160,14 +201,79 @@ function createRelayRuntime(options: RelayRuntimeTestOptions = {}) {
   const ownershipState =
     options.ownershipState ??
     createRuntimeOwnershipState({ reconnectPolicy: options.reconnectPolicy });
+  const runtimeBindingPolicy =
+    options.runtimeBindingPolicy ?? new RuntimeBindingPolicy();
+  const bindingStateService =
+    options.bindingStateService ??
+    new RuntimeBindingStateService(ownershipState, runtimeBindingPolicy);
+  const snapshotPublisher =
+    options.snapshotPublisher ??
+    new RuntimeSnapshotPublisher(runtimeNodeState, stateStore, ownershipState);
+  const ownedBindingManager =
+    options.ownedBindingManager ??
+    new RuntimeOwnedBindingManager(bindingStateService, snapshotPublisher);
+  const agentCatalog =
+    options.agentCatalog ??
+    new RuntimeAgentCatalog(agentClientRegistry, ownedBindingManager);
+  const assemblyHandle =
+    options.assemblyHandle ??
+    new RelayRuntimeAssemblyHandle(
+      assemblyProvider,
+      agentCatalog,
+      ownedBindingManager,
+    );
+  const assignmentService =
+    options.assignmentService ??
+    new RuntimeAssignmentService(
+      agentCatalog,
+      ownedBindingManager,
+      assemblyHandle,
+    );
 
-  return new RelayRuntime(
-    runtimeNodeState,
-    stateStore,
-    agentClientRegistry,
-    assemblyProvider,
-    ownershipState,
+  const relay = new RelayRuntime(
+    assignmentService,
+    agentCatalog,
+    assemblyHandle,
+    snapshotPublisher,
   );
+
+  return Object.assign(relay, {
+    assignBinding: assignmentService.assignBinding.bind(assignmentService),
+    releaseBinding: assignmentService.releaseBinding.bind(assignmentService),
+    applyAgentUpsert: assignmentService.applyAgentUpsert.bind(assignmentService),
+    applyAgentDelete: agentCatalog.deleteAgent.bind(agentCatalog),
+    listBindings: assignmentService.listBindings.bind(assignmentService),
+    listEnabledBindings: assignmentService.listEnabledBindings.bind(assignmentService),
+    listConnectionStatuses: assignmentService.listConnectionStatuses.bind(assignmentService),
+    listOwnedBindingIds: assignmentService.listOwnedBindingIds.bind(assignmentService),
+    listAgents: agentCatalog.listAgents.bind(agentCatalog),
+    getConfig: agentCatalog.getConfig.bind(agentCatalog),
+    connectionManager: assemblyHandle.connectionManager,
+    pluginHost: assemblyHandle.pluginHost,
+    runtime: assemblyHandle.runtime,
+    transportRegistry: agentCatalog.transportRegistry,
+  });
+}
+
+function createRuntimeBindingStateService(options: {
+  ownershipState?: ReturnType<typeof createRuntimeOwnershipState>;
+  runtimeBindingPolicy?: RuntimeBindingPolicy;
+  reconnectPolicy?: ReconnectPolicy;
+} = {}) {
+  const ownershipState =
+    options.ownershipState ??
+    createRuntimeOwnershipState({ reconnectPolicy: options.reconnectPolicy });
+  const runtimeBindingPolicy =
+    options.runtimeBindingPolicy ?? new RuntimeBindingPolicy();
+
+  return {
+    ownershipState,
+    runtimeBindingPolicy,
+    service: new RuntimeBindingStateService(
+      ownershipState,
+      runtimeBindingPolicy,
+    ),
+  };
 }
 
 async function listChannelBindings() {
@@ -515,8 +621,8 @@ describe("RuntimeOwnershipState", () => {
     assert.equal(state.listConnectionStatuses()[0]?.status, "idle");
   });
 
-  test("upsertBinding stores the binding record and requests a start for a runnable new binding", async () => {
-    const state = createRuntimeOwnershipState();
+  test("InMemoryRuntimeOwnershipState stores the binding record and requests a start for a runnable new binding", async () => {
+    const state = new InMemoryRuntimeOwnershipState();
     const binding = makeRuntimeBinding();
 
     const result = state.upsertBinding(binding, {
@@ -536,6 +642,19 @@ describe("RuntimeOwnershipState", () => {
     assert.deepEqual(owned?.binding, binding);
     assert.equal(owned?.status.status, "idle");
     assert.equal(owned?.reconnectAttempt, 0);
+  });
+
+  test("RuntimeOwnershipStateToken can point at the injectable ownership singleton through toService", async () => {
+    const container = new Container({ defaultScope: "Singleton" });
+
+    container.bind(InMemoryRuntimeOwnershipState).toSelf().inSingletonScope();
+    container.bind(RuntimeOwnershipStateToken).toService(InMemoryRuntimeOwnershipState);
+
+    const first = container.get(InMemoryRuntimeOwnershipState);
+    const second = container.get(RuntimeOwnershipStateToken) as InMemoryRuntimeOwnershipState;
+
+    assert.equal(first, second);
+    assert.equal(second.constructor.name, "InMemoryRuntimeOwnershipState");
   });
 
   test("upsertBinding keeps an unchanged healthy binding in place without restarting", async () => {
@@ -1293,7 +1412,6 @@ describe("cluster bootstrap wiring", () => {
       clusterMode: true,
       redisUrl: "redis://localhost:6379",
       coordinator,
-      relay: {} as RelayRuntime,
       eventBus: new DomainEventBus(),
     });
 
@@ -1416,7 +1534,6 @@ describe("cluster bootstrap wiring", () => {
     const result = buildRuntimeBootstrap({
       clusterMode: false,
       coordinator,
-      relay: {} as RelayRuntime,
       eventBus: new DomainEventBus(),
     });
 
@@ -2055,7 +2172,7 @@ describe("RelayRuntime node state snapshots", () => {
       createdAt: new Date().toISOString(),
     };
 
-    await runtime.attachBinding(binding, agent);
+    await runtime.assignBinding(binding, agent);
     await waitFor(() =>
       stateStore
         .listNodeSnapshots()
@@ -2138,7 +2255,7 @@ describe("RelayRuntime node state snapshots", () => {
     assert.ok(readySnapshot?.lastHeartbeatAt);
 
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await runtime.attachBinding(binding, agent);
+    await runtime.assignBinding(binding, agent);
     await waitFor(() =>
       stateStore
         .listNodeSnapshots()
@@ -2181,19 +2298,12 @@ describe("RelayRuntime node state snapshots", () => {
     });
     const stateStore = new ControlledAsyncNodeRuntimeStateStore();
     const runtimeNodeState = new RuntimeNodeState(config);
-    const runtime = createRelayRuntime({
-      config,
-      stateStore,
+    const { ownershipState, service } = createRuntimeBindingStateService();
+    const snapshotPublisher = new RuntimeSnapshotPublisher(
       runtimeNodeState,
-      agentClientRegistry: new AgentClientRegistry(
-        new TransportRegistryProvider([
-          {
-            protocol: "a2a",
-            send: async () => ({ text: "" }),
-          },
-        ]),
-      ),
-    });
+      stateStore,
+      ownershipState,
+    );
     const binding = {
       id: "binding-1",
       name: "Binding One",
@@ -2204,39 +2314,29 @@ describe("RelayRuntime node state snapshots", () => {
       enabled: true,
       createdAt: new Date().toISOString(),
     };
-    const relayRuntime = runtime as unknown as {
-      applyOwnedConnectionStatus(
-        bindingId: string,
-        status: "connecting" | "connected" | "disconnected" | "error" | "idle",
-        agentUrl?: string,
-        error?: unknown,
-      ): void;
-      ownershipState: {
-        upsertBinding(
-          ownedBinding: typeof binding,
-          options: {
-            forceRestart: boolean;
-            hasActiveConnection: boolean;
-            runnable: boolean;
-          },
-        ): {
-          publishSnapshot: boolean;
-          shouldRestart: boolean;
-          shouldStop: boolean;
-        };
-      };
-    };
 
-    relayRuntime.ownershipState.upsertBinding(binding, {
-      forceRestart: false,
-      hasActiveConnection: false,
-      runnable: true,
+    await service.applyBindingUpsert(binding, {
+      hasActiveConnection: () => false,
+      onBindingsChanged: () => {},
+      publishSnapshot: async () => {},
+      restartConnection: async () => {},
+      stopConnection: async () => {},
     });
-    relayRuntime.applyOwnedConnectionStatus(binding.id, "connecting", "http://agent-1");
+    service.handleOwnedConnectionStatus(binding.id, "connecting", {
+      agentUrl: "http://agent-1",
+      publishSnapshotInBackground: () =>
+        snapshotPublisher.publishNodeSnapshotInBackground(),
+      restartConnection: async () => {},
+    });
     await stateStore.waitForPending(1);
 
     await new Promise((resolve) => setTimeout(resolve, 5));
-    relayRuntime.applyOwnedConnectionStatus(binding.id, "connected", "http://agent-1");
+    service.handleOwnedConnectionStatus(binding.id, "connected", {
+      agentUrl: "http://agent-1",
+      publishSnapshotInBackground: () =>
+        snapshotPublisher.publishNodeSnapshotInBackground(),
+      restartConnection: async () => {},
+    });
     assert.equal(stateStore.getPendingCount(), 1);
 
     stateStore.releasePending(0);
@@ -2305,36 +2405,19 @@ describe("RelayRuntime ownership semantics", () => {
   });
 
   type RelayRuntimeHarness = {
-    attachBinding: RelayRuntime["attachBinding"];
-    assignBinding: RelayRuntime["assignBinding"];
-    refreshBinding: RelayRuntime["refreshBinding"];
-    detachBinding: RelayRuntime["detachBinding"];
-    releaseBinding: RelayRuntime["releaseBinding"];
-    hasActiveConnection: RelayRuntime["hasActiveConnection"];
-    listBindings: RelayRuntime["listBindings"];
-    listConnectionStatuses: RelayRuntime["listConnectionStatuses"];
-    ownershipState: {
-      getOwnedBinding(
-        bindingId: string,
-      ): {
-        binding: ReturnType<typeof createBindingBase>;
-        status: { bindingId: string; status: string };
-        reconnectAttempt: number;
-      } | undefined;
-    };
-    connectionManager: RelayRuntime["connectionManager"] & {
+    assignBinding: RuntimeAssignmentService["assignBinding"];
+    releaseBinding: RuntimeAssignmentService["releaseBinding"];
+    shutdown: RelayRuntime["shutdown"];
+    listBindings: RuntimeAssignmentService["listBindings"];
+    listConnectionStatuses: RuntimeAssignmentService["listConnectionStatuses"];
+    connectionManager: RelayRuntimeAssemblyHandle["connectionManager"] & {
       restartConnection(binding: { id: string }): Promise<void>;
       stopConnection(bindingId: string): Promise<void>;
+      stopAllConnections(): Promise<void>;
     };
   };
 
   type RelayRuntimeLifecycleHarness = RelayRuntimeHarness & {
-    ownershipState: {
-      markDisconnected(
-        bindingId: string,
-        agentUrl?: string,
-      ): { attempt: number; delayMs: number };
-    };
     pluginHost: {
       startChannelBinding(
         binding: { id: string },
@@ -2429,8 +2512,8 @@ describe("RelayRuntime ownership semantics", () => {
     const binding = createBinding();
     const agent = createAgent();
 
-    await runtime.attachBinding(binding, agent);
-    await runtime.refreshBinding(binding, agent);
+    await runtime.assignBinding(binding, agent);
+    await runtime.assignBinding(binding, agent);
 
     assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
   });
@@ -2440,8 +2523,8 @@ describe("RelayRuntime ownership semantics", () => {
     const binding = createBinding();
     const agent = createAgent();
 
-    await runtime.attachBinding(binding, agent);
-    await runtime.detachBinding(binding.id);
+    await runtime.assignBinding(binding, agent);
+    await runtime.releaseBinding(binding.id);
 
     assert.deepEqual(runtime.listConnectionStatuses(), []);
   });
@@ -2451,7 +2534,7 @@ describe("RelayRuntime ownership semantics", () => {
     const binding = createBinding();
     const agent = createAgent();
 
-    await runtime.attachBinding(binding, agent);
+    await runtime.assignBinding(binding, agent);
     assert.equal(runtime.listConnectionStatuses()[0]?.status, "connected");
 
     lifetimes[0]?.resolve();
@@ -2461,17 +2544,46 @@ describe("RelayRuntime ownership semantics", () => {
   });
 
   test("managed refresh does not burn reconnect attempts on the intentional abort", async () => {
-    const { runtime } = createRelayRuntimeWithLifecycle();
+    const ownershipState = createRuntimeOwnershipState();
+    const runtime = createRelayRuntime({
+      ownershipState,
+      transports: [testTransport],
+    }) as unknown as RelayRuntimeLifecycleHarness;
+    runtime.pluginHost.startChannelBinding = async (
+      _binding: { id: string },
+      signal: AbortSignal,
+      callbacks?: {
+        onStatus?: (status: {
+          running?: boolean;
+          connected?: boolean;
+        }) => void;
+      },
+    ) =>
+      new Promise<void>((resolve, reject) => {
+        callbacks?.onStatus?.({
+          running: true,
+          connected: true,
+        });
+
+        const onAbort = () => {
+          signal.removeEventListener("abort", onAbort);
+          const error = new Error("Aborted");
+          Object.assign(error, { name: "AbortError" });
+          reject(error);
+        };
+
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
     const binding = createBinding();
     const agent = createAgent();
 
-    await runtime.attachBinding(binding, agent);
+    await runtime.assignBinding(binding, agent);
     assert.equal(runtime.listConnectionStatuses()[0]?.status, "connected");
 
-    await runtime.refreshBinding(binding, agent);
+    await runtime.assignBinding(binding, agent);
     assert.equal(runtime.listConnectionStatuses()[0]?.status, "connected");
 
-    const retry = runtime.ownershipState.markDisconnected(binding.id, agent.url);
+    const retry = ownershipState.markDisconnected(binding.id, agent.url);
     assert.equal(retry.attempt, 1);
   });
 
@@ -2486,7 +2598,7 @@ describe("RelayRuntime ownership semantics", () => {
     const binding = createBinding();
     const agent = createAgent();
 
-    await runtime.attachBinding(binding, agent);
+    await runtime.assignBinding(binding, agent);
     await assert.rejects(
       runtime.connectionManager.handleEvent(createDispatchEvent() as never),
       /agent send failed/,
@@ -2500,10 +2612,10 @@ describe("RelayRuntime ownership semantics", () => {
     const binding = createBinding();
     const agent = createAgent();
 
-    await runtime.attachBinding(binding, agent);
+    await runtime.assignBinding(binding, agent);
     assert.equal(runtime.listConnectionStatuses()[0]?.status, "connected");
 
-    await runtime.refreshBinding(
+    await runtime.assignBinding(
       createBinding({
         channelConfig: { appId: "cli_1", appSecret: "" },
       }),
@@ -2527,24 +2639,107 @@ describe("RelayRuntime ownership semantics", () => {
       url: "http://agent-2",
     };
 
-    await runtime.attachBinding(binding, agent);
-    await runtime.refreshBinding(binding, updatedAgent);
+    await runtime.assignBinding(binding, agent);
+    await runtime.assignBinding(binding, updatedAgent);
 
     assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
   });
 
   test("assignBinding stores the owned binding inside ownership state", async () => {
-    const runtime = createRelayRuntimeForTest();
+    const ownershipState = createRuntimeOwnershipState();
+    const runtime = createRelayRuntime({
+      ownershipState,
+      transports: [testTransport],
+    });
     const binding = createBinding();
     const agent = createAgent();
 
     await runtime.assignBinding(binding, agent);
-    assert.deepEqual(runtime.ownershipState.getOwnedBinding(binding.id)?.binding, binding);
+    assert.deepEqual(ownershipState.getOwnedBinding(binding.id)?.binding, binding);
     assert.equal(runtime.listBindings()[0]?.id, binding.id);
 
     await runtime.releaseBinding(binding.id);
-    assert.equal(runtime.ownershipState.getOwnedBinding(binding.id), undefined);
+    assert.equal(ownershipState.getOwnedBinding(binding.id), undefined);
     assert.deepEqual(runtime.listBindings(), []);
+  });
+
+  test("assignBinding still restarts the connection when snapshot publication fails", async () => {
+    const restartCalls: string[] = [];
+    const runtime = createRelayRuntime({
+      stateStore: {
+        publishNodeSnapshot: async () => {
+          throw new Error("snapshot publish failed");
+        },
+      },
+      transports: [testTransport],
+    }) as unknown as RelayRuntimeHarness;
+    const binding = createBinding();
+    const agent = createAgent();
+
+    runtime.connectionManager.restartConnection = async (nextBinding) => {
+      restartCalls.push(nextBinding.id);
+    };
+    runtime.connectionManager.stopConnection = async () => {};
+
+    await runtime.assignBinding(binding, agent);
+
+    assert.deepEqual(restartCalls, [binding.id]);
+    assert.equal(runtime.listConnectionStatuses()[0]?.bindingId, binding.id);
+  });
+
+  test("releaseBinding still stops the connection when snapshot publication fails", async () => {
+    const stopCalls: string[] = [];
+    const runtime = createRelayRuntime({
+      stateStore: {
+        publishNodeSnapshot: async () => {
+          throw new Error("snapshot publish failed");
+        },
+      },
+      transports: [testTransport],
+    }) as unknown as RelayRuntimeHarness;
+    const binding = createBinding();
+    const agent = createAgent();
+
+    runtime.connectionManager.restartConnection = async () => {};
+    runtime.connectionManager.stopConnection = async (bindingId) => {
+      stopCalls.push(bindingId);
+    };
+
+    await runtime.assignBinding(binding, agent);
+    await runtime.releaseBinding(binding.id);
+
+    assert.deepEqual(stopCalls, [binding.id]);
+    assert.deepEqual(runtime.listConnectionStatuses(), []);
+  });
+
+  test("shutdown still stops runtime connections and clients when snapshot publication fails", async () => {
+    const events: string[] = [];
+    const agentClientRegistry = new AgentClientRegistry(
+      new TransportRegistryProvider([testTransport]),
+    );
+    const runtime = createRelayRuntime({
+      stateStore: {
+        publishNodeSnapshot: async () => {
+          throw new Error("snapshot publish failed");
+        },
+      },
+      agentClientRegistry,
+      transports: [testTransport],
+    }) as unknown as RelayRuntimeHarness;
+
+    runtime.connectionManager.stopAllConnections = async () => {
+      events.push("stop-all-connections");
+    };
+    agentClientRegistry.stopAll = async () => {
+      events.push("stop-all-clients");
+    };
+
+    await runtime.shutdown();
+
+    assert.deepEqual(events, [
+      "stop-all-connections",
+      "stop-all-clients",
+    ]);
   });
 });
 
@@ -2568,53 +2763,35 @@ describe("RelayRuntime reconnect policy", () => {
     createdAt: new Date().toISOString(),
   });
 
-  type RelayRuntimeReconnectHarness = {
-    attachBinding: RelayRuntime["attachBinding"];
-    hasActiveConnection: RelayRuntime["hasActiveConnection"];
-    ownershipState: {
-      getOwnedBinding(
-        bindingId: string,
-      ): { binding: ReturnType<typeof createBinding> } | undefined;
-      scheduleReconnect(
-        bindingId: string,
-        delayMs: number,
-        callback: () => void | Promise<void>,
-      ): void;
-    };
-    connectionManager: RelayRuntime["connectionManager"] & {
-      restartConnection(binding: { id: string }): Promise<void>;
-    };
-    applyOwnedConnectionStatus(
-      bindingId: string,
-      status: "error" | "disconnected" | "connecting" | "connected",
-      agentUrl?: string,
-      error?: unknown,
-    ): void;
-  };
-
   test("connection error schedules one delayed reconnect for the owned binding", async () => {
     const restartCalls: string[] = [];
-    const runtime = createRelayRuntime({
+    const { ownershipState, service } = createRuntimeBindingStateService({
       reconnectPolicy: createReconnectPolicy({ baseDelayMs: 1, maxDelayMs: 1 }),
-      transports: [{ protocol: "a2a", send: async () => ({ text: "" }) }],
-    }) as unknown as RelayRuntimeReconnectHarness;
+    });
     const binding = createBinding();
     const agent = createAgent();
 
-    runtime.connectionManager.restartConnection = async (nextBinding) => {
-      restartCalls.push(nextBinding.id);
-    };
-
-    await runtime.attachBinding(binding, agent);
-    runtime.applyOwnedConnectionStatus(
-      binding.id,
-      "error",
-      agent.url,
-      new Error("boom"),
-    );
+    await service.applyBindingUpsert(binding, {
+      hasActiveConnection: () => false,
+      onBindingsChanged: () => {},
+      publishSnapshot: async () => {},
+      restartConnection: async (nextBinding) => {
+        restartCalls.push(nextBinding.id);
+      },
+      stopConnection: async () => {},
+    });
+    service.handleOwnedConnectionStatus(binding.id, "error", {
+      agentUrl: agent.url,
+      error: new Error("boom"),
+      publishSnapshotInBackground: () => {},
+      restartConnection: async (nextBinding) => {
+        restartCalls.push(nextBinding.id);
+      },
+    });
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     assert.deepEqual(restartCalls, ["binding-1", "binding-1"]);
+    assert.ok(ownershipState.getOwnedBinding(binding.id));
   });
 
   test("schedules reconnect through ownership state", async () => {
@@ -2624,27 +2801,33 @@ describe("RelayRuntime reconnect policy", () => {
       delayMs: number;
       callback: () => void | Promise<void>;
     }> = [];
-    const runtime = createRelayRuntime({
+    const { ownershipState, service } = createRuntimeBindingStateService({
       reconnectPolicy: createReconnectPolicy({ baseDelayMs: 1, maxDelayMs: 1 }),
-      transports: [{ protocol: "a2a", send: async () => ({ text: "" }) }],
-    }) as unknown as RelayRuntimeReconnectHarness;
+    });
     const binding = createBinding();
     const agent = createAgent();
 
-    runtime.connectionManager.restartConnection = async (nextBinding) => {
-      restartCalls.push(nextBinding.id);
-    };
-    runtime.ownershipState.scheduleReconnect = (bindingId, delayMs, callback) => {
+    await service.applyBindingUpsert(binding, {
+      hasActiveConnection: () => false,
+      onBindingsChanged: () => {},
+      publishSnapshot: async () => {},
+      restartConnection: async (nextBinding) => {
+        restartCalls.push(nextBinding.id);
+      },
+      stopConnection: async () => {},
+    });
+    ownershipState.scheduleReconnect = (bindingId, delayMs, callback) => {
       scheduledReconnects.push({ bindingId, delayMs, callback });
     };
 
-    await runtime.attachBinding(binding, agent);
-    runtime.applyOwnedConnectionStatus(
-      binding.id,
-      "error",
-      agent.url,
-      new Error("boom"),
-    );
+    service.handleOwnedConnectionStatus(binding.id, "error", {
+      agentUrl: agent.url,
+      error: new Error("boom"),
+      publishSnapshotInBackground: () => {},
+      restartConnection: async (nextBinding) => {
+        restartCalls.push(nextBinding.id);
+      },
+    });
 
     assert.equal(scheduledReconnects.length, 1);
     assert.equal(scheduledReconnects[0]?.bindingId, binding.id);
@@ -3347,9 +3530,27 @@ describe("RuntimeAssignmentCoordinator", () => {
     createdAt: new Date().toISOString(),
   });
 
+  function makeCoordinator(
+    assignments: Pick<
+      RuntimeAssignmentService,
+      "listOwnedBindingIds" | "assignBinding" | "releaseBinding"
+    >,
+    options: RuntimeAssignmentCoordinatorOptions,
+    policy: RuntimeBindingPolicy = new RuntimeBindingPolicy(),
+  ) {
+    return new RuntimeAssignmentCoordinator(
+      assignments as RuntimeAssignmentService,
+      policy,
+      options,
+    );
+  }
+
   test("reconciles runnable desired bindings and releases stale owned bindings", async () => {
     const events: string[] = [];
-    const runtime = {
+    const assignments: Pick<
+      RuntimeAssignmentService,
+      "listOwnedBindingIds" | "assignBinding" | "releaseBinding"
+    > = {
       listOwnedBindingIds: () => ["binding-stale", "binding-disabled"],
       assignBinding: async (binding: { id: string }) => {
         events.push(`assign:${binding.id}`);
@@ -3359,36 +3560,33 @@ describe("RuntimeAssignmentCoordinator", () => {
       },
     };
 
-    const coordinator = new RuntimeAssignmentCoordinator(
-      runtime as unknown as RelayRuntime,
-      {
-        loadSnapshot: async () => ({
-          bindings: [
-            {
-              id: "binding-1",
-              name: "Binding One",
-              channelType: "feishu",
-              accountId: "default",
-              channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-              agentId: "agent-1",
-              enabled: true,
-              createdAt: new Date().toISOString(),
-            },
-            {
-              id: "binding-disabled",
-              name: "Binding Disabled",
-              channelType: "feishu",
-              accountId: "default",
-              channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-              agentId: "agent-1",
-              enabled: false,
-              createdAt: new Date().toISOString(),
-            },
-          ],
-          agents: [createAgent()],
-        }),
-      },
-    );
+    const coordinator = makeCoordinator(assignments, {
+      loadSnapshot: async () => ({
+        bindings: [
+          {
+            id: "binding-1",
+            name: "Binding One",
+            channelType: "feishu",
+            accountId: "default",
+            channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+            agentId: "agent-1",
+            enabled: true,
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: "binding-disabled",
+            name: "Binding Disabled",
+            channelType: "feishu",
+            accountId: "default",
+            channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+            agentId: "agent-1",
+            enabled: false,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        agents: [createAgent()],
+      }),
+    });
 
     await coordinator.reconcile();
 
@@ -3399,9 +3597,53 @@ describe("RuntimeAssignmentCoordinator", () => {
     ]);
   });
 
+  test("uses the injected binding policy when reconciling", async () => {
+    const events: string[] = [];
+    const assignments: Pick<
+      RuntimeAssignmentService,
+      "listOwnedBindingIds" | "assignBinding" | "releaseBinding"
+    > = {
+      listOwnedBindingIds: () => [],
+      assignBinding: async (binding: { id: string }) => {
+        events.push(`assign:${binding.id}`);
+      },
+      releaseBinding: async (bindingId: string) => {
+        events.push(`release:${bindingId}`);
+      },
+    };
+    const policy: RuntimeBindingPolicy = {
+      isRunnableBinding: () => false,
+    };
+
+    const coordinator = makeCoordinator(assignments, {
+      loadSnapshot: async () => ({
+        bindings: [
+          {
+            id: "binding-policy",
+            name: "Binding Policy",
+            channelType: "slack",
+            accountId: "default",
+            channelConfig: {},
+            agentId: "agent-1",
+            enabled: true,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        agents: [createAgent()],
+      }),
+    }, policy);
+
+    await coordinator.reconcile();
+
+    assert.deepEqual(events, []);
+  });
+
   test("releases owned non-runnable bindings as stale", async () => {
     const events: string[] = [];
-    const runtime = {
+    const assignments: Pick<
+      RuntimeAssignmentService,
+      "listOwnedBindingIds" | "assignBinding" | "releaseBinding"
+    > = {
       listOwnedBindingIds: () => ["binding-invalid"],
       assignBinding: async (binding: { id: string }) => {
         events.push(`assign:${binding.id}`);
@@ -3410,37 +3652,40 @@ describe("RuntimeAssignmentCoordinator", () => {
         events.push(`release:${bindingId}`);
       },
     };
+    const policy: RuntimeBindingPolicy = {
+      isRunnableBinding: (binding: ChannelBinding) =>
+        binding.channelType === "feishu" &&
+        typeof (binding.channelConfig as { appSecret?: unknown }).appSecret === "string" &&
+        typeof (binding.channelConfig as { appId?: unknown }).appId === "string",
+    };
 
-    const coordinator = new RuntimeAssignmentCoordinator(
-      runtime as unknown as RelayRuntime,
-      {
-        loadSnapshot: async () => ({
-          bindings: [
-            {
-              id: "binding-invalid",
-              name: "Binding Invalid",
-              channelType: "feishu",
-              accountId: "default",
-              channelConfig: { appId: "cli_1" },
-              agentId: "agent-1",
-              enabled: true,
-              createdAt: new Date().toISOString(),
-            },
-            {
-              id: "binding-1",
-              name: "Binding One",
-              channelType: "feishu",
-              accountId: "default",
-              channelConfig: { appId: "cli_1", appSecret: "sec_1" },
-              agentId: "agent-1",
-              enabled: true,
-              createdAt: new Date().toISOString(),
-            },
-          ],
-          agents: [createAgent()],
-        }),
-      },
-    );
+    const coordinator = makeCoordinator(assignments, {
+      loadSnapshot: async () => ({
+        bindings: [
+          {
+            id: "binding-invalid",
+            name: "Binding Invalid",
+            channelType: "feishu",
+            accountId: "default",
+            channelConfig: { appId: "cli_1" },
+            agentId: "agent-1",
+            enabled: true,
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: "binding-1",
+            name: "Binding One",
+            channelType: "feishu",
+            accountId: "default",
+            channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+            agentId: "agent-1",
+            enabled: true,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        agents: [createAgent()],
+      }),
+    }, policy);
 
     await coordinator.reconcile();
 
@@ -3448,6 +3693,109 @@ describe("RuntimeAssignmentCoordinator", () => {
       "release:binding-invalid",
       "assign:binding-1",
     ]);
+  });
+});
+
+describe("RelayRuntime binding policy", () => {
+  test("listEnabledBindings excludes bindings rejected by the injected policy", () => {
+    const ownershipState = createRuntimeOwnershipState();
+    const policy = {
+      isRunnableBinding: () => false,
+    } as RuntimeBindingPolicy;
+    const runtime = createRelayRuntime({
+      ownershipState,
+      runtimeBindingPolicy: policy,
+    });
+    const binding = {
+      id: "binding-policy",
+      name: "Binding Policy",
+      channelType: "slack",
+      accountId: "default",
+      channelConfig: {},
+      agentId: "agent-1",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    } as ChannelBinding;
+
+    ownershipState.attachBinding(binding);
+
+    assert.deepEqual(runtime.listEnabledBindings(), []);
+  });
+});
+
+describe("RuntimeBindingPolicy", () => {
+  test("requires Feishu credentials for Feishu and Lark bindings, but allows other channels", () => {
+    const policy = new RuntimeBindingPolicy();
+
+    assert.equal(
+      policy.isRunnableBinding({
+        id: "binding-feishu",
+        name: "Feishu Binding",
+        channelType: "feishu",
+        accountId: "default",
+        channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+        agentId: "agent-1",
+        enabled: true,
+        createdAt: new Date().toISOString(),
+      }),
+      true,
+    );
+
+    assert.equal(
+      policy.isRunnableBinding({
+        id: "binding-feishu-missing",
+        name: "Feishu Binding Missing",
+        channelType: "feishu",
+        accountId: "default",
+        channelConfig: { appId: "cli_1" },
+        agentId: "agent-1",
+        enabled: true,
+        createdAt: new Date().toISOString(),
+      }),
+      false,
+    );
+
+    assert.equal(
+      policy.isRunnableBinding({
+        id: "binding-lark",
+        name: "Lark Binding",
+        channelType: "lark",
+        accountId: "default",
+        channelConfig: { appId: "cli_2", appSecret: "sec_2" },
+        agentId: "agent-1",
+        enabled: true,
+        createdAt: new Date().toISOString(),
+      }),
+      true,
+    );
+
+    assert.equal(
+      policy.isRunnableBinding({
+        id: "binding-lark-missing",
+        name: "Lark Binding Missing",
+        channelType: "lark",
+        accountId: "default",
+        channelConfig: { appId: "cli_2" },
+        agentId: "agent-1",
+        enabled: true,
+        createdAt: new Date().toISOString(),
+      }),
+      false,
+    );
+
+    assert.equal(
+      policy.isRunnableBinding({
+        id: "binding-slack",
+        name: "Slack Binding",
+        channelType: "slack",
+        accountId: "default",
+        channelConfig: {},
+        agentId: "agent-1",
+        enabled: true,
+        createdAt: new Date().toISOString(),
+      }),
+      true,
+    );
   });
 });
 describe("OutboxWorker", () => {

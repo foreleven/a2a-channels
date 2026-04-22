@@ -4,13 +4,11 @@ import { LeaderScheduler } from "./cluster/leader-scheduler.js";
 import { LocalScheduler } from "./local-scheduler.js";
 import type { OwnershipGate } from "./ownership-gate.js";
 import type { RuntimeAssignmentCoordinator } from "./runtime-assignment-coordinator.js";
-import type { RelayRuntime } from "./relay-runtime.js";
 
 export interface RuntimeBootstrapOptions {
   clusterMode: boolean;
   redisUrl?: string;
   coordinator: RuntimeAssignmentCoordinator;
-  relay: RelayRuntime;
   eventBus: DomainEventBus;
   ownershipGate?: OwnershipGate;
 }

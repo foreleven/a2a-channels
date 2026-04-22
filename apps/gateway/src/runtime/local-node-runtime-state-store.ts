@@ -1,6 +1,9 @@
+import { injectable } from "inversify";
+
 import type { NodeRuntimeStateStore } from "./node-runtime-state-store.js";
 import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
 
+@injectable()
 export class LocalNodeRuntimeStateStore implements NodeRuntimeStateStore {
   private readonly snapshots: LocalRuntimeSnapshot[] = [];
 

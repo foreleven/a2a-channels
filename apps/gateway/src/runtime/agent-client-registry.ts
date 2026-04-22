@@ -1,3 +1,4 @@
+import { inject, injectable } from "inversify";
 import type {
   AgentClientHandle,
   AgentConfig,
@@ -9,14 +10,18 @@ import {
   startAgentClients,
   stopAgentClients,
 } from "./agent-clients.js";
-import type { TransportRegistryProvider } from "./transport-registry-provider.js";
+import { TransportRegistryProvider } from "./transport-registry-provider.js";
 
+@injectable()
 export class AgentClientRegistry {
   readonly transportRegistry: TransportRegistry;
 
   private readonly clients = new Map<string, AgentClientHandle>();
 
-  constructor(transportProvider: TransportRegistryProvider) {
+  constructor(
+    @inject(TransportRegistryProvider)
+    transportProvider: TransportRegistryProvider,
+  ) {
     this.transportRegistry = transportProvider.transportRegistry;
   }
 

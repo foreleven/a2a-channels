@@ -18,9 +18,22 @@ import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
+import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
+import { InMemoryRuntimeOwnershipState, RuntimeOwnershipStateToken } from "../runtime/ownership-state.js";
+import { RelayRuntimeAssemblyHandle } from "../runtime/relay-runtime-assembly-handle.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
+import { RuntimeAgentCatalog } from "../runtime/runtime-agent-catalog.js";
+import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
+import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
+import { RuntimeBindingStateService } from "../runtime/runtime-binding-state-service.js";
 import { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 import { RuntimeClusterStateReader } from "../runtime/runtime-cluster-state-reader.js";
+import { LocalNodeRuntimeStateStore } from "../runtime/local-node-runtime-state-store.js";
+import { NodeRuntimeStateStoreToken } from "../runtime/node-runtime-state-store.js";
+import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
+import { RuntimeOwnedBindingManager } from "../runtime/runtime-owned-binding-manager.js";
+import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
+import { TransportRegistryProvider } from "../runtime/transport-registry-provider.js";
 import { initStore } from "../services/initialization.js";
 
 describe("buildGatewayContainer", () => {
@@ -156,6 +169,60 @@ describe("buildGatewayContainer", () => {
 
     assert.ok(container.get(RuntimeBootstrapper));
     assert.ok(container.get(RuntimeClusterStateReader));
+  });
+
+  test("resolves runtime singleton collaborators through direct singleton bindings", () => {
+    const container = buildGatewayContainer(buildGatewayConfig({ port: 7898 }));
+
+    assert.strictEqual(
+      container.get(LocalNodeRuntimeStateStore),
+      container.get(LocalNodeRuntimeStateStore),
+    );
+    assert.strictEqual(
+      container.get(LocalNodeRuntimeStateStore),
+      container.get(NodeRuntimeStateStoreToken),
+    );
+    assert.strictEqual(container.get(RuntimeNodeState), container.get(RuntimeNodeState));
+    assert.strictEqual(
+      container.get(RuntimeBindingStateService),
+      container.get(RuntimeBindingStateService),
+    );
+    assert.strictEqual(
+      container.get(RuntimeOwnedBindingManager),
+      container.get(RuntimeOwnedBindingManager),
+    );
+    assert.strictEqual(
+      container.get(RuntimeAgentCatalog),
+      container.get(RuntimeAgentCatalog),
+    );
+    assert.strictEqual(
+      container.get(RelayRuntimeAssemblyHandle),
+      container.get(RelayRuntimeAssemblyHandle),
+    );
+    assert.strictEqual(
+      container.get(RuntimeAssignmentService),
+      container.get(RuntimeAssignmentService),
+    );
+    assert.strictEqual(
+      container.get(RuntimeSnapshotPublisher),
+      container.get(RuntimeSnapshotPublisher),
+    );
+    assert.strictEqual(
+      container.get(TransportRegistryProvider),
+      container.get(TransportRegistryProvider),
+    );
+    assert.strictEqual(
+      container.get(AgentClientRegistry),
+      container.get(AgentClientRegistry),
+    );
+    assert.strictEqual(
+      container.get(RuntimeAssignmentCoordinator),
+      container.get(RuntimeAssignmentCoordinator),
+    );
+    assert.strictEqual(
+      container.get(InMemoryRuntimeOwnershipState),
+      container.get(RuntimeOwnershipStateToken),
+    );
   });
 
   test("resolves RelayRuntime as a singleton without manual options plumbing", () => {

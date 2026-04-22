@@ -1,4 +1,6 @@
-import type { RelayRuntime } from "./relay-runtime.js";
+import { inject, injectable, unmanaged } from "inversify";
+import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
+import { RuntimeBindingPolicy } from "./runtime-binding-policy.js";
 import {
   loadDesiredStateSnapshot,
   type RuntimeStateSnapshot,
@@ -8,9 +10,14 @@ export interface RuntimeAssignmentCoordinatorOptions {
   readonly loadSnapshot?: () => Promise<RuntimeStateSnapshot>;
 }
 
+@injectable()
 export class RuntimeAssignmentCoordinator {
   constructor(
-    private readonly runtime: RelayRuntime,
+    @inject(RuntimeAssignmentService)
+    private readonly assignments: RuntimeAssignmentService,
+    @inject(RuntimeBindingPolicy)
+    private readonly runtimeBindingPolicy: RuntimeBindingPolicy,
+    @unmanaged()
     private readonly options: RuntimeAssignmentCoordinatorOptions = {},
   ) {}
 
@@ -20,7 +27,7 @@ export class RuntimeAssignmentCoordinator {
     )();
     const agentsById = new Map(snapshot.agents.map((agent) => [agent.id, agent]));
     const bindingsById = new Map(snapshot.bindings.map((binding) => [binding.id, binding]));
-    const ownedBindingIds = this.runtime.listOwnedBindingIds();
+    const ownedBindingIds = this.assignments.listOwnedBindingIds();
     const staleBindingIds = ownedBindingIds.filter((bindingId) => {
       const binding = bindingsById.get(bindingId);
       if (!binding) {
@@ -28,37 +35,28 @@ export class RuntimeAssignmentCoordinator {
       }
 
       const agent = agentsById.get(binding.agentId);
-      return !binding.enabled || !agent || !this.isRunnableBinding(binding);
+      return (
+        !binding.enabled ||
+        !agent ||
+        !this.runtimeBindingPolicy.isRunnableBinding(binding)
+      );
     });
 
     for (const bindingId of staleBindingIds) {
-      await this.runtime.releaseBinding(bindingId);
+      await this.assignments.releaseBinding(bindingId);
     }
 
     for (const binding of snapshot.bindings) {
       const agent = agentsById.get(binding.agentId);
-      if (!binding.enabled || !agent || !this.isRunnableBinding(binding)) {
+      if (
+        !binding.enabled ||
+        !agent ||
+        !this.runtimeBindingPolicy.isRunnableBinding(binding)
+      ) {
         continue;
       }
 
-      await this.runtime.assignBinding(binding, agent);
+      await this.assignments.assignBinding(binding, agent);
     }
-  }
-
-  private isRunnableBinding(binding: { channelType: string; channelConfig: unknown }): boolean {
-    if (binding.channelType !== "feishu" && binding.channelType !== "lark") {
-      return true;
-    }
-
-    const config = binding.channelConfig as {
-      appId?: unknown;
-      appSecret?: unknown;
-    };
-    return (
-      typeof config.appId === "string" &&
-      config.appId.trim().length > 0 &&
-      typeof config.appSecret === "string" &&
-      config.appSecret.trim().length > 0
-    );
   }
 }
