@@ -14,6 +14,9 @@ export interface OwnedRuntimeBinding {
   binding: ChannelBinding;
   status: RuntimeConnectionStatus;
   reconnectAttempt: number;
+}
+
+interface OwnedRuntimeBindingRecord extends OwnedRuntimeBinding {
   reconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -72,7 +75,6 @@ function cloneOwnedBinding(entry: OwnedRuntimeBinding): OwnedRuntimeBinding {
     binding: cloneBinding(entry.binding),
     status: cloneStatus(entry.status),
     reconnectAttempt: entry.reconnectAttempt,
-    reconnectTimer: entry.reconnectTimer,
   };
 }
 
@@ -90,7 +92,7 @@ export function areBindingsEquivalent(
   );
 }
 
-function createOwnedBinding(binding: ChannelBinding): OwnedRuntimeBinding {
+function createOwnedBinding(binding: ChannelBinding): OwnedRuntimeBindingRecord {
   const now = new Date().toISOString();
   return {
     binding: cloneBinding(binding),
@@ -108,9 +110,11 @@ export function createRuntimeOwnershipState(
   options: CreateRuntimeOwnershipStateOptions = {},
 ): RuntimeOwnershipState {
   const reconnectPolicy = options.reconnectPolicy ?? createReconnectPolicy();
-  const bindings = new Map<string, OwnedRuntimeBinding>();
+  const bindings = new Map<string, OwnedRuntimeBindingRecord>();
 
-  function getOwnedBindingOrThrow(bindingId: string): OwnedRuntimeBinding {
+  function getOwnedBindingOrThrow(
+    bindingId: string,
+  ): OwnedRuntimeBindingRecord {
     const owned = bindings.get(bindingId);
     if (!owned) {
       throw new Error(`Binding ${bindingId} not found`);
@@ -195,7 +199,12 @@ export function createRuntimeOwnershipState(
       };
     }
 
-    if (existing && equivalent && options.hasActiveConnection && !options.forceRestart) {
+    if (
+      existing &&
+      equivalent &&
+      options.hasActiveConnection &&
+      !options.forceRestart
+    ) {
       return {
         publishSnapshot: false,
         shouldRestart: false,
@@ -213,9 +222,9 @@ export function createRuntimeOwnershipState(
     };
   }
 
-  return {
-    attachBinding(binding: ChannelBinding): void {
-      upsertBinding(binding, {
+    return {
+      attachBinding(binding: ChannelBinding): void {
+        upsertBinding(binding, {
         forceRestart: false,
         hasActiveConnection: false,
         runnable: false,
@@ -270,7 +279,12 @@ export function createRuntimeOwnershipState(
           current.reconnectTimer = null;
         }
 
-        void callback();
+        void Promise.resolve(callback()).catch((error) => {
+          console.error(
+            `[runtime] reconnect callback failed for binding ${bindingId}:`,
+            error,
+          );
+        });
       }, delayMs);
 
       owned.reconnectTimer = timer;

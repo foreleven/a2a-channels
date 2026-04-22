@@ -559,7 +559,68 @@ describe("RuntimeOwnershipState", () => {
     assert.equal(state.getOwnedBinding(binding.id)?.reconnectAttempt, 0);
   });
 
-  test("releaseBinding clears the owned record and any scheduled reconnect", async () => {
+  test("forceRestart causes restart decision even for an equivalent binding", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = makeRuntimeBinding();
+
+    state.upsertBinding(binding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: true,
+    });
+    state.markConnected(binding.id, "http://agent-1");
+
+    const result = state.upsertBinding(makeRuntimeBinding(), {
+      forceRestart: true,
+      hasActiveConnection: true,
+      runnable: true,
+    });
+
+    assert.deepEqual(result, {
+      publishSnapshot: true,
+      shouldRestart: true,
+      shouldStop: false,
+    });
+    assert.equal(state.listConnectionStatuses()[0]?.status, "idle");
+  });
+
+  test("disabled or non-runnable upsert stops the binding and resets it to idle", async () => {
+    const disabledState = createRuntimeOwnershipState();
+    const disabledBinding = makeRuntimeBinding({ enabled: false });
+
+    const disabledResult = disabledState.upsertBinding(disabledBinding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: true,
+    });
+
+    assert.deepEqual(disabledResult, {
+      publishSnapshot: true,
+      shouldRestart: false,
+      shouldStop: true,
+    });
+    assert.equal(disabledState.listConnectionStatuses()[0]?.status, "idle");
+    assert.equal(disabledState.getOwnedBinding(disabledBinding.id)?.reconnectAttempt, 0);
+
+    const nonRunnableState = createRuntimeOwnershipState();
+    const nonRunnableBinding = makeRuntimeBinding();
+
+    const nonRunnableResult = nonRunnableState.upsertBinding(nonRunnableBinding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: false,
+    });
+
+    assert.deepEqual(nonRunnableResult, {
+      publishSnapshot: true,
+      shouldRestart: false,
+      shouldStop: true,
+    });
+    assert.equal(nonRunnableState.listConnectionStatuses()[0]?.status, "idle");
+    assert.equal(nonRunnableState.getOwnedBinding(nonRunnableBinding.id)?.reconnectAttempt, 0);
+  });
+
+  test("clearReconnect cancels a pending reconnect", async () => {
     const state = createRuntimeOwnershipState();
     const binding = makeRuntimeBinding();
     let fired = false;
@@ -573,13 +634,75 @@ describe("RuntimeOwnershipState", () => {
       fired = true;
     });
 
-    assert.ok(state.getOwnedBinding(binding.id)?.reconnectTimer);
-    assert.equal(state.releaseBinding(binding.id), true);
-    assert.equal(state.getOwnedBinding(binding.id), undefined);
-
+    state.clearReconnect(binding.id);
     await new Promise((resolve) => setTimeout(resolve, 25));
 
     assert.equal(fired, false);
+  });
+
+  test("markIdle resets the status and reconnect attempt", async () => {
+    const state = createRuntimeOwnershipState({
+      reconnectPolicy: createReconnectPolicy({
+        baseDelayMs: 1000,
+        maxDelayMs: 8000,
+      }),
+    });
+    const binding = makeRuntimeBinding();
+
+    state.upsertBinding(binding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: true,
+    });
+    state.markError("binding-1", new Error("socket closed"));
+
+    const idle = state.markIdle("binding-1");
+
+    assert.equal(idle.status, "idle");
+    assert.equal(state.listConnectionStatuses()[0]?.status, "idle");
+    assert.equal(state.getOwnedBinding(binding.id)?.reconnectAttempt, 0);
+  });
+
+  test("listOwnedBindings and getters do not expose mutable internals", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = makeRuntimeBinding();
+
+    state.upsertBinding(binding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: true,
+    });
+
+    const owned = state.getOwnedBinding(binding.id);
+    assert.ok(owned);
+    assert.equal("reconnectTimer" in (owned ?? {}), false);
+    if (owned) {
+      owned.binding.name = "Changed";
+      owned.status.status = "error";
+    }
+
+    const listed = state.listOwnedBindings();
+    assert.equal(listed.length, 1);
+    assert.equal("reconnectTimer" in listed[0]!, false);
+    listed[0]!.binding.name = "Also changed";
+    listed[0]!.status.status = "connected";
+
+    assert.equal(state.getOwnedBinding(binding.id)?.binding.name, "Binding One");
+    assert.equal(state.getOwnedBinding(binding.id)?.status.status, "idle");
+  });
+
+  test("releaseBinding clears the owned record", async () => {
+    const state = createRuntimeOwnershipState();
+    const binding = makeRuntimeBinding();
+
+    state.upsertBinding(binding, {
+      forceRestart: false,
+      hasActiveConnection: false,
+      runnable: true,
+    });
+
+    assert.equal(state.releaseBinding(binding.id), true);
+    assert.equal(state.getOwnedBinding(binding.id), undefined);
     assert.equal(state.releaseBinding(binding.id), false);
   });
 
