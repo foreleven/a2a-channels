@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { Container } from "inversify";
+import type { Container } from "inversify";
 import type { AgentConfigSnapshot } from "../application/agent-service.js";
 import {
   AgentService,
@@ -9,30 +9,15 @@ import {
 } from "../application/agent-service.js";
 import type { ChannelBindingSnapshot } from "../application/channel-binding-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
-import {
-  buildGatewayConfig,
-  GatewayConfigOverrides,
-  GatewayConfigService,
-} from "../bootstrap/config.js";
+import { buildGatewayContainer } from "../bootstrap/container.js";
 import { GatewayApp, GatewayWebDir, HonoGatewayApp } from "./app.js";
-import { AgentRoutes } from "./routes/agents.js";
-import { ChannelRoutes } from "./routes/channels.js";
-import { RuntimeRoutes, RuntimeStatusSourceToken } from "./routes/runtime.js";
+import { RuntimeStatusSourceToken } from "./routes/runtime.js";
 
 function createHttpContainer(): Container {
-  const container = new Container({ defaultScope: "Singleton" });
-  container
-    .bind(GatewayConfigOverrides)
-    .toConstantValue(
-      buildGatewayConfig({ corsOrigin: "http://localhost:3000" }),
-    );
-  container.bind(GatewayConfigService).toSelf().inSingletonScope();
-  container.bind(GatewayWebDir).toConstantValue("/tmp/does-not-exist");
-  container.bind(ChannelRoutes).toSelf().inSingletonScope();
-  container.bind(AgentRoutes).toSelf().inSingletonScope();
-  container.bind(RuntimeRoutes).toSelf().inSingletonScope();
-  container.bind(HonoGatewayApp).toSelf().inSingletonScope();
-  container.bind(GatewayApp).toService(HonoGatewayApp);
+  const container = buildGatewayContainer({
+    corsOrigin: "http://localhost:3000",
+  });
+  container.rebindSync(GatewayWebDir).toConstantValue("/tmp/does-not-exist");
   return container;
 }
 
@@ -85,12 +70,12 @@ describe("GatewayApp", () => {
     };
 
     container
-      .bind(ChannelBindingService)
+      .rebindSync(ChannelBindingService)
       .toConstantValue(channelService as unknown as ChannelBindingService);
     container
-      .bind(AgentService)
+      .rebindSync(AgentService)
       .toConstantValue(agentService as unknown as AgentService);
-    container.bind(RuntimeStatusSourceToken).toConstantValue({
+    container.rebindSync(RuntimeStatusSourceToken).toConstantValue({
       listNodes: async () => [
         {
           nodeId: "node-a",
@@ -178,14 +163,14 @@ describe("GatewayApp", () => {
 
   test("registers runtime nodes route without breaking relay-style runtime source", async () => {
     const container = createHttpContainer();
-    container.bind(ChannelBindingService).toConstantValue({
+    container.rebindSync(ChannelBindingService).toConstantValue({
       list: async (): Promise<ChannelBindingSnapshot[]> => [],
       getById: async () => null,
       create: async () => ({ id: "binding-2" }),
       update: async () => null,
       delete: async () => false,
     } as unknown as ChannelBindingService);
-    container.bind(AgentService).toConstantValue({
+    container.rebindSync(AgentService).toConstantValue({
       list: async (): Promise<AgentConfigSnapshot[]> => [],
       getById: async () => null,
       register: async (): Promise<AgentConfigSnapshot> => ({
@@ -198,7 +183,7 @@ describe("GatewayApp", () => {
       update: async () => null,
       delete: async () => false,
     } as unknown as AgentService);
-    container.bind(RuntimeStatusSourceToken).toConstantValue({
+    container.rebindSync(RuntimeStatusSourceToken).toConstantValue({
       listConnectionStatuses: () => [
         {
           bindingId: "binding-1",
@@ -231,7 +216,7 @@ describe("GatewayApp", () => {
 
   test("preserves existing mutation error handling", async () => {
     const container = createHttpContainer();
-    container.bind(ChannelBindingService).toConstantValue({
+    container.rebindSync(ChannelBindingService).toConstantValue({
       list: async (): Promise<ChannelBindingSnapshot[]> => [],
       getById: async () => null,
       create: async () => {
@@ -240,7 +225,7 @@ describe("GatewayApp", () => {
       update: async () => null,
       delete: async () => false,
     } as unknown as ChannelBindingService);
-    container.bind(AgentService).toConstantValue({
+    container.rebindSync(AgentService).toConstantValue({
       list: async (): Promise<AgentConfigSnapshot[]> => [],
       getById: async () => null,
       register: async (): Promise<AgentConfigSnapshot> => ({
@@ -255,7 +240,7 @@ describe("GatewayApp", () => {
         throw new ReferencedAgentError("agent-1", ["binding-1"]);
       },
     } as unknown as AgentService);
-    container.bind(RuntimeStatusSourceToken).toConstantValue({
+    container.rebindSync(RuntimeStatusSourceToken).toConstantValue({
       listNodes: async () => [],
       listConnections: async () => [],
     });
@@ -279,7 +264,49 @@ describe("GatewayApp", () => {
     });
     assert.equal(missingAgentFields.status, 400);
     assert.deepEqual(await missingAgentFields.json(), {
-      error: "Missing required fields: name, url",
+      error: "Invalid request body",
+      issues: [
+        {
+          path: "url",
+          message: "Invalid input: expected string, received undefined",
+        },
+      ],
+    });
+
+    const invalidChannelPayload = await app.request("/api/channels", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Binding",
+        agentId: "agent-1",
+        channelConfig: "not-an-object",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+    assert.equal(invalidChannelPayload.status, 400);
+    assert.deepEqual(await invalidChannelPayload.json(), {
+      error: "Invalid request body",
+      issues: [
+        {
+          path: "channelConfig",
+          message: "Invalid input: expected record, received string",
+        },
+      ],
+    });
+
+    const invalidAgentPatch = await app.request("/api/agents/agent-1", {
+      method: "PATCH",
+      body: JSON.stringify({ protocol: 42 }),
+      headers: { "content-type": "application/json" },
+    });
+    assert.equal(invalidAgentPatch.status, 400);
+    assert.deepEqual(await invalidAgentPatch.json(), {
+      error: "Invalid request body",
+      issues: [
+        {
+          path: "protocol",
+          message: "Invalid input: expected string, received number",
+        },
+      ],
     });
 
     const deleteReferencedAgent = await app.request("/api/agents/agent-1", {

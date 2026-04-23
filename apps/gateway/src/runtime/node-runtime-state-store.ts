@@ -2,7 +2,7 @@ import type { RuntimeConnectionStatus } from "@a2a-channels/core";
 
 import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
 
-export const NodeRuntimeStateStoreToken = Symbol.for(
+export const NodeRuntimeStateStore = Symbol.for(
   "runtime.NodeRuntimeStateStore",
 );
 

@@ -2,10 +2,7 @@ import { serve as honoServe, type ServerType } from "@hono/node-server";
 import { inject, injectable, unmanaged } from "inversify";
 
 import { GatewayConfigService } from "./config.js";
-import {
-  GatewayApp as GatewayAppService,
-  type GatewayApp,
-} from "../http/app.js";
+import { GatewayApp } from "../http/app.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
 import { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 
@@ -29,6 +26,18 @@ const defaultLogger: GatewayLogger = {
   },
 };
 
+/**
+ * Owns the outer process lifecycle once initialization has completed.
+ *
+ * Responsibilities are intentionally narrow:
+ * - start/stop the Hono HTTP server
+ * - start/stop background workers that must follow process lifetime
+ * - bootstrap runtime orchestration with retry so transient failures do not
+ *   leave the HTTP API unavailable
+ *
+ * Domain behavior stays outside this class; this is a system boundary, not an
+ * application service.
+ */
 @injectable()
 export class GatewayServer {
   private server: ServerType | null = null;
@@ -42,7 +51,7 @@ export class GatewayServer {
   constructor(
     @inject(GatewayConfigService)
     private readonly config: GatewayConfigService,
-    @inject(GatewayAppService)
+    @inject(GatewayApp)
     private readonly app: GatewayApp,
     @inject(OutboxWorker)
     private readonly outboxWorker: Pick<OutboxWorker, "start" | "stop">,
@@ -74,6 +83,8 @@ export class GatewayServer {
 
     const serve = options.serve ?? this.defaultServe;
 
+    // The outbox worker can start immediately; it does not depend on runtime
+    // ownership being fully bootstrapped.
     this.outboxWorker.start();
     this.logger.info(
       `🚀 A2A Channels Gateway starting on http://localhost:${this.config.port}`,
@@ -92,6 +103,8 @@ export class GatewayServer {
       },
     );
 
+    // Runtime bootstrap happens after the HTTP server starts so operators can
+    // still inspect health/status endpoints while background recovery retries.
     this.runtimeBootstrapPromise = this.beginBootstrapAttempt();
     void this.runtimeBootstrapPromise.catch((error) =>
       this.handleBootstrapFailure(error),
@@ -141,6 +154,8 @@ export class GatewayServer {
       return;
     }
 
+    // Keep retries serialized: only one timer and one bootstrap attempt may be
+    // active at a time.
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       void this.beginBootstrapAttempt().catch((bootstrapError) =>

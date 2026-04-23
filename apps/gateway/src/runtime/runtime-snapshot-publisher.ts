@@ -1,11 +1,11 @@
 import { inject, injectable } from "inversify";
 
 import {
+  RuntimeOwnershipState as RuntimeOwnershipStateToken,
   type RuntimeOwnershipState,
-  RuntimeOwnershipStateToken,
 } from "./ownership-state.js";
 import {
-  NodeRuntimeStateStoreToken,
+  NodeRuntimeStateStore as NodeRuntimeStateStoreToken,
   type NodeRuntimeStateStore,
 } from "./node-runtime-state-store.js";
 import {

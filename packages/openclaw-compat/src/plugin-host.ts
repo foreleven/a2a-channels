@@ -10,7 +10,7 @@
  * apps/gateway/src/register-plugins.ts.
  *
  * Typical gateway startup:
- *   const host = new OpenClawPluginHost(() => store.buildOpenClawConfig());
+ *   const host = new OpenClawPluginHost(() => configProjection.getConfig());
  *   registerLarkPlugin(host);        // channel-specific
  *   host.setRuntime(buildRuntime()); // shared runtime injected once
  */

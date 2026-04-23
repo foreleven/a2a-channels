@@ -2,16 +2,12 @@
  * Integration tests for the gateway store.
  *
  * Each test group resets the database via `resetDB()` so tests remain
- * independent.  The test runner must set DB_PATH before this module
- * loads (done via the `test` npm script in package.json).
+ * independent. The test runner must prepare the schema and set DB_PATH before
+ * this module loads.
  */
 
 import { describe, test, before, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-import { Container } from "inversify";
 
 import type {
   AgentClientHandle,
@@ -30,27 +26,28 @@ import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
-import { buildGatewayConfig, GatewayConfigService } from "../bootstrap/config.js";
-import { buildRuntimeBootstrap } from "../runtime/bootstrap.js";
+import {
+  buildGatewayConfig,
+  GatewayConfigService,
+} from "../bootstrap/config.js";
+import { createGatewayContainer } from "../bootstrap/container.js";
+import type { RuntimeScheduler } from "../runtime/scheduler.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
 import { AgentClientFactory } from "../runtime/agent-clients.js";
 import {
   ConnectionManager,
   type ConnectionManagerOptions,
 } from "../runtime/connection-manager.js";
-import { LocalNodeRuntimeStateStore } from "../runtime/local-node-runtime-state-store.js";
 import type { NodeRuntimeStateStore } from "../runtime/node-runtime-state-store.js";
 import { OpenClawRuntimeAssembler } from "../runtime/openclaw-runtime-assembler.js";
 import { buildRedisCoordinationKeys } from "../runtime/cluster/redis-coordination.js";
-import { createLocalOwnershipGate } from "../runtime/local-ownership-gate.js";
-import { LocalScheduler } from "../runtime/local-scheduler.js";
+import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
+import { LocalScheduler } from "../runtime/local/local-scheduler.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
-import {
-  RuntimeAssignmentCoordinator,
-  type RuntimeAssignmentCoordinatorOptions,
-} from "../runtime/runtime-assignment-coordinator.js";
+import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
+import { RuntimeDesiredStateQuery } from "../runtime/runtime-desired-state-query.js";
 import { RuntimeBindingStateService } from "../runtime/runtime-binding-state-service.js";
 import { RuntimeBindingPolicy } from "../runtime/runtime-binding-policy.js";
 import {
@@ -63,17 +60,11 @@ import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.
 import type { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 import { TransportRegistryAssembler } from "../runtime/transport-registry-assembler.js";
 import { OpenClawConfigBuilder } from "../runtime/openclaw-config.js";
-import { initStore, seedDefaults } from "../services/initialization.js";
-import { buildOpenClawConfig } from "../services/openclaw-config.js";
-import {
-  getAgentUrlForBinding,
-  getAgentUrlForChannelAccount,
-  getAgentProtocolForUrl,
-} from "../services/routing.js";
+import { DefaultSeedWriter } from "../../../../scripts/seed-defaults.ts";
 import {
   createRuntimeOwnershipState,
   InMemoryRuntimeOwnershipState,
-  RuntimeOwnershipStateToken,
+  RuntimeOwnershipState,
 } from "../runtime/ownership-state.js";
 import {
   createReconnectPolicy,
@@ -84,26 +75,12 @@ import {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-const GATEWAY_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../..",
-);
-
-/** Push the Prisma schema to the test DB (creates tables if absent). */
-function pushSchema(): void {
-  execSync("node_modules/.bin/prisma db push --schema=prisma/schema.prisma", {
-    cwd: GATEWAY_ROOT,
-    stdio: "pipe",
-  });
-}
-
 /** Delete all rows from the gateway state, outbox, and legacy event tables. */
 async function resetDB(): Promise<void> {
   await prisma.outboxEvent.deleteMany();
   await prisma.channelBinding.deleteMany();
   await prisma.agent.deleteMany();
   await prisma.runtimeNode.deleteMany();
-  await initStore();
 }
 
 const FEISHU_BINDING_DATA = {
@@ -145,6 +122,15 @@ function createGatewayConfigService(
   overrides: Parameters<typeof buildGatewayConfig>[0] = {},
 ) {
   return new GatewayConfigService(buildGatewayConfig(overrides));
+}
+
+function createLocalSchedulerStateStore(): LocalScheduler {
+  return new LocalScheduler(
+    {
+      reconcile: async () => {},
+    } as unknown as RuntimeAssignmentCoordinator,
+    new DomainEventBus(),
+  );
 }
 
 interface RelayRuntimeTestOptions {
@@ -200,7 +186,8 @@ function createRelayRuntime(
     options.runtimeNodeState ?? new RuntimeNodeState(config);
   const runtimeAssembler =
     options.runtimeAssembler ?? new OpenClawRuntimeAssembler();
-  const connectionManager = options.connectionManager ?? new ConnectionManager();
+  const connectionManager =
+    options.connectionManager ?? new ConnectionManager();
   const transportRegistryAssembler = new TransportRegistryAssembler(
     options.transports ?? [
       {
@@ -271,7 +258,9 @@ function createRelayRuntime(
     listOwnedBindingIds:
       assignmentService.listOwnedBindingIds.bind(assignmentService),
     listAgents: agentRegistry.listAgents.bind(agentRegistry),
-    getConfig: openClawConfigProjection.getConfig.bind(openClawConfigProjection),
+    getConfig: openClawConfigProjection.getConfig.bind(
+      openClawConfigProjection,
+    ),
     connectionManager: relay.connectionManager,
     pluginHost: relay.pluginHost,
     runtime: relay.runtime,
@@ -375,14 +364,6 @@ async function deleteAgentConfig(id: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Setup
-// ---------------------------------------------------------------------------
-
-before(() => {
-  pushSchema();
-});
-
-// ---------------------------------------------------------------------------
 // ChannelBinding CRUD
 // ---------------------------------------------------------------------------
 
@@ -484,46 +465,6 @@ describe("ChannelBinding CRUD", () => {
     assert.equal(fetched, null);
   });
 
-  test("create immediately reflects in DB-backed routing", async () => {
-    const agent = await createTestAgent("http://routing-agent:4000");
-    const binding = await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      accountId: "routing-test",
-      agentId: agent.id,
-    });
-
-    const url = await getAgentUrlForBinding(binding.id, "http://default");
-    assert.equal(url, agent.url);
-  });
-
-  test("update immediately reflects in DB-backed routing", async () => {
-    const oldAgent = await createTestAgent("http://old-agent:4000");
-    const newAgent = await createTestAgent("http://new-agent:4000");
-    const binding = await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      accountId: "routing-update",
-      agentId: oldAgent.id,
-    });
-    await updateChannelBinding(binding.id, {
-      agentId: newAgent.id,
-    });
-
-    const url = await getAgentUrlForBinding(binding.id, "http://default");
-    assert.equal(url, newAgent.url);
-  });
-
-  test("delete immediately reflects in DB-backed routing", async () => {
-    const agent = await createTestAgent("http://to-delete:4000");
-    const binding = await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      accountId: "routing-delete",
-      agentId: agent.id,
-    });
-    await deleteChannelBinding(binding.id);
-
-    const url = await getAgentUrlForBinding(binding.id, "http://fallback");
-    assert.equal(url, "http://fallback");
-  });
   test("rejects creating a second enabled binding for the same channel/account", async () => {
     await createChannelBinding(FEISHU_BINDING_DATA);
 
@@ -674,16 +615,16 @@ describe("RuntimeOwnershipState", () => {
   });
 
   test("RuntimeOwnershipStateToken can point at the injectable ownership singleton through toService", async () => {
-    const container = new Container({ defaultScope: "Singleton" });
+    const container = createGatewayContainer();
 
     container.bind(InMemoryRuntimeOwnershipState).toSelf().inSingletonScope();
     container
-      .bind(RuntimeOwnershipStateToken)
+      .bind(RuntimeOwnershipState)
       .toService(InMemoryRuntimeOwnershipState);
 
     const first = container.get(InMemoryRuntimeOwnershipState);
     const second = container.get(
-      RuntimeOwnershipStateToken,
+      RuntimeOwnershipState,
     ) as InMemoryRuntimeOwnershipState;
 
     assert.equal(first, second);
@@ -976,7 +917,7 @@ describe("RuntimeOwnershipState", () => {
 
 describe("OwnershipGate", () => {
   test("local ownership gate grants and releases binding ownership", async () => {
-    const gate = createLocalOwnershipGate();
+    const gate = new LocalOwnershipGate();
 
     const lease = await gate.acquire("binding-1");
     assert.ok(lease);
@@ -1113,7 +1054,7 @@ describe("RuntimeClusterStateReader", () => {
   test("merges DB bindings with local runtime state", async () => {
     const { RuntimeClusterStateReader } =
       await import("../runtime/runtime-cluster-state-reader.js");
-    const stateStore = new LocalNodeRuntimeStateStore();
+    const stateStore = createLocalSchedulerStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
     const runtimeNodeRepo = new (
@@ -1204,7 +1145,7 @@ describe("RuntimeClusterStateReader", () => {
   test("prefers the newest snapshot when multiple snapshots exist for a node", async () => {
     const { RuntimeClusterStateReader } =
       await import("../runtime/runtime-cluster-state-reader.js");
-    const stateStore = new LocalNodeRuntimeStateStore();
+    const stateStore = createLocalSchedulerStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
     const runtimeNodeRepo = new (
@@ -1270,7 +1211,7 @@ describe("RuntimeClusterStateReader", () => {
   test("surfaces bootstrap error snapshots in the read model", async () => {
     const { RuntimeClusterStateReader } =
       await import("../runtime/runtime-cluster-state-reader.js");
-    const stateStore = new LocalNodeRuntimeStateStore();
+    const stateStore = createLocalSchedulerStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
     const runtimeNodeRepo = new (
@@ -1324,7 +1265,7 @@ describe("RuntimeClusterStateReader", () => {
   test("uses unknown scheduler role for cluster-mode DB nodes without snapshots", async () => {
     const { RuntimeClusterStateReader } =
       await import("../runtime/runtime-cluster-state-reader.js");
-    const stateStore = new LocalNodeRuntimeStateStore();
+    const stateStore = createLocalSchedulerStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
     const runtimeNodeRepo = new (
@@ -1366,7 +1307,7 @@ describe("RuntimeClusterStateReader", () => {
   test("clears ownership when the newest snapshot omits a previously owned binding", async () => {
     const { RuntimeClusterStateReader } =
       await import("../runtime/runtime-cluster-state-reader.js");
-    const stateStore = new LocalNodeRuntimeStateStore();
+    const stateStore = createLocalSchedulerStateStore();
     const bindingRepo = new ChannelBindingStateRepository();
     const agentRepo = new AgentConfigStateRepository();
     const runtimeNodeRepo = new (
@@ -1451,34 +1392,20 @@ describe("RuntimeClusterStateReader", () => {
 });
 
 describe("cluster bootstrap wiring", () => {
-  test("cluster mode uses the leader scheduler instead of LocalScheduler", async () => {
-    const coordinator = {
-      reconcile: async () => {},
-    } as unknown as RuntimeAssignmentCoordinator;
-    const result = buildRuntimeBootstrap({
-      clusterMode: true,
-      redisUrl: "redis://localhost:6379",
-      coordinator,
-      eventBus: new DomainEventBus(),
-    });
-
-    assert.equal(result.schedulerKind, "leader");
-  });
-
   test("leader scheduler triggers initial and event-driven reconciles", async () => {
     const { LeaderScheduler } =
       await import("../runtime/cluster/leader-scheduler.js");
     const bus = new DomainEventBus();
     let reconcileCalls = 0;
-    const scheduler = new LeaderScheduler({
-      coordinator: {
+    const scheduler = new LeaderScheduler(
+      {
         reconcile: async () => {
           reconcileCalls += 1;
         },
       } as unknown as RuntimeAssignmentCoordinator,
-      eventBus: bus,
-      ownershipGate: createLocalOwnershipGate(),
-    });
+      bus,
+      new LocalOwnershipGate(),
+    );
 
     scheduler.start();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1502,8 +1429,8 @@ describe("cluster bootstrap wiring", () => {
     const bus = new DomainEventBus();
     const events: string[] = [];
     let resolveReconcile: (() => void) | undefined;
-    const scheduler = new LeaderScheduler({
-      coordinator: {
+    const scheduler = new LeaderScheduler(
+      {
         reconcile: async () => {
           events.push("reconcile-start");
           await new Promise<void>((resolve) => {
@@ -1512,8 +1439,8 @@ describe("cluster bootstrap wiring", () => {
           events.push("reconcile-end");
         },
       } as unknown as RuntimeAssignmentCoordinator,
-      eventBus: bus,
-      ownershipGate: {
+      bus,
+      {
         acquire: async () => ({
           bindingId: "runtime-assignment-coordinator",
           token: "lease-1",
@@ -1524,7 +1451,7 @@ describe("cluster bootstrap wiring", () => {
         },
         isHeld: async () => false,
       },
-    });
+    );
 
     scheduler.start();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1544,20 +1471,20 @@ describe("cluster bootstrap wiring", () => {
       await import("../runtime/cluster/leader-scheduler.js");
     const bus = new DomainEventBus();
     let reconcileCalls = 0;
-    const scheduler = new LeaderScheduler({
-      coordinator: {
+    const scheduler = new LeaderScheduler(
+      {
         reconcile: async () => {
           reconcileCalls += 1;
         },
       } as unknown as RuntimeAssignmentCoordinator,
-      eventBus: bus,
-      ownershipGate: {
+      bus,
+      {
         acquire: async () => null,
         renew: async () => false,
         release: async () => {},
         isHeld: async () => false,
       },
-    });
+    );
 
     scheduler.start();
     bus.publish({
@@ -1569,20 +1496,6 @@ describe("cluster bootstrap wiring", () => {
     await scheduler.stop();
 
     assert.equal(reconcileCalls, 0);
-  });
-
-  test("single-instance mode keeps LocalScheduler", async () => {
-    const coordinator = {
-      reconcile: async () => {},
-    } as unknown as RuntimeAssignmentCoordinator;
-    const result = buildRuntimeBootstrap({
-      clusterMode: false,
-      coordinator,
-      eventBus: new DomainEventBus(),
-    });
-
-    assert.equal(result.schedulerKind, "local");
-    assert.equal(result.scheduler instanceof LocalScheduler, true);
   });
 });
 
@@ -1899,9 +1812,9 @@ describe("runtime bootstrapper", () => {
         },
       } as RelayRuntime,
       {
-        reconcile: async () => {},
-      } as unknown as RuntimeAssignmentCoordinator,
-      new DomainEventBus(),
+        start: () => {},
+        stop: async () => {},
+      } as RuntimeScheduler,
     );
 
     await assert.rejects(bootstrapper.bootstrap(), /bootstrap rejection/);
@@ -1971,19 +1884,11 @@ describe("runtime bootstrapper", () => {
         },
       } as RelayRuntime,
       {
-        reconcile: async () => {},
-      } as unknown as RuntimeAssignmentCoordinator,
-      new DomainEventBus(),
-      () =>
-        ({
-          schedulerKind: "leader",
-          scheduler: {
-            start: () => {
-              throw new Error("scheduler start failure");
-            },
-            stop: async () => {},
-          },
-        }) as never,
+        start: () => {
+          throw new Error("scheduler start failure");
+        },
+        stop: async () => {},
+      } as RuntimeScheduler,
     );
 
     await assert.rejects(bootstrapper.bootstrap(), /scheduler start failure/);
@@ -2077,7 +1982,7 @@ describe("RelayRuntime node state snapshots", () => {
       nodeDisplayName: "Node A",
       runtimeAddress: "http://127.0.0.1:7890",
     });
-    const stateStore = new LocalNodeRuntimeStateStore();
+    const stateStore = createLocalSchedulerStateStore();
     const runtimeAssembler = new OpenClawRuntimeAssembler();
     const transportRegistryAssembler = new TransportRegistryAssembler([
       {
@@ -2128,7 +2033,7 @@ describe("RelayRuntime node state snapshots", () => {
       nodeDisplayName: "Node A",
       runtimeAddress: "http://127.0.0.1:7890",
     });
-    const stateStore = new LocalNodeRuntimeStateStore();
+    const stateStore = createLocalSchedulerStateStore();
     const runtime = createRelayRuntime({
       config,
       stateStore,
@@ -2226,7 +2131,7 @@ describe("RelayRuntime node state snapshots", () => {
       nodeDisplayName: "Node A",
       runtimeAddress: "http://127.0.0.1:7890",
     });
-    const stateStore = new LocalNodeRuntimeStateStore();
+    const stateStore = createLocalSchedulerStateStore();
     const transportRegistryAssembler = new TransportRegistryAssembler([
       {
         protocol: "a2a",
@@ -2303,7 +2208,7 @@ describe("RelayRuntime node state snapshots", () => {
       nodeDisplayName: "Node A",
       runtimeAddress: "http://127.0.0.1:7890",
     });
-    const stateStore = new LocalNodeRuntimeStateStore();
+    const stateStore = createLocalSchedulerStateStore();
     const transportRegistryAssembler = new TransportRegistryAssembler([
       {
         protocol: "a2a",
@@ -3027,21 +2932,6 @@ describe("Agent CRUD", () => {
     assert.equal(fetched.name, "DB Persisted Agent");
   });
 
-  test("update handles URL change in DB-backed protocol lookup", async () => {
-    const created = await createAgentConfig({
-      ...AGENT_DATA,
-      url: "http://old-url:3001",
-      protocol: "acp",
-    });
-
-    assert.equal(await getAgentProtocolForUrl("http://old-url:3001"), "acp");
-
-    await updateAgentConfig(created.id, { url: "http://new-url:3001" });
-
-    assert.equal(await getAgentProtocolForUrl("http://old-url:3001"), "a2a");
-    assert.equal(await getAgentProtocolForUrl("http://new-url:3001"), "acp");
-  });
-
   test("delete returns false for an unknown id", async () => {
     const result = await deleteAgentConfig("nonexistent-id");
     assert.equal(result, false);
@@ -3055,326 +2945,6 @@ describe("Agent CRUD", () => {
     const fetched = await getAgentConfig(created.id);
     assert.equal(fetched, null);
   });
-
-  test("delete removes the agent from DB-backed protocol lookup", async () => {
-    const created = await createAgentConfig({
-      ...AGENT_DATA,
-      protocol: "acp",
-    });
-    assert.equal(await getAgentProtocolForUrl(created.url), "acp");
-
-    await deleteAgentConfig(created.id);
-    assert.equal(await getAgentProtocolForUrl(created.url), "a2a");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Agent routing
-// ---------------------------------------------------------------------------
-
-describe("agent routing", () => {
-  beforeEach(resetDB);
-
-  const DEFAULT_URL = "http://default-agent:3001";
-
-  test("getAgentUrlForBinding returns the default URL when the binding is missing", async () => {
-    const url = await getAgentUrlForBinding("missing-binding", DEFAULT_URL);
-    assert.equal(url, DEFAULT_URL);
-  });
-
-  test("getAgentUrlForBinding returns the matching enabled binding URL", async () => {
-    const agent = await createTestAgent("http://binding-agent:4000");
-    const binding = await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      agentId: agent.id,
-    });
-
-    const url = await getAgentUrlForBinding(binding.id, DEFAULT_URL);
-    assert.equal(url, agent.url);
-  });
-
-  test("getAgentUrlForBinding skips disabled bindings", async () => {
-    const agent = await createTestAgent("http://disabled-agent:4000");
-    const binding = await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      agentId: agent.id,
-      enabled: false,
-    });
-
-    const url = await getAgentUrlForBinding(binding.id, DEFAULT_URL);
-    assert.equal(url, DEFAULT_URL);
-  });
-
-  test("getAgentUrlForChannelAccount returns the matching channel/account URL", async () => {
-    const agent = await createTestAgent("http://exact-agent:4000");
-    await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      accountId: "exact-match",
-      agentId: agent.id,
-    });
-
-    const url = await getAgentUrlForChannelAccount(
-      "feishu",
-      "exact-match",
-      DEFAULT_URL,
-    );
-    assert.equal(url, agent.url);
-  });
-
-  test("getAgentUrlForChannelAccount does not fall back to another account", async () => {
-    const agent = await createTestAgent("http://other-agent:4000");
-    await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      accountId: "other-account",
-      agentId: agent.id,
-    });
-
-    const url = await getAgentUrlForChannelAccount(
-      "feishu",
-      "no-match-account",
-      DEFAULT_URL,
-    );
-    assert.equal(url, DEFAULT_URL);
-  });
-
-  test("getAgentUrlForChannelAccount skips disabled bindings", async () => {
-    const agent = await createTestAgent("http://disabled-agent:4000");
-    await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      accountId: "disabled-account",
-      agentId: agent.id,
-      enabled: false,
-    });
-
-    const url = await getAgentUrlForChannelAccount(
-      "feishu",
-      "disabled-account",
-      DEFAULT_URL,
-    );
-    assert.equal(url, DEFAULT_URL);
-  });
-
-  test("getAgentUrlForChannelAccount treats undefined channel/account as feishu/default", async () => {
-    const agent = await createTestAgent("http://default-binding-agent:4000");
-    await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      accountId: "default",
-      agentId: agent.id,
-    });
-
-    const url = await getAgentUrlForChannelAccount(
-      undefined,
-      undefined,
-      DEFAULT_URL,
-    );
-    assert.equal(url, agent.url);
-  });
-
-  test("getAgentUrlForChannelAccount distinguishes identical accountIds across channel types", async () => {
-    const feishuAgent = await createTestAgent("http://feishu-agent:4000");
-    const slackAgent = await createTestAgent("http://slack-agent:4000");
-    await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      accountId: "shared",
-      agentId: feishuAgent.id,
-    });
-    await createChannelBinding({
-      ...FEISHU_BINDING_DATA,
-      name: "Slack Bot",
-      channelType: "slack",
-      accountId: "shared",
-      channelConfig: { token: "xoxb" },
-      agentId: slackAgent.id,
-    });
-
-    assert.equal(
-      await getAgentUrlForChannelAccount("feishu", "shared", DEFAULT_URL),
-      feishuAgent.url,
-    );
-    assert.equal(
-      await getAgentUrlForChannelAccount("slack", "shared", DEFAULT_URL),
-      slackAgent.url,
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getAgentProtocolForUrl
-// ---------------------------------------------------------------------------
-
-describe("getAgentProtocolForUrl", () => {
-  beforeEach(resetDB);
-
-  test("returns 'a2a' when the agent is not in the database", async () => {
-    const protocol = await getAgentProtocolForUrl("http://unknown:3001");
-    assert.equal(protocol, "a2a");
-  });
-
-  test("returns the stored protocol for an agent", async () => {
-    await createAgentConfig({
-      name: "ACP Agent",
-      url: "http://acp-agent:3001",
-      protocol: "acp",
-    });
-
-    const protocol = await getAgentProtocolForUrl("http://acp-agent:3001");
-    assert.equal(protocol, "acp");
-  });
-
-  test("returns 'a2a' after the agent is deleted", async () => {
-    const agent = await createAgentConfig({
-      name: "Temp Agent",
-      url: "http://temp:3001",
-      protocol: "acp",
-    });
-    await deleteAgentConfig(agent.id);
-
-    const protocol = await getAgentProtocolForUrl("http://temp:3001");
-    assert.equal(protocol, "a2a");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildOpenClawConfig
-// ---------------------------------------------------------------------------
-
-describe("buildOpenClawConfig", () => {
-  beforeEach(resetDB);
-
-  test("returns an empty feishu config when there are no bindings", async () => {
-    const config = await buildOpenClawConfig();
-
-    assert.deepEqual(config.channels, {
-      feishu: {},
-      feishu_doc: {},
-    });
-    assert.deepEqual(config.agents, {});
-  });
-
-  test("returns feishu config for a 'default' account binding", async () => {
-    const agent = await createTestAgent("http://localhost:3001");
-    const binding = await createChannelBinding({
-      name: "Default Feishu",
-      channelType: "feishu",
-      accountId: "default",
-      channelConfig: {
-        appId: "cli_def",
-        appSecret: "sec_def",
-        verificationToken: "token123",
-        encryptKey: "enc456",
-        allowFrom: ["*"],
-      },
-      agentId: agent.id,
-      enabled: true,
-    });
-
-    const config = await buildOpenClawConfig();
-    const feishu = config.channels as Record<string, unknown>;
-    const feishuConfig = feishu["feishu"] as Record<string, unknown>;
-
-    assert.equal(feishuConfig["bindingId"], binding.id);
-    assert.equal(feishuConfig["agentUrl"], agent.url);
-    assert.equal(feishuConfig["appId"], "cli_def");
-    assert.equal(feishuConfig["appSecret"], "sec_def");
-    assert.equal(feishuConfig["verificationToken"], "token123");
-    assert.equal(feishuConfig["encryptKey"], "enc456");
-    assert.equal(feishuConfig["enabled"], true);
-    assert.deepEqual(feishuConfig["allowFrom"], ["*"]);
-    assert.ok(
-      !("accounts" in feishuConfig),
-      "default account should not create accounts block",
-    );
-  });
-
-  test("returns feishu config with an accounts block for non-default bindings", async () => {
-    const agent = await createTestAgent("http://localhost:3001");
-    const binding = await createChannelBinding({
-      name: "Account A",
-      channelType: "feishu",
-      accountId: "account-a",
-      channelConfig: { appId: "cli_a", appSecret: "sec_a" },
-      agentId: agent.id,
-      enabled: true,
-    });
-
-    const config = await buildOpenClawConfig();
-    const feishu = (config.channels as Record<string, unknown>)[
-      "feishu"
-    ] as Record<string, unknown>;
-    const accounts = feishu["accounts"] as Record<string, unknown>;
-
-    assert.ok(accounts);
-    assert.ok("account-a" in accounts);
-    const accountCfg = accounts["account-a"] as Record<string, unknown>;
-    assert.equal(accountCfg["bindingId"], binding.id);
-    assert.equal(accountCfg["agentUrl"], agent.url);
-    assert.equal(accountCfg["appId"], "cli_a");
-  });
-
-  test("skips disabled feishu bindings", async () => {
-    const agent = await createTestAgent();
-    await createChannelBinding({
-      name: "Disabled Bot",
-      channelType: "feishu",
-      accountId: "disabled",
-      channelConfig: { appId: "cli_dis", appSecret: "sec_dis" },
-      agentId: agent.id,
-      enabled: false,
-    });
-
-    const config = await buildOpenClawConfig();
-    const feishu = (config.channels as Record<string, unknown>)[
-      "feishu"
-    ] as Record<string, unknown>;
-
-    assert.ok(
-      !("appId" in feishu) && !("accounts" in feishu),
-      "disabled binding should not appear in config",
-    );
-  });
-
-  test("skips non-feishu channel bindings", async () => {
-    const agent = await createTestAgent();
-    await createChannelBinding({
-      name: "Slack Bot",
-      channelType: "slack",
-      accountId: "default",
-      channelConfig: { token: "xoxb-slack" },
-      agentId: agent.id,
-      enabled: true,
-    });
-
-    const config = await buildOpenClawConfig();
-    const feishu = (config.channels as Record<string, unknown>)[
-      "feishu"
-    ] as Record<string, unknown>;
-
-    assert.ok(
-      !("appId" in feishu),
-      "slack binding should not appear in feishu config",
-    );
-  });
-
-  test("uses '*' as default allowFrom when not specified in channelConfig", async () => {
-    const agent = await createTestAgent();
-    await createChannelBinding({
-      name: "No AllowFrom",
-      channelType: "feishu",
-      accountId: "no-allow",
-      channelConfig: { appId: "cli_naf", appSecret: "sec_naf" },
-      agentId: agent.id,
-      enabled: true,
-    });
-
-    const config = await buildOpenClawConfig();
-    const feishu = (config.channels as Record<string, unknown>)[
-      "feishu"
-    ] as Record<string, unknown>;
-    const accounts = feishu["accounts"] as Record<string, unknown>;
-    const accountCfg = accounts["no-allow"] as Record<string, unknown>;
-
-    assert.deepEqual(accountCfg["allowFrom"], ["*"]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -3385,6 +2955,10 @@ describe("seedDefaults", () => {
   beforeEach(resetDB);
 
   const ECHO_URL = "http://localhost:3001";
+
+  async function seedDefaults(): Promise<void> {
+    await new DefaultSeedWriter().write();
+  }
 
   test("creates the echo agent when the agents table is empty", async () => {
     await seedDefaults();
@@ -3416,12 +2990,6 @@ describe("seedDefaults", () => {
     const agents = await listAgentConfigs();
     assert.equal(agents.length, 1);
     assert.equal(agents[0]?.url, "http://existing:4000");
-  });
-
-  test("seeded echo agent is available to protocol lookup", async () => {
-    await seedDefaults();
-    const protocol = await getAgentProtocolForUrl(ECHO_URL);
-    assert.equal(protocol, "a2a");
   });
 
   test("creates a feishu binding from FEISHU_APP_ID / FEISHU_APP_SECRET env vars", async () => {
@@ -3489,78 +3057,6 @@ describe("seedDefaults", () => {
       delete process.env["FEISHU_APP_ID"];
       delete process.env["FEISHU_APP_SECRET"];
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// initStore
-// ---------------------------------------------------------------------------
-
-describe("initStore", () => {
-  beforeEach(resetDB);
-
-  test("recreates the runtime_nodes table when it is missing", async () => {
-    await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS "runtime_nodes"');
-
-    await initStore();
-
-    await prisma.runtimeNode.create({
-      data: {
-        nodeId: "node-recreated",
-        displayName: "Recreated Node",
-        mode: "local",
-        lastKnownAddress: "http://localhost:7890",
-      },
-    });
-
-    const found = await prisma.runtimeNode.findUnique({
-      where: { nodeId: "node-recreated" },
-    });
-
-    assert.ok(found);
-    assert.equal(found?.displayName, "Recreated Node");
-  });
-
-  test("direct channel rows are available through DB-backed routing", async () => {
-    const agent = await prisma.agent.create({
-      data: {
-        name: "Direct Binding Agent",
-        url: "http://direct:4000",
-        protocol: "a2a",
-      },
-    });
-
-    await prisma.channelBinding.create({
-      data: {
-        name: "Direct Insert",
-        channelType: "feishu",
-        accountId: "direct",
-        channelConfig: JSON.stringify({ appId: "x", appSecret: "y" }),
-        agentId: agent.id,
-        enabled: true,
-      },
-    });
-
-    const bindings = await listChannelBindings();
-    const binding = bindings.find((b) => b.accountId === "direct");
-    assert.ok(binding);
-
-    const url = await getAgentUrlForBinding(binding.id, "http://fallback");
-    assert.equal(url, "http://direct:4000");
-  });
-
-  test("direct agent rows are available through DB-backed protocol lookup", async () => {
-    // Insert directly via prisma
-    await prisma.agent.create({
-      data: {
-        name: "Direct Agent",
-        url: "http://direct-agent:4000",
-        protocol: "acp",
-      },
-    });
-
-    const protocol = await getAgentProtocolForUrl("http://direct-agent:4000");
-    assert.equal(protocol, "acp");
   });
 });
 
@@ -3640,13 +3136,13 @@ describe("RuntimeAssignmentCoordinator", () => {
       RuntimeAssignmentService,
       "listOwnedBindingIds" | "assignBinding" | "releaseBinding"
     >,
-    options: RuntimeAssignmentCoordinatorOptions,
+    query: Pick<RuntimeDesiredStateQuery, "loadSnapshot">,
     policy: RuntimeBindingPolicy = new RuntimeBindingPolicy(),
   ) {
     return new RuntimeAssignmentCoordinator(
       assignments as RuntimeAssignmentService,
+      query as RuntimeDesiredStateQuery,
       policy,
-      options,
     );
   }
 
@@ -3665,7 +3161,7 @@ describe("RuntimeAssignmentCoordinator", () => {
       },
     };
 
-    const coordinator = makeCoordinator(assignments, {
+    const query = {
       loadSnapshot: async () => ({
         bindings: [
           {
@@ -3691,7 +3187,9 @@ describe("RuntimeAssignmentCoordinator", () => {
         ],
         agents: [createAgent()],
       }),
-    });
+    };
+
+    const coordinator = makeCoordinator(assignments, query);
 
     await coordinator.reconcile();
 
@@ -3700,6 +3198,45 @@ describe("RuntimeAssignmentCoordinator", () => {
       "release:binding-disabled",
       "assign:binding-1",
     ]);
+  });
+
+  test("uses the injected desired-state query by default", async () => {
+    const events: string[] = [];
+    const assignments: Pick<
+      RuntimeAssignmentService,
+      "listOwnedBindingIds" | "assignBinding" | "releaseBinding"
+    > = {
+      listOwnedBindingIds: () => [],
+      assignBinding: async (binding: { id: string }) => {
+        events.push(`assign:${binding.id}`);
+      },
+      releaseBinding: async (bindingId: string) => {
+        events.push(`release:${bindingId}`);
+      },
+    };
+    const query = {
+      loadSnapshot: async () => ({
+        bindings: [
+          {
+            id: "binding-query",
+            name: "Binding Query",
+            channelType: "feishu",
+            accountId: "default",
+            channelConfig: { appId: "cli_1", appSecret: "sec_1" },
+            agentId: "agent-1",
+            enabled: true,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        agents: [createAgent()],
+      }),
+    };
+
+    const coordinator = makeCoordinator(assignments, query);
+
+    await coordinator.reconcile();
+
+    assert.deepEqual(events, ["assign:binding-query"]);
   });
 
   test("uses the injected binding policy when reconciling", async () => {

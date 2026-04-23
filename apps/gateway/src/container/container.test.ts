@@ -1,4 +1,4 @@
-import { before, describe, test } from "node:test";
+import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -10,7 +10,10 @@ import {
 
 import { AgentService } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
-import { buildGatewayConfig, GatewayConfigService } from "../bootstrap/config.js";
+import {
+  buildGatewayConfig,
+  GatewayConfigService,
+} from "../bootstrap/config.js";
 import type { GatewayConfigSnapshot } from "../bootstrap/config.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
 import { GatewayServer } from "../bootstrap/gateway-server.js";
@@ -22,7 +25,7 @@ import { OutboxWorker } from "../infra/outbox-worker.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
 import {
   InMemoryRuntimeOwnershipState,
-  RuntimeOwnershipStateToken,
+  RuntimeOwnershipState,
 } from "../runtime/ownership-state.js";
 import { ConnectionManager } from "../runtime/connection-manager.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
@@ -30,25 +33,23 @@ import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import { RuntimeBindingStateService } from "../runtime/runtime-binding-state-service.js";
+import { RuntimeScheduler } from "../runtime/scheduler.js";
+import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
+import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
+import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
+import { LocalScheduler } from "../runtime/local/local-scheduler.js";
+import { RuntimeOwnershipGate } from "../runtime/ownership-gate.js";
 import { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 import { RuntimeClusterStateReader } from "../runtime/runtime-cluster-state-reader.js";
-import { LocalNodeRuntimeStateStore } from "../runtime/local-node-runtime-state-store.js";
-import { NodeRuntimeStateStoreToken } from "../runtime/node-runtime-state-store.js";
+import { RuntimeDesiredStateQuery } from "../runtime/runtime-desired-state-query.js";
+import { NodeRuntimeStateStore } from "../runtime/node-runtime-state-store.js";
 import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
 import { RuntimeOwnedBindingManager } from "../runtime/runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
 import { TransportRegistryAssembler } from "../runtime/transport-registry-assembler.js";
-import {
-  InitializationService,
-  initStore,
-} from "../services/initialization.js";
 
 describe("buildGatewayContainer", () => {
-  before(async () => {
-    await initStore();
-  });
-
   test("resolves typed config", async () => {
     const config = buildGatewayConfig({ port: 7891 });
     const container: Container = buildGatewayContainer(config);
@@ -151,21 +152,15 @@ describe("buildGatewayContainer", () => {
 
     const channelBindingService = container.get(ChannelBindingService);
     const agentService = container.get(AgentService);
-    const initializationService = container.get(InitializationService);
 
     assert.strictEqual(
       channelBindingService,
       container.get(ChannelBindingService),
     );
     assert.strictEqual(agentService, container.get(AgentService));
-    assert.strictEqual(
-      initializationService,
-      container.get(InitializationService),
-    );
 
     assert.ok(Array.isArray(await channelBindingService.list()));
     assert.ok(Array.isArray(await agentService.list()));
-    await initializationService.initStore();
 
     const missingId = randomUUID();
     assert.equal(await channelBindingService.getById(missingId), null);
@@ -191,16 +186,42 @@ describe("buildGatewayContainer", () => {
     assert.ok(container.get(GatewayApp));
   });
 
+  test("binds LocalScheduler for single-instance runtime mode", () => {
+    const container = buildGatewayContainer(
+      buildGatewayConfig({ port: 7896, clusterMode: false }),
+    );
+
+    assert.ok(container.get(RuntimeScheduler) instanceof LocalScheduler);
+    assert.ok(
+      container.get(RuntimeOwnershipGate) instanceof LocalOwnershipGate,
+    );
+  });
+
+  test("binds LeaderScheduler for cluster runtime mode", () => {
+    const container = buildGatewayContainer(
+      buildGatewayConfig({
+        port: 7896,
+        clusterMode: true,
+        redisUrl: "redis://localhost:6379",
+      }),
+    );
+
+    assert.ok(container.get(RuntimeScheduler) instanceof LeaderScheduler);
+    assert.ok(
+      container.get(RuntimeOwnershipGate) instanceof RedisOwnershipGate,
+    );
+  });
+
   test("resolves runtime singleton collaborators through direct singleton bindings", () => {
     const container = buildGatewayContainer(buildGatewayConfig({ port: 7898 }));
 
     assert.strictEqual(
-      container.get(LocalNodeRuntimeStateStore),
-      container.get(LocalNodeRuntimeStateStore),
+      container.get(LocalScheduler),
+      container.get(LocalScheduler),
     );
     assert.strictEqual(
-      container.get(LocalNodeRuntimeStateStore),
-      container.get(NodeRuntimeStateStoreToken),
+      container.get(LocalScheduler),
+      container.get(NodeRuntimeStateStore),
     );
     assert.strictEqual(
       container.get(RuntimeNodeState),
@@ -245,10 +266,14 @@ describe("buildGatewayContainer", () => {
     assert.strictEqual(
       container.get(RuntimeAssignmentCoordinator),
       container.get(RuntimeAssignmentCoordinator),
+    );
+    assert.strictEqual(
+      container.get(RuntimeDesiredStateQuery),
+      container.get(RuntimeDesiredStateQuery),
     );
     assert.strictEqual(
       container.get(InMemoryRuntimeOwnershipState),
-      container.get(RuntimeOwnershipStateToken),
+      container.get(RuntimeOwnershipState),
     );
   });
 

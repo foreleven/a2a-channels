@@ -1,5 +1,12 @@
 import { inject, injectable, optional } from "inversify";
 
+/**
+ * Immutable runtime configuration resolved once at process boot.
+ *
+ * Downstream services consume this snapshot instead of reading environment
+ * variables directly so tests and alternate boot modes can override values in
+ * one place.
+ */
 export interface GatewayConfigSnapshot {
   port: number;
   corsOrigin: string;
@@ -14,6 +21,12 @@ export const GatewayConfigOverrides = Symbol.for(
   "system.GatewayConfigOverrides",
 );
 
+/**
+ * Small wrapper around the resolved config snapshot.
+ *
+ * Using a class here keeps configuration injectable inside the container while
+ * still exposing a plain-object view when code needs to serialize/debug it.
+ */
 @injectable()
 export class GatewayConfigService {
   private readonly snapshot: GatewayConfigSnapshot;
@@ -62,6 +75,7 @@ export class GatewayConfigService {
 export function buildGatewayConfig(
   overrides: Partial<GatewayConfigSnapshot> = {},
 ): GatewayConfigSnapshot {
+  // Prefer explicit overrides in tests/bootstrap code, then fall back to env.
   const port = overrides.port ?? Number(process.env["PORT"] ?? 7890);
   const runtimeAddress =
     overrides.runtimeAddress ??

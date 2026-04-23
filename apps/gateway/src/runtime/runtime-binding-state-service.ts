@@ -5,8 +5,8 @@ import type {
 } from "@a2a-channels/core";
 
 import {
+  RuntimeOwnershipState as RuntimeOwnershipStateToken,
   type RuntimeOwnershipState,
-  RuntimeOwnershipStateToken,
 } from "./ownership-state.js";
 import { RuntimeBindingPolicy } from "./runtime-binding-policy.js";
 
@@ -32,6 +32,18 @@ export interface HandleOwnedConnectionStatusHooks {
   restartConnection: (binding: ChannelBinding) => Promise<void>;
 }
 
+/**
+ * Local state machine for bindings already owned by this node.
+ *
+ * This service coordinates three concerns that need to move together:
+ * - ownership state transitions
+ * - connection lifecycle side effects
+ * - snapshot publication
+ *
+ * Reconciliation decides which bindings should be owned. Once a binding is
+ * owned, this service decides how local state changes in response to updates
+ * and connection callbacks.
+ */
 @injectable()
 export class RuntimeBindingStateService {
   constructor(
@@ -45,6 +57,8 @@ export class RuntimeBindingStateService {
     binding: ChannelBinding,
     hooks: ApplyRuntimeBindingUpsertHooks,
   ): Promise<void> {
+    // The ownership state returns a declarative transition result; this service
+    // is responsible for executing the imperative follow-up work.
     const ownershipUpdate = this.ownershipState.upsertBinding(binding, {
       forceRestart: hooks.forceRestart ?? false,
       hasActiveConnection: hooks.hasActiveConnection(binding.id),
@@ -70,6 +84,8 @@ export class RuntimeBindingStateService {
       return;
     }
 
+    // Clear pending reconnects before a deliberate restart so stale timers
+    // cannot resurrect an older connection attempt.
     this.ownershipState.clearReconnect(binding.id);
     await hooks.restartConnection(binding);
   }
@@ -105,7 +121,9 @@ export class RuntimeBindingStateService {
   }
 
   listOwnedBindingIds(): string[] {
-    return this.ownershipState.listOwnedBindings().map(({ binding }) => binding.id);
+    return this.ownershipState
+      .listOwnedBindings()
+      .map(({ binding }) => binding.id);
   }
 
   listConnectionStatuses(): RuntimeConnectionStatus[] {
@@ -123,6 +141,7 @@ export class RuntimeBindingStateService {
     status: RuntimeConnectionStatus["status"],
     hooks: HandleOwnedConnectionStatusHooks,
   ): void {
+    // Ignore late events after ownership has already moved away from this node.
     if (!this.ownershipState.getOwnedBinding(bindingId)) {
       return;
     }
@@ -135,8 +154,15 @@ export class RuntimeBindingStateService {
         this.ownershipState.markConnected(bindingId, hooks.agentUrl);
         break;
       case "disconnected": {
-        const decision = this.ownershipState.markDisconnected(bindingId, hooks.agentUrl);
-        this.scheduleReconnect(bindingId, decision.delayMs, hooks.restartConnection);
+        const decision = this.ownershipState.markDisconnected(
+          bindingId,
+          hooks.agentUrl,
+        );
+        this.scheduleReconnect(
+          bindingId,
+          decision.delayMs,
+          hooks.restartConnection,
+        );
         break;
       }
       case "error": {
@@ -145,7 +171,11 @@ export class RuntimeBindingStateService {
           hooks.error ?? new Error("Unknown connection error"),
           hooks.agentUrl,
         );
-        this.scheduleReconnect(bindingId, decision.delayMs, hooks.restartConnection);
+        this.scheduleReconnect(
+          bindingId,
+          decision.delayMs,
+          hooks.restartConnection,
+        );
         break;
       }
       case "idle":
@@ -161,6 +191,8 @@ export class RuntimeBindingStateService {
     delayMs: number,
     restartConnection: (binding: ChannelBinding) => Promise<void>,
   ): void {
+    // Re-read the latest owned binding at execution time because config or
+    // ownership may have changed while the reconnect timer was waiting.
     this.ownershipState.scheduleReconnect(bindingId, delayMs, async () => {
       const latestOwnedBinding = this.ownershipState.getOwnedBinding(bindingId);
       if (!latestOwnedBinding) {

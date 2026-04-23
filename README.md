@@ -37,6 +37,9 @@ npm run gateway
 
 # Terminal 3 – admin UI (port 3000)
 npm run web
+
+# Optional – write default agent / Feishu bootstrap seed data
+npm run seed
 ```
 
 Open **http://localhost:3000** for the admin UI, or **http://localhost:7890** for the legacy static UI.
@@ -50,9 +53,9 @@ Open **http://localhost:3000** for the admin UI, or **http://localhost:7890** fo
 | `PORT` | `7890` | Gateway HTTP port |
 | `DB_PATH` | `./a2a-channels.db` | SQLite database file path |
 | `CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origin for `/api/*` |
-| `ECHO_AGENT_URL` | `http://localhost:3001` | Default agent URL (seeded on first launch) |
-| `FEISHU_APP_ID` | – | Bootstrap a Feishu binding on startup |
-| `FEISHU_APP_SECRET` | – | Bootstrap a Feishu binding on startup |
+| `ECHO_AGENT_URL` | `http://localhost:3001` | Default agent URL used by `npm run seed` |
+| `FEISHU_APP_ID` | – | Feishu binding app ID used by `npm run seed` |
+| `FEISHU_APP_SECRET` | – | Feishu binding app secret used by `npm run seed` |
 | `FEISHU_ACCOUNT_ID` | `default` | Account ID for the bootstrap binding |
 | `FEISHU_VERIFICATION_TOKEN` | – | Feishu event verification token |
 | `FEISHU_ENCRYPT_KEY` | – | Feishu message encrypt key |

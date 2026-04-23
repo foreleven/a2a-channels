@@ -7,7 +7,7 @@ import { inject, injectable } from "inversify";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import type { RuntimeNodeStateRecord } from "../infra/runtime-node-repo.js";
 import {
-  NodeRuntimeStateStoreToken,
+  NodeRuntimeStateStore as NodeRuntimeStateStoreToken,
   type NodeRuntimeStateStore,
   type RuntimeConnectionListItem,
   type RuntimeNodeListItem,
@@ -99,8 +99,10 @@ export class RuntimeClusterStateReader {
       nodeId: snapshot?.nodeId ?? record?.nodeId ?? "",
       displayName: snapshot?.displayName ?? record?.displayName ?? "",
       mode: snapshot?.mode ?? this.mapRecordMode(record),
-      schedulerRole: snapshot?.schedulerRole ?? this.mapRecordSchedulerRole(record),
-      lastKnownAddress: snapshot?.lastKnownAddress ?? record?.lastKnownAddress ?? "",
+      schedulerRole:
+        snapshot?.schedulerRole ?? this.mapRecordSchedulerRole(record),
+      lastKnownAddress:
+        snapshot?.lastKnownAddress ?? record?.lastKnownAddress ?? "",
       lifecycle: snapshot?.lifecycle ?? "stopped",
       lastHeartbeatAt: snapshot?.lastHeartbeatAt ?? null,
       lastError: snapshot?.lastError ?? null,

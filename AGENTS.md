@@ -87,13 +87,13 @@ The runtime reuses selected helpers from `openclaw/plugin-sdk/*`, but most nones
 The gateway uses a SQLite-backed store by default. Important implications:
 
 - `DB_PATH` controls the database file and defaults to `./a2a-channels.db`.
-- The gateway seeds a default echo agent at `ECHO_AGENT_URL` or `http://localhost:3001` on first launch.
-- OpenClaw-compatible config is synthesized on demand from current bindings via `buildOpenClawConfig()`.
+- `npm run seed` writes the default echo agent at `ECHO_AGENT_URL` or `http://localhost:3001` and optional Feishu bootstrap binding.
+- OpenClaw-compatible config is synthesized from runtime-owned bindings via `RuntimeOpenClawConfigProjection`.
 
 The store is the source of truth for both:
 
 - monitor reconciliation
-- binding/account-to-agent routing (`getAgentUrlForBinding`, `getAgentUrlForChannelAccount`)
+- binding/account-to-agent routing through runtime desired-state projections
 
 ### Admin UI
 

@@ -9,3 +9,5 @@ export interface OwnershipGate {
   release(lease: OwnershipLease): Promise<void>;
   isHeld(bindingId: string): Promise<boolean>;
 }
+
+export const RuntimeOwnershipGate = Symbol.for("runtime.RuntimeOwnershipGate");

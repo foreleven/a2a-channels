@@ -16,6 +16,13 @@ export interface GatewayApp {
 export const GatewayApp = Symbol.for("http.GatewayApp");
 export const GatewayWebDir = Symbol.for("http.GatewayWebDir");
 
+/**
+ * Thin HTTP composition layer.
+ *
+ * This class owns transport concerns only: CORS policy, static root handling,
+ * and route registration. Business logic lives in the injected route classes
+ * and deeper application/runtime services.
+ */
 @injectable()
 export class HonoGatewayApp implements GatewayApp {
   readonly request: Hono["request"];
@@ -44,6 +51,8 @@ export class HonoGatewayApp implements GatewayApp {
   private createApp(): Hono {
     const app = new Hono();
 
+    // The browser-based admin UI calls the JSON API directly, so CORS is only
+    // needed on the API subtree.
     app.use(
       "/api/*",
       cors({
@@ -55,6 +64,7 @@ export class HonoGatewayApp implements GatewayApp {
 
     app.get("/", async (c) => {
       try {
+        // The gateway can still serve a legacy/static web UI build at "/".
         const html = await readFile(`${this.webDir}/index.html`, "utf-8");
         return c.html(html);
       } catch {

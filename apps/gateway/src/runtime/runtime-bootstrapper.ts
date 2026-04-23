@@ -1,24 +1,27 @@
-import { inject, injectable, unmanaged } from "inversify";
+import { inject, injectable } from "inversify";
 
 import { GatewayConfigService } from "../bootstrap/config.js";
-import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
-import { buildRuntimeBootstrap, type RuntimeBootstrap } from "./bootstrap.js";
-import { NodeRuntimeStateStoreToken } from "./node-runtime-state-store.js";
-import type { NodeRuntimeStateStore } from "./node-runtime-state-store.js";
+import { RuntimeScheduler } from "./scheduler.js";
+import {
+  NodeRuntimeStateStore as NodeRuntimeStateStoreToken,
+  type NodeRuntimeStateStore,
+} from "./node-runtime-state-store.js";
 import { RelayRuntime } from "./relay-runtime.js";
-import { RuntimeAssignmentCoordinator } from "./runtime-assignment-coordinator.js";
 import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
 
-export type RuntimeBootstrapFactory = (
-  options: Parameters<typeof buildRuntimeBootstrap>[0],
-) => RuntimeBootstrap;
-
+/**
+ * Boots and tears down the runtime side of the gateway.
+ *
+ * This sits below GatewayServer: the server owns process lifetime, while this
+ * class owns relay/runtime registration and scheduler startup for the current
+ * node.
+ */
 @injectable()
 export class RuntimeBootstrapper {
-  private runtimeBootstrap: RuntimeBootstrap | null = null;
   private bootstrapPromise: Promise<void> | null = null;
   private bootstrapped = false;
+  private schedulerStarted = false;
 
   constructor(
     @inject(GatewayConfigService)
@@ -29,12 +32,8 @@ export class RuntimeBootstrapper {
     private readonly stateStore: NodeRuntimeStateStore,
     @inject(RelayRuntime)
     private readonly relay: RelayRuntime,
-    @inject(RuntimeAssignmentCoordinator)
-    private readonly coordinator: RuntimeAssignmentCoordinator,
-    @inject(DomainEventBus)
-    private readonly eventBus: DomainEventBus,
-    @unmanaged()
-    private readonly bootstrapFactory: RuntimeBootstrapFactory = buildRuntimeBootstrap,
+    @inject(RuntimeScheduler)
+    private readonly scheduler: RuntimeScheduler,
   ) {}
 
   async bootstrap(): Promise<void> {
@@ -67,11 +66,9 @@ export class RuntimeBootstrapper {
       } catch {}
     }
 
-    const runtimeBootstrap = this.runtimeBootstrap;
-    this.runtimeBootstrap = null;
-
-    if (runtimeBootstrap) {
-      await runtimeBootstrap.scheduler.stop();
+    if (this.schedulerStarted) {
+      this.schedulerStarted = false;
+      await this.scheduler.stop();
     }
 
     if (!this.bootstrapped) {
@@ -85,9 +82,11 @@ export class RuntimeBootstrapper {
   private async performBootstrap(): Promise<void> {
     const now = new Date();
     let relayBootstrapped = false;
-    let runtimeBootstrap: RuntimeBootstrap | null = null;
+    let schedulerStarted = false;
 
     try {
+      // Publish/update the current node record first so cluster-aware readers
+      // can observe this node even if later runtime steps fail.
       await this.runtimeNodeRepository.upsert({
         nodeId: this.config.nodeId,
         displayName: this.config.nodeDisplayName,
@@ -100,18 +99,13 @@ export class RuntimeBootstrapper {
       await this.relay.bootstrap();
       relayBootstrapped = true;
 
-      runtimeBootstrap = this.bootstrapFactory({
-        clusterMode: this.config.clusterMode,
-        redisUrl: this.config.redisUrl,
-        coordinator: this.coordinator,
-        eventBus: this.eventBus,
-      });
-      runtimeBootstrap.scheduler.start();
-      this.runtimeBootstrap = runtimeBootstrap;
+      this.scheduler.start();
+      schedulerStarted = true;
+      this.schedulerStarted = true;
     } catch (error) {
       const cleanupErrors = await this.cleanupFailedBootstrap({
         relayBootstrapped,
-        runtimeBootstrap,
+        schedulerStarted,
       });
       await this.publishErrorSnapshot(error);
 
@@ -152,13 +146,13 @@ export class RuntimeBootstrapper {
 
   private async cleanupFailedBootstrap(context: {
     relayBootstrapped: boolean;
-    runtimeBootstrap: RuntimeBootstrap | null;
+    schedulerStarted: boolean;
   }): Promise<unknown[]> {
     const cleanupErrors: unknown[] = [];
 
-    if (context.runtimeBootstrap) {
+    if (context.schedulerStarted) {
       try {
-        await context.runtimeBootstrap.scheduler.stop();
+        await this.scheduler.stop();
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError);
       }
@@ -172,7 +166,7 @@ export class RuntimeBootstrapper {
       }
     }
 
-    this.runtimeBootstrap = null;
+    this.schedulerStarted = false;
     return cleanupErrors;
   }
 }

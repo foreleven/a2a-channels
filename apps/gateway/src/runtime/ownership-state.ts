@@ -1,4 +1,7 @@
-import type { ChannelBinding, RuntimeConnectionStatus } from "@a2a-channels/core";
+import type {
+  ChannelBinding,
+  RuntimeConnectionStatus,
+} from "@a2a-channels/core";
 import { injectable } from "inversify";
 
 import {
@@ -7,7 +10,7 @@ import {
   type ReconnectPolicy,
 } from "./reconnect-policy.js";
 
-export const RuntimeOwnershipStateToken = Symbol.for(
+export const RuntimeOwnershipState = Symbol.for(
   "runtime.RuntimeOwnershipState",
 );
 
@@ -54,7 +57,11 @@ export interface RuntimeOwnershipState {
   markConnecting(bindingId: string, agentUrl?: string): RuntimeConnectionStatus;
   markConnected(bindingId: string, agentUrl?: string): RuntimeConnectionStatus;
   markDisconnected(bindingId: string, agentUrl?: string): ReconnectDecision;
-  markError(bindingId: string, error: unknown, agentUrl?: string): ReconnectDecision;
+  markError(
+    bindingId: string,
+    error: unknown,
+    agentUrl?: string,
+  ): ReconnectDecision;
 }
 
 export interface CreateRuntimeOwnershipStateOptions {
@@ -65,9 +72,7 @@ function cloneBinding(binding: ChannelBinding): ChannelBinding {
   return structuredClone(binding);
 }
 
-function cloneStatus(
-  status: RuntimeConnectionStatus,
-): RuntimeConnectionStatus {
+function cloneStatus(status: RuntimeConnectionStatus): RuntimeConnectionStatus {
   return { ...status };
 }
 
@@ -93,7 +98,9 @@ export function areBindingsEquivalent(
   );
 }
 
-function createOwnedBinding(binding: ChannelBinding): OwnedRuntimeBindingRecord {
+function createOwnedBinding(
+  binding: ChannelBinding,
+): OwnedRuntimeBindingRecord {
   const now = new Date().toISOString();
   return {
     binding: cloneBinding(binding),
@@ -297,7 +304,10 @@ export class InMemoryRuntimeOwnershipState implements RuntimeOwnershipState {
     return this.resetToIdle(bindingId);
   }
 
-  markConnecting(bindingId: string, agentUrl?: string): RuntimeConnectionStatus {
+  markConnecting(
+    bindingId: string,
+    agentUrl?: string,
+  ): RuntimeConnectionStatus {
     this.clearReconnectTimer(bindingId);
     return this.setStatus(bindingId, "connecting", agentUrl);
   }
@@ -309,10 +319,7 @@ export class InMemoryRuntimeOwnershipState implements RuntimeOwnershipState {
     return this.setStatus(bindingId, "connected", agentUrl);
   }
 
-  markDisconnected(
-    bindingId: string,
-    agentUrl?: string,
-  ): ReconnectDecision {
+  markDisconnected(bindingId: string, agentUrl?: string): ReconnectDecision {
     return this.advanceReconnect(bindingId, "disconnected", agentUrl);
   }
 

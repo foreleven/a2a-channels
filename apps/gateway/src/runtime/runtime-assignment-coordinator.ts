@@ -1,30 +1,31 @@
-import { inject, injectable, unmanaged } from "inversify";
+import { inject, injectable } from "inversify";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
 import { RuntimeBindingPolicy } from "./runtime-binding-policy.js";
-import {
-  loadDesiredStateSnapshot,
-  type RuntimeStateSnapshot,
-} from "./state.js";
+import { RuntimeDesiredStateQuery } from "./runtime-desired-state-query.js";
 
-export interface RuntimeAssignmentCoordinatorOptions {
-  readonly loadSnapshot?: () => Promise<RuntimeStateSnapshot>;
-}
-
+/**
+ * Reconciles desired runtime state against bindings currently owned by this
+ * process.
+ *
+ * Important boundary rule: this coordinator talks to RuntimeAssignmentService,
+ * not RelayRuntime. It decides ownership changes; execution details stay below
+ * that boundary.
+ */
 @injectable()
 export class RuntimeAssignmentCoordinator {
   constructor(
     @inject(RuntimeAssignmentService)
     private readonly assignments: RuntimeAssignmentService,
+    @inject(RuntimeDesiredStateQuery)
+    private readonly desiredStateQuery: RuntimeDesiredStateQuery,
     @inject(RuntimeBindingPolicy)
     private readonly runtimeBindingPolicy: RuntimeBindingPolicy,
-    @unmanaged()
-    private readonly options: RuntimeAssignmentCoordinatorOptions = {},
   ) {}
 
   async reconcile(): Promise<void> {
-    const snapshot = await (
-      this.options.loadSnapshot ?? loadDesiredStateSnapshot
-    )();
+    const snapshot = await this.desiredStateQuery.loadSnapshot();
+    // Build lookup tables once so reconcile stays linear in the number of
+    // desired bindings/agents.
     const agentsById = new Map(snapshot.agents.map((agent) => [agent.id, agent]));
     const bindingsById = new Map(snapshot.bindings.map((binding) => [binding.id, binding]));
     const ownedBindingIds = this.assignments.listOwnedBindingIds();
@@ -56,6 +57,8 @@ export class RuntimeAssignmentCoordinator {
         continue;
       }
 
+      // AssignmentService owns the idempotent "already assigned?" behavior, so
+      // the coordinator can stay focused on desired-state iteration.
       await this.assignments.assignBinding(binding, agent);
     }
   }

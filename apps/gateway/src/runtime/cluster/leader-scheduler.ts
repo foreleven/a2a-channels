@@ -1,24 +1,32 @@
 import type { DomainEvent } from "@a2a-channels/domain";
-import type { DomainEventBus } from "../../infra/domain-event-bus.js";
-import type { OwnershipGate } from "../ownership-gate.js";
-import type { RuntimeAssignmentCoordinator } from "../runtime-assignment-coordinator.js";
+import { inject, injectable } from "inversify";
 
-export interface LeaderSchedulerOptions {
-  coordinator: RuntimeAssignmentCoordinator;
-  eventBus: DomainEventBus;
-  ownershipGate: OwnershipGate;
-}
+import { DomainEventBus } from "../../infra/domain-event-bus.js";
+import { RuntimeScheduler } from "../scheduler.js";
+import { RuntimeOwnershipGate, type OwnershipGate } from "../ownership-gate.js";
+import { RuntimeAssignmentCoordinator } from "../runtime-assignment-coordinator.js";
 
-export class LeaderScheduler {
+@injectable()
+export class LeaderScheduler implements RuntimeScheduler {
   readonly kind = "leader";
   private debounceTimer: NodeJS.Timeout | null = null;
   private intervalTimer: NodeJS.Timeout | null = null;
   private stopped = true;
   private reconciling = false;
   private leaderLease: { bindingId: string; token: string } | null = null;
-  private readonly eventHandlers = new Map<DomainEvent["eventType"], () => void>();
+  private readonly eventHandlers = new Map<
+    DomainEvent["eventType"],
+    () => void
+  >();
 
-  constructor(private readonly options: LeaderSchedulerOptions) {}
+  constructor(
+    @inject(RuntimeAssignmentCoordinator)
+    private readonly coordinator: RuntimeAssignmentCoordinator,
+    @inject(DomainEventBus)
+    private readonly eventBus: DomainEventBus,
+    @inject(RuntimeOwnershipGate)
+    private readonly ownershipGate: OwnershipGate,
+  ) {}
 
   start(): void {
     if (!this.stopped) return;
@@ -28,13 +36,10 @@ export class LeaderScheduler {
     for (const eventType of RUNTIME_EVENT_TYPES) {
       const handler = scheduleReconcile;
       this.eventHandlers.set(eventType, handler);
-      this.options.eventBus.on(eventType, handler);
+      this.eventBus.on(eventType, handler);
     }
 
-    this.intervalTimer = setInterval(
-      () => this.scheduleReconcile(),
-      30_000,
-    );
+    this.intervalTimer = setInterval(() => this.scheduleReconcile(), 30_000);
     void this.reconcile();
   }
 
@@ -46,7 +51,7 @@ export class LeaderScheduler {
     this.intervalTimer = null;
 
     for (const [eventType, handler] of this.eventHandlers) {
-      this.options.eventBus.off(eventType, handler);
+      this.eventBus.off(eventType, handler);
     }
     this.eventHandlers.clear();
 
@@ -56,7 +61,7 @@ export class LeaderScheduler {
 
     if (this.leaderLease) {
       try {
-        await this.options.ownershipGate.release(this.leaderLease);
+        await this.ownershipGate.release(this.leaderLease);
       } catch {}
       this.leaderLease = null;
     }
@@ -76,7 +81,7 @@ export class LeaderScheduler {
       if (!hasLeadership) {
         return;
       }
-      await this.options.coordinator.reconcile();
+      await this.coordinator.reconcile();
     } finally {
       this.reconciling = false;
     }
@@ -85,14 +90,14 @@ export class LeaderScheduler {
   private async ensureLeadership(): Promise<boolean> {
     if (this.leaderLease) {
       try {
-        const renewed = await this.options.ownershipGate.renew(this.leaderLease);
+        const renewed = await this.ownershipGate.renew(this.leaderLease);
         if (renewed) {
           return true;
         }
       } catch {}
 
       try {
-        await this.options.ownershipGate.release(this.leaderLease);
+        await this.ownershipGate.release(this.leaderLease);
       } catch {}
       this.leaderLease = null;
     }
@@ -102,7 +107,7 @@ export class LeaderScheduler {
     }
 
     try {
-      const lease = await this.options.ownershipGate.acquire(LEADER_LEASE_KEY);
+      const lease = await this.ownershipGate.acquire(LEADER_LEASE_KEY);
       if (!lease) {
         return false;
       }

@@ -1,9 +1,15 @@
 /**
  * A2A Channels Gateway – main HTTP server.
  *
- * Composition root: wires together the DDD infrastructure
- * (state repositories, outbox-backed application services) and starts the Hono
- * HTTP server.
+ * Composition root: wires together infrastructure, application services,
+ * runtime orchestration, and the Hono HTTP surface.
+ *
+ * The entrypoint deliberately does very little work itself:
+ * 1. Build the DI container.
+ * 2. Start the HTTP server and background runtime processes.
+ *
+ * Keeping startup orchestration here makes the boot path easy to inspect
+ * without spreading process lifecycle code across unrelated modules.
  *
  * Routes:
  *   GET  /                     → Admin Web UI
@@ -19,17 +25,11 @@
 
 import { buildGatewayContainer } from "./bootstrap/container.js";
 import { GatewayServer } from "./bootstrap/gateway-server.js";
-import { InitializationService } from "./services/initialization.js";
 
-// ---------------------------------------------------------------------------
-// Infrastructure wiring
-// ---------------------------------------------------------------------------
+// Build the singleton object graph once for the entire process.
+// Every long-lived gateway service hangs off this container.
 
 const container = buildGatewayContainer();
-
-const initializationService = container.get(InitializationService);
-await initializationService.initStore();
-await initializationService.seedDefaults();
 
 const server = container.get(GatewayServer);
 server.start();

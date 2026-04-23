@@ -12,6 +12,18 @@ import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-proje
 import { RuntimeOwnedBindingManager } from "./runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "./runtime-snapshot-publisher.js";
 
+/**
+ * Runtime-side composition root for the relay path.
+ *
+ * This class wires together:
+ * - desired binding/agent assignment services
+ * - the OpenClaw host/runtime assembly
+ * - live connection execution
+ * - node snapshot publication
+ *
+ * It is intentionally orchestration-heavy. Domain decisions should already be
+ * made by the injected collaborators before they reach this class.
+ */
 @injectable()
 export class RelayRuntime {
   readonly runtime: OpenClawPluginRuntime;
@@ -36,6 +48,8 @@ export class RelayRuntime {
   ) {
     this.connectionManager = connectionManager;
 
+    // The OpenClaw runtime reads projected config on demand instead of owning
+    // its own durable config file in this gateway.
     const assembly = runtimeAssembler.assemble({
       config: {
         loadConfig: () => this.openClawConfigProjection.getConfig(),
@@ -49,6 +63,9 @@ export class RelayRuntime {
     this.runtime = assembly.runtime;
     this.pluginHost = assembly.pluginHost;
 
+    // ConnectionManager handles the imperative edge of long-lived channel
+    // bindings; RelayRuntime only translates its callbacks into runtime-state
+    // updates and telemetry.
     this.connectionManager.initialize({
       host: this.pluginHost,
       getAgentClient: (agentId) => this.agentRegistry.getAgentClient(agentId),
@@ -76,6 +93,8 @@ export class RelayRuntime {
   }
 
   async bootstrap(): Promise<void> {
+    // Relay bootstrap is intentionally light; connection ownership is driven by
+    // reconciliation and connection callbacks rather than by this method.
     await this.snapshotPublisher.publishBootstrapping();
     await this.snapshotPublisher.publishReady();
   }
