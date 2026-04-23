@@ -1,7 +1,4 @@
-import type {
-  ChannelBinding,
-  RuntimeConnectionStatus,
-} from "@a2a-channels/core";
+import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import { injectable } from "inversify";
 
 import {
@@ -9,10 +6,9 @@ import {
   type ReconnectDecision,
   type ReconnectPolicy,
 } from "./reconnect-policy.js";
+import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
 
-export const RuntimeOwnershipState = Symbol.for(
-  "runtime.RuntimeOwnershipState",
-);
+type ChannelBinding = ChannelBindingSnapshot;
 
 export interface OwnedRuntimeBinding {
   binding: ChannelBinding;
@@ -33,7 +29,6 @@ export interface RuntimeOwnershipUpsertResult {
 export interface RuntimeOwnershipUpsertOptions {
   forceRestart: boolean;
   hasActiveConnection: boolean;
-  runnable: boolean;
 }
 
 export interface RuntimeOwnershipState {
@@ -115,7 +110,7 @@ function createOwnedBinding(
 }
 
 @injectable()
-export class InMemoryRuntimeOwnershipState implements RuntimeOwnershipState {
+export class RuntimeOwnershipState implements RuntimeOwnershipState {
   private readonly reconnectPolicy: ReconnectPolicy;
   private readonly bindings = new Map<string, OwnedRuntimeBindingRecord>();
 
@@ -199,7 +194,7 @@ export class InMemoryRuntimeOwnershipState implements RuntimeOwnershipState {
 
     const owned = this.getOwnedBindingOrThrow(binding.id);
 
-    if (!binding.enabled || !options.runnable) {
+    if (!binding.enabled) {
       this.resetToIdle(binding.id);
       return {
         publishSnapshot: true,
@@ -235,7 +230,6 @@ export class InMemoryRuntimeOwnershipState implements RuntimeOwnershipState {
     this.upsertBinding(binding, {
       forceRestart: false,
       hasActiveConnection: false,
-      runnable: false,
     });
   }
 
@@ -335,5 +329,5 @@ export class InMemoryRuntimeOwnershipState implements RuntimeOwnershipState {
 export function createRuntimeOwnershipState(
   options: CreateRuntimeOwnershipStateOptions = {},
 ): RuntimeOwnershipState {
-  return new InMemoryRuntimeOwnershipState(options);
+  return new RuntimeOwnershipState(options);
 }

@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { injectable, inject } from "inversify";
-import type { RuntimeConnectionStatus } from "@a2a-channels/core";
 
 import type {
   RuntimeConnectionListItem,
   RuntimeNodeListItem,
 } from "../../runtime/node-runtime-state-store.js";
+import type { RuntimeConnectionStatus } from "../../runtime/runtime-connection-status.js";
 
 type MaybePromise<T> = T | Promise<T>;
 

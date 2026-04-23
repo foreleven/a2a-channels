@@ -1,17 +1,26 @@
 import { inject, injectable } from "inversify";
 import type {
-  AgentConfig,
-  ChannelBinding,
-  RuntimeConnectionStatus,
-} from "@a2a-channels/core";
+  AgentConfigSnapshot,
+  ChannelBindingSnapshot,
+} from "@a2a-channels/domain";
 
 import { ConnectionManager } from "./connection-manager.js";
+import {
+  RuntimeOwnershipState as RuntimeOwnershipStateToken,
+  type RuntimeOwnershipState,
+} from "./ownership-state.js";
+import {
+  RuntimeOwnershipGate,
+  type OwnershipGate,
+  type OwnershipLease,
+} from "./ownership-gate.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
-import {
-  RuntimeOwnedBindingManager,
-  type RuntimeOwnedBindingHooks,
-} from "./runtime-owned-binding-manager.js";
+import { RuntimeSnapshotPublisher } from "./runtime-snapshot-publisher.js";
+import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
+
+type AgentConfig = AgentConfigSnapshot;
+type ChannelBinding = ChannelBindingSnapshot;
 
 interface ApplyAgentUpsertOptions {
   skipRestartBindingIds?: string[];
@@ -19,34 +28,28 @@ interface ApplyAgentUpsertOptions {
 
 @injectable()
 export class RuntimeAssignmentService {
-  private readonly ownedBindingHooks: RuntimeOwnedBindingHooks;
+  private readonly leases = new Map<string, OwnershipLease>();
 
   constructor(
     @inject(RuntimeAgentRegistry)
     private readonly agentRegistry: RuntimeAgentRegistry,
     @inject(RuntimeOpenClawConfigProjection)
     private readonly openClawConfigProjection: RuntimeOpenClawConfigProjection,
-    @inject(RuntimeOwnedBindingManager)
-    private readonly ownedBindingManager: RuntimeOwnedBindingManager,
+    @inject(RuntimeOwnershipStateToken)
+    private readonly ownershipState: RuntimeOwnershipState,
+    @inject(RuntimeSnapshotPublisher)
+    private readonly snapshotPublisher: RuntimeSnapshotPublisher,
+    @inject(RuntimeOwnershipGate)
+    private readonly ownershipGate: OwnershipGate,
     @inject(ConnectionManager)
     private readonly connectionManager: ConnectionManager,
-  ) {
-    this.ownedBindingHooks = {
-      hasActiveConnection: (bindingId) =>
-        this.connectionManager.hasConnection(bindingId),
-      onBindingsChanged: () => {
-        this.openClawConfigProjection.rebuild();
-      },
-      restartConnection: async (binding) => {
-        await this.connectionManager.restartConnection(binding);
-      },
-      stopConnection: async (bindingId) => {
-        await this.connectionManager.stopConnection(bindingId);
-      },
-    };
-  }
+  ) {}
 
   async assignBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
+    if (!(await this.acquireBindingLease(binding.id))) {
+      return;
+    }
+
     const previousAgent = this.agentRegistry.getAgent(agent.id);
     const agentChanged =
       !previousAgent ||
@@ -59,18 +62,25 @@ export class RuntimeAssignmentService {
       });
     }
 
-    await this.ownedBindingManager.applyBindingUpsert(
-      binding,
-      this.ownedBindingHooks,
-      { forceRestart: agentChanged },
-    );
+    await this.applyBindingUpsert(binding, { forceRestart: agentChanged });
   }
 
   async releaseBinding(bindingId: string): Promise<void> {
-    await this.ownedBindingManager.applyBindingDelete(
-      bindingId,
-      this.ownedBindingHooks,
-    );
+    if (!this.ownershipState.getOwnedBinding(bindingId)) {
+      await this.releaseBindingLease(bindingId);
+      return;
+    }
+
+    this.ownershipState.clearReconnect(bindingId);
+    await this.connectionManager.stopConnection(bindingId);
+    await this.releaseBindingLease(bindingId);
+
+    if (!this.ownershipState.releaseBinding(bindingId)) {
+      return;
+    }
+
+    this.openClawConfigProjection.rebuild();
+    await this.publishSnapshotSafely(`binding delete for ${bindingId}`);
   }
 
   async applyAgentUpsert(
@@ -87,31 +97,192 @@ export class RuntimeAssignmentService {
     );
 
     for (const binding of affectedBindings) {
-      await this.ownedBindingManager.applyBindingUpsert(
-        binding,
-        this.ownedBindingHooks,
-        { forceRestart: true },
-      );
+      await this.applyBindingUpsert(binding, { forceRestart: true });
     }
   }
 
   listBindings(): ChannelBinding[] {
-    return this.ownedBindingManager.listBindings();
+    return this.ownershipState
+      .listOwnedBindings()
+      .map(({ binding }) => binding)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
   listEnabledBindings(): ChannelBinding[] {
-    return this.ownedBindingManager.listEnabledBindings();
+    return this.listBindings().filter((binding) => binding.enabled);
   }
 
   listOwnedBindingIds(): string[] {
-    return this.ownedBindingManager.listOwnedBindingIds();
+    return this.ownershipState
+      .listOwnedBindings()
+      .map(({ binding }) => binding.id);
   }
 
   listConnectionStatuses(): RuntimeConnectionStatus[] {
-    return this.ownedBindingManager.listConnectionStatuses();
+    return this.ownershipState.listConnectionStatuses();
   }
 
   clearReconnectsForOwnedBindings(): void {
-    this.ownedBindingManager.clearReconnectsForOwnedBindings();
+    for (const bindingId of this.listOwnedBindingIds()) {
+      this.ownershipState.clearReconnect(bindingId);
+    }
+  }
+
+  handleOwnedConnectionStatus(
+    bindingId: string,
+    status: RuntimeConnectionStatus["status"],
+    options: {
+      agentUrl?: string;
+      error?: unknown;
+      restartConnection: (binding: ChannelBinding) => Promise<void>;
+    },
+  ): void {
+    if (!this.ownershipState.getOwnedBinding(bindingId)) {
+      return;
+    }
+
+    switch (status) {
+      case "connecting":
+        this.ownershipState.markConnecting(bindingId, options.agentUrl);
+        break;
+      case "connected":
+        this.ownershipState.markConnected(bindingId, options.agentUrl);
+        break;
+      case "disconnected": {
+        const decision = this.ownershipState.markDisconnected(
+          bindingId,
+          options.agentUrl,
+        );
+        this.scheduleReconnect(
+          bindingId,
+          decision.delayMs,
+          options.restartConnection,
+        );
+        break;
+      }
+      case "error": {
+        const decision = this.ownershipState.markError(
+          bindingId,
+          options.error ?? new Error("Unknown connection error"),
+          options.agentUrl,
+        );
+        this.scheduleReconnect(
+          bindingId,
+          decision.delayMs,
+          options.restartConnection,
+        );
+        break;
+      }
+      case "idle":
+        this.ownershipState.markIdle(bindingId);
+        break;
+    }
+
+    this.snapshotPublisher.publishNodeSnapshotInBackground();
+  }
+
+  private async applyBindingUpsert(
+    binding: ChannelBinding,
+    options: { forceRestart?: boolean } = {},
+  ): Promise<void> {
+    const ownershipUpdate = this.ownershipState.upsertBinding(binding, {
+      forceRestart: options.forceRestart ?? false,
+      hasActiveConnection: this.connectionManager.hasConnection(binding.id),
+    });
+
+    this.openClawConfigProjection.rebuild();
+
+    if (ownershipUpdate.publishSnapshot) {
+      await this.publishSnapshotSafely(`binding upsert for ${binding.id}`);
+    }
+
+    if (ownershipUpdate.shouldStop) {
+      this.ownershipState.clearReconnect(binding.id);
+      await this.connectionManager.stopConnection(binding.id);
+      return;
+    }
+
+    if (!ownershipUpdate.shouldRestart) {
+      return;
+    }
+
+    this.ownershipState.clearReconnect(binding.id);
+    await this.connectionManager.restartConnection(binding);
+  }
+
+  private async acquireBindingLease(bindingId: string): Promise<boolean> {
+    const existingLease = this.leases.get(bindingId);
+    if (existingLease) {
+      const renewed = await this.ownershipGate.renew(existingLease);
+      if (renewed) {
+        return true;
+      }
+
+      this.leases.delete(bindingId);
+      if (this.ownershipState.getOwnedBinding(bindingId)) {
+        await this.releaseBinding(bindingId);
+      }
+      return false;
+    }
+
+    if (this.ownershipState.getOwnedBinding(bindingId)) {
+      return true;
+    }
+
+    const lease = await this.ownershipGate.acquire(bindingId);
+    if (!lease) {
+      return false;
+    }
+
+    this.leases.set(bindingId, lease);
+    return true;
+  }
+
+  private async releaseBindingLease(bindingId: string): Promise<void> {
+    const lease = this.leases.get(bindingId);
+    if (!lease) {
+      return;
+    }
+
+    this.leases.delete(bindingId);
+    try {
+      await this.ownershipGate.release(lease);
+    } catch (error) {
+      console.error(
+        `[runtime] failed to release ownership lease for binding ${bindingId}:`,
+        error,
+      );
+    }
+  }
+
+  private scheduleReconnect(
+    bindingId: string,
+    delayMs: number,
+    restartConnection: (binding: ChannelBinding) => Promise<void>,
+  ): void {
+    this.ownershipState.scheduleReconnect(bindingId, delayMs, async () => {
+      const latestOwnedBinding = this.ownershipState.getOwnedBinding(bindingId);
+      if (!latestOwnedBinding) {
+        return;
+      }
+
+      const latestBinding = latestOwnedBinding.binding;
+      if (!latestBinding.enabled) {
+        return;
+      }
+
+      await restartConnection(latestBinding);
+    });
+  }
+
+  private async publishSnapshotSafely(reason: string): Promise<void> {
+    try {
+      await this.snapshotPublisher.publishNodeSnapshot();
+    } catch (error) {
+      console.error(
+        `[runtime] failed to publish node snapshot during ${reason}:`,
+        error,
+      );
+    }
   }
 }

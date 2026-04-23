@@ -1,11 +1,17 @@
+import type {
+  AgentConfigSnapshot,
+  ChannelBindingSnapshot,
+} from "@a2a-channels/domain";
 import {
   AgentConfigRepository,
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
-import type { AgentConfig, ChannelBinding } from "@a2a-channels/core";
 import { inject, injectable } from "inversify";
 
-import { buildInMemoryIndexes, type RuntimeStateSnapshot } from "./state.js";
+export interface RuntimeStateSnapshot {
+  bindings: ChannelBindingSnapshot[];
+  agents: AgentConfigSnapshot[];
+}
 
 /**
  * Narrow query boundary for the desired runtime state.
@@ -28,9 +34,9 @@ export class RuntimeDesiredStateQuery {
       this.agentRepo.findAll(),
     ]);
 
-    return buildInMemoryIndexes(
-      bindings as ChannelBinding[],
-      agents as AgentConfig[],
-    );
+    return {
+      bindings,
+      agents,
+    };
   }
 }

@@ -9,7 +9,6 @@ import { OpenClawRuntimeAssembler } from "./openclaw-runtime-assembler.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
 import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
-import { RuntimeOwnedBindingManager } from "./runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "./runtime-snapshot-publisher.js";
 
 /**
@@ -37,8 +36,6 @@ export class RelayRuntime {
     private readonly agentRegistry: RuntimeAgentRegistry,
     @inject(RuntimeOpenClawConfigProjection)
     private readonly openClawConfigProjection: RuntimeOpenClawConfigProjection,
-    @inject(RuntimeOwnedBindingManager)
-    private readonly ownedBindingManager: RuntimeOwnedBindingManager,
     @inject(OpenClawRuntimeAssembler)
     runtimeAssembler: OpenClawRuntimeAssembler,
     @inject(ConnectionManager)
@@ -74,7 +71,7 @@ export class RelayRuntime {
         this.runtime.emit("message:outbound", event),
       callbacks: {
         onConnectionStatus: ({ binding, status, agentUrl, error }) => {
-          this.ownedBindingManager.handleOwnedConnectionStatus(binding.id, status, {
+          this.assignments.handleOwnedConnectionStatus(binding.id, status, {
             agentUrl,
             error,
             restartConnection: async (nextBinding) => {

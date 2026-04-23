@@ -36,10 +36,10 @@ End-to-end flow:
 - `apps/gateway/`: Hono HTTP server, monitor orchestration, OpenClaw runtime integration, and gateway API.
 - `apps/echo-agent/`: standalone minimal A2A-compatible JSON-RPC echo agent for local end-to-end testing.
 - `apps/web/`: Next.js 16 admin UI for channel and agent management.
-- `packages/core/`: shared domain types and channel/store contracts.
-- `packages/agent-transport/`: A2A JSON-RPC client used by the runtime bridge.
+- `packages/domain/`: DDD aggregates, domain events, snapshots, and repository ports.
+- `packages/agent-transport/`: agent transport ports plus A2A/ACP client implementations used by the runtime bridge.
 - `packages/openclaw-compat/`: OpenClaw plugin host/runtime compatibility layer.
-- `packages/store-sqlite/`: SQLite-backed `ChannelStore` and `AgentStore` implementation.
+- `packages/event-store/`: event-store port and domain-event publishing primitives.
 
 ## Main subsystems
 
@@ -56,9 +56,10 @@ The server owns a single `MonitorManager` instance and uses it to keep channel m
 
 The monitor lifecycle is intentionally split in layers:
 
-- `packages/core/src/channel.ts` defines the `ChannelProvider` / `ChannelAccountRunner` contracts.
-- `apps/gateway/src/monitor-manager.ts` is channel-agnostic lifecycle orchestration: start, restart, stop, and reconcile monitors against store state.
-- `packages/openclaw-compat/src/channel-provider.ts` is the generic `OpenClawChannelProvider` that bridges registered OpenClaw channel plugins to the `ChannelProvider` interface.
+- `packages/domain` defines the desired-state model as channel binding and agent aggregates.
+- `apps/gateway/src/runtime/runtime-assignment-service.ts` owns assignment changes for bindings currently granted to this node.
+- `apps/gateway/src/runtime/connection-manager.ts` is channel-agnostic connection lifecycle orchestration: start, restart, stop, and route replies through agent transports.
+- `packages/openclaw-compat/src/plugin-host.ts` bridges registered OpenClaw channel plugins to gateway runtime connections.
 
 To add a new channel, register its OpenClaw plugin in `apps/gateway/src/register-plugins.ts`. No per-channel package is needed.
 

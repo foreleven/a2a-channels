@@ -1,4 +1,4 @@
-import type { RuntimeConnectionStatus } from "@a2a-channels/core";
+import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
 
 import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
 

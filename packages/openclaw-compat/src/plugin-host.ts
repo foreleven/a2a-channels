@@ -21,7 +21,7 @@ import type {
   OpenClawPluginApi,
   PluginRuntime,
 } from "openclaw/plugin-sdk";
-import type { ChannelBinding } from "@a2a-channels/core";
+import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import type { ChannelLogSink } from "openclaw/plugin-sdk/channel-runtime";
 import type { OpenClawPluginRuntime } from "./plugin-runtime";
 
@@ -87,8 +87,7 @@ export class OpenClawPluginHost {
 
   /**
    * Returns true if a channel plugin with the given id or alias has been
-   * registered.  Used by OpenClawChannelProvider.supports() to determine
-   * which channel types this host can handle.
+   * registered. Used by the gateway runtime before starting channel bindings.
    */
   hasChannel(channelType: string): boolean {
     return this.resolveChannel(channelType) !== undefined;
@@ -107,8 +106,8 @@ export class OpenClawPluginHost {
   /**
    * Start the gateway account for a registered channel type.
    *
-   * This is the entry point called by {@link OpenClawChannelProvider} when
-   * the monitor manager activates a channel binding.  It:
+   * This is the entry point called by the connection manager when assignment
+   * grants a channel binding to the local node. It:
    *   1. Resolves the registered channel plugin for `channelType`.
    *   2. Creates a scoped logging environment for the account.
    *   3. Delegates to the plugin's `gateway.startAccount()` hook.
@@ -117,7 +116,7 @@ export class OpenClawPluginHost {
    * (normally or via the `abortSignal`).
    */
   async startChannelBinding(
-    binding: ChannelBinding,
+    binding: ChannelBindingSnapshot,
     abortSignal: AbortSignal,
     callbacks: StartChannelBindingCallbacks = {},
   ): Promise<void> {

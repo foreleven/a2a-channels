@@ -1,13 +1,13 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { AgentConfig, AgentTransport } from "@a2a-channels/core";
+import type { AgentTransport } from "@a2a-channels/agent-transport";
+import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentClientRegistry } from "./agent-client-registry.js";
 import { AgentClientFactory } from "./agent-clients.js";
-import { TransportRegistryAssembler } from "./transport-registry-assembler.js";
 
-const agent: AgentConfig = {
+const agent: AgentConfigSnapshot = {
   id: "agent-1",
   name: "Agent One",
   url: "http://agent-1",
@@ -23,7 +23,7 @@ const testTransport: AgentTransport = {
 describe("AgentClientRegistry", () => {
   test("require throws when the agent client has not been registered", () => {
     const registry = new AgentClientRegistry(
-      new AgentClientFactory(new TransportRegistryAssembler([testTransport])),
+      new AgentClientFactory([testTransport]),
     );
 
     assert.throws(
@@ -34,7 +34,7 @@ describe("AgentClientRegistry", () => {
 
   test("upsert registers a stable client instance", async () => {
     const registry = new AgentClientRegistry(
-      new AgentClientFactory(new TransportRegistryAssembler([testTransport])),
+      new AgentClientFactory([testTransport]),
     );
 
     await registry.upsert(agent);

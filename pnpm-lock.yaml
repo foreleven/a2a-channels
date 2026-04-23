@@ -41,9 +41,6 @@ importers:
       '@a2a-channels/agent-transport':
         specifier: workspace:*
         version: link:../../packages/agent-transport
-      '@a2a-channels/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       '@a2a-channels/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -121,14 +118,9 @@ importers:
 
   packages/agent-transport:
     dependencies:
-      '@a2a-channels/core':
-        specifier: workspace:*
-        version: link:../core
       '@a2a-js/sdk':
         specifier: ^0.3.13
         version: 0.3.13(express@5.2.1)
-
-  packages/core: {}
 
   packages/domain: {}
 
@@ -139,9 +131,9 @@ importers:
       '@a2a-channels/agent-transport':
         specifier: workspace:*
         version: link:../agent-transport
-      '@a2a-channels/core':
+      '@a2a-channels/domain':
         specifier: workspace:*
-        version: link:../core
+        version: link:../domain
       openclaw:
         specifier: ^2026.4.14
         version: 2026.4.15(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@napi-rs/canvas@0.1.98)(@types/express@5.0.6)(apache-arrow@18.1.0)(hono@4.12.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3)

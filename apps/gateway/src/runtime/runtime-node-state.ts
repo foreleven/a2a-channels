@@ -1,5 +1,5 @@
 import { inject, injectable } from "inversify";
-import type { RuntimeConnectionStatus } from "@a2a-channels/core";
+import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
 
 import { GatewayConfigService } from "../bootstrap/config.js";
 

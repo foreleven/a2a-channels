@@ -7,11 +7,8 @@
  * agent client and returning replies to the channel dispatcher.
  */
 
-import type {
-  AgentClientHandle,
-  ChannelBinding,
-  ConnectionStatus,
-} from "@a2a-channels/core";
+import type { AgentClientHandle } from "@a2a-channels/agent-transport";
+import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import type {
   ChannelReplyEvent,
   ChannelBindingStatusUpdate,
@@ -20,6 +17,9 @@ import type {
   OpenClawPluginHost,
 } from "@a2a-channels/openclaw-compat";
 import { injectable } from "inversify";
+import type { ConnectionStatus } from "./runtime-connection-status.js";
+
+type ChannelBinding = ChannelBindingSnapshot;
 
 export interface Connection {
   abortController: AbortController;

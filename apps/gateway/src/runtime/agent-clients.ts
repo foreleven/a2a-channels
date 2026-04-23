@@ -1,17 +1,28 @@
-import { inject, injectable } from "inversify";
-import type { AgentClientHandle, AgentConfig } from "@a2a-channels/core";
+import { injectable, multiInject } from "inversify";
+import type {
+  AgentClientHandle,
+  AgentTransport,
+} from "@a2a-channels/agent-transport";
+import { TransportRegistry } from "@a2a-channels/agent-transport";
+import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
-import { TransportRegistryAssembler } from "./transport-registry-assembler.js";
+import { AgentTransportToken } from "./transport-tokens.js";
 
 @injectable()
 export class AgentClientFactory {
-  constructor(
-    @inject(TransportRegistryAssembler)
-    private readonly transportRegistryAssembler: TransportRegistryAssembler,
-  ) {}
+  private readonly transportRegistry = new TransportRegistry();
 
-  create(agent: AgentConfig): AgentClientHandle {
-    const transport = this.transportRegistryAssembler.transportRegistry.resolve(
+  constructor(
+    @multiInject(AgentTransportToken)
+    transports: AgentTransport[],
+  ) {
+    for (const transport of transports) {
+      this.transportRegistry.register(transport);
+    }
+  }
+
+  create(agent: AgentConfigSnapshot): AgentClientHandle {
+    const transport = this.transportRegistry.resolve(
       agent.protocol ?? "a2a",
     );
 

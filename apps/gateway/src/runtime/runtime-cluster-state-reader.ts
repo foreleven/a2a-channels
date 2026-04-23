@@ -1,7 +1,3 @@
-import {
-  AgentConfigRepository,
-  ChannelBindingRepository,
-} from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
 
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
@@ -12,6 +8,7 @@ import {
   type RuntimeConnectionListItem,
   type RuntimeNodeListItem,
 } from "./node-runtime-state-store.js";
+import { RuntimeDesiredStateQuery } from "./runtime-desired-state-query.js";
 import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
 
 interface BindingOwner {
@@ -24,10 +21,8 @@ interface BindingOwner {
 @injectable()
 export class RuntimeClusterStateReader {
   constructor(
-    @inject(ChannelBindingRepository)
-    private readonly bindingRepository: ChannelBindingRepository,
-    @inject(AgentConfigRepository)
-    private readonly agentRepository: AgentConfigRepository,
+    @inject(RuntimeDesiredStateQuery)
+    private readonly desiredStateQuery: RuntimeDesiredStateQuery,
     @inject(RuntimeNodeStateRepository)
     private readonly runtimeNodeRepository: RuntimeNodeStateRepository,
     @inject(NodeRuntimeStateStoreToken)
@@ -57,18 +52,19 @@ export class RuntimeClusterStateReader {
   }
 
   async listConnections(): Promise<RuntimeConnectionListItem[]> {
-    const [bindings, agents, snapshots] = await Promise.all([
-      this.bindingRepository.findAll(),
-      this.agentRepository.findAll(),
+    const [desiredState, snapshots] = await Promise.all([
+      this.desiredStateQuery.loadSnapshot(),
       this.readSnapshots(),
     ]);
-    const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+    const agentById = new Map(
+      desiredState.agents.map((agent) => [agent.id, agent]),
+    );
     const latestSnapshotsByNodeId = this.buildLatestSnapshotByNodeId(snapshots);
     const ownerByBindingId = this.buildOwnerByBindingId(
       Array.from(latestSnapshotsByNodeId.values()),
     );
 
-    return bindings.map((binding) => {
+    return desiredState.bindings.map((binding) => {
       const agent = agentById.get(binding.agentId);
       const owner = ownerByBindingId.get(binding.id);
 

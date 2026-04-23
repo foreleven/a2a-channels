@@ -8,8 +8,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@a2a-channels/core": "workspace:*",
     "@a2a-channels/agent-transport": "workspace:*",
+    "@a2a-channels/domain": "workspace:*",
     "openclaw": "^2026.4.14"
   }
 }

@@ -1,5 +1,6 @@
 import { inject, injectable } from "inversify";
-import type { AgentClientHandle, AgentConfig } from "@a2a-channels/core";
+import type { AgentClientHandle } from "@a2a-channels/agent-transport";
+import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentClientFactory } from "./agent-clients.js";
 
@@ -12,7 +13,10 @@ export class AgentClientRegistry {
     private readonly agentClientFactory: AgentClientFactory,
   ) {}
 
-  async upsert(agent: AgentConfig, previous?: AgentConfig): Promise<void> {
+  async upsert(
+    agent: AgentConfigSnapshot,
+    previous?: AgentConfigSnapshot,
+  ): Promise<void> {
     const previousClient = previous?.url
       ? this.clients.get(previous.url)
       : undefined;
@@ -40,7 +44,7 @@ export class AgentClientRegistry {
     await this.agentClientFactory.start(client);
   }
 
-  async remove(agent: AgentConfig): Promise<void> {
+  async remove(agent: AgentConfigSnapshot): Promise<void> {
     const client = this.clients.get(agent.url);
     if (!client) {
       return;
@@ -50,7 +54,7 @@ export class AgentClientRegistry {
     await this.agentClientFactory.stop(client);
   }
 
-  require(agent: AgentConfig): AgentClientHandle {
+  require(agent: AgentConfigSnapshot): AgentClientHandle {
     const client = this.clients.get(agent.url);
     if (!client) {
       throw new Error(`Agent client for ${agent.url} is not registered`);

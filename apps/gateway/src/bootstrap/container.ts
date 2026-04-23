@@ -3,6 +3,11 @@ import "reflect-metadata";
 import { Container } from "inversify";
 import { fileURLToPath } from "node:url";
 import {
+  A2ATransport,
+  ACPTransport,
+  type AgentTransport,
+} from "@a2a-channels/agent-transport";
+import {
   AgentConfigRepository,
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
@@ -32,25 +37,19 @@ import { LocalScheduler } from "../runtime/local/local-scheduler.js";
 import { NodeRuntimeStateStore } from "../runtime/node-runtime-state-store.js";
 import { OpenClawConfigBuilder } from "../runtime/openclaw-config.js";
 import { OpenClawRuntimeAssembler } from "../runtime/openclaw-runtime-assembler.js";
-import {
-  InMemoryRuntimeOwnershipState,
-  RuntimeOwnershipState,
-} from "../runtime/ownership-state.js";
+import { RuntimeOwnershipState } from "../runtime/ownership-state.js";
 import { RuntimeOwnershipGate } from "../runtime/ownership-gate.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
-import { RuntimeBindingPolicy } from "../runtime/runtime-binding-policy.js";
-import { RuntimeBindingStateService } from "../runtime/runtime-binding-state-service.js";
 import { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 import { RuntimeClusterStateReader } from "../runtime/runtime-cluster-state-reader.js";
 import { RuntimeDesiredStateQuery } from "../runtime/runtime-desired-state-query.js";
 import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
-import { RuntimeOwnedBindingManager } from "../runtime/runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
-import { TransportRegistryAssembler } from "../runtime/transport-registry-assembler.js";
+import { AgentTransportToken } from "../runtime/transport-tokens.js";
 import type { GatewayConfigSnapshot } from "./config.js";
 import {
   buildGatewayConfig,
@@ -125,25 +124,26 @@ function bindRuntime(
   container.bind(OpenClawRuntimeAssembler).toSelf().inSingletonScope();
   container.bind(ConnectionManager).toSelf().inSingletonScope();
 
-  container.bind(TransportRegistryAssembler).toSelf().inSingletonScope();
+  container
+    .bind<AgentTransport>(AgentTransportToken)
+    .toDynamicValue(() => new A2ATransport())
+    .inSingletonScope();
+  container
+    .bind<AgentTransport>(AgentTransportToken)
+    .toDynamicValue(() => new ACPTransport())
+    .inSingletonScope();
   container.bind(AgentClientFactory).toSelf().inSingletonScope();
   container.bind(OpenClawConfigBuilder).toSelf().inSingletonScope();
 
   container.bind(RuntimeNodeState).toSelf().inSingletonScope();
-  container.bind(RuntimeBindingPolicy).toSelf().inSingletonScope();
   container.bind(RuntimeDesiredStateQuery).toSelf().inSingletonScope();
-  container.bind(RuntimeBindingStateService).toSelf().inSingletonScope();
-  container.bind(RuntimeOwnedBindingManager).toSelf().inSingletonScope();
   container.bind(RuntimeSnapshotPublisher).toSelf().inSingletonScope();
 
   container.bind(AgentClientRegistry).toSelf().inSingletonScope();
   container.bind(RuntimeAgentRegistry).toSelf().inSingletonScope();
   container.bind(RuntimeOpenClawConfigProjection).toSelf().inSingletonScope();
 
-  container.bind(InMemoryRuntimeOwnershipState).toSelf().inSingletonScope();
-  container
-    .bind(RuntimeOwnershipState)
-    .toService(InMemoryRuntimeOwnershipState);
+  container.bind(RuntimeOwnershipState).toSelf().inSingletonScope();
 
   container.bind(RuntimeAssignmentService).toSelf().inSingletonScope();
   container.bind(RelayRuntime).toSelf().inSingletonScope();

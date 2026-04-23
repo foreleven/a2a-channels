@@ -1,8 +1,0 @@
-{
-  "name": "@a2a-channels/core",
-  "version": "0.1.0",
-  "description": "Core domain types and contracts for a2a-channels",
-  "type": "module",
-  "main": "src/index.ts",
-  "exports": { ".": "./src/index.ts" }
-}

@@ -1,22 +1,23 @@
 import { inject, injectable } from "inversify";
-import type { AgentClientHandle, AgentConfig } from "@a2a-channels/core";
+import type { AgentClientHandle } from "@a2a-channels/agent-transport";
+import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentClientRegistry } from "./agent-client-registry.js";
 
 @injectable()
 export class RuntimeAgentRegistry {
-  private readonly agentsById = new Map<string, AgentConfig>();
+  private readonly agentsById = new Map<string, AgentConfigSnapshot>();
 
   constructor(
     @inject(AgentClientRegistry)
     private readonly agentClientRegistry: AgentClientRegistry,
   ) {}
 
-  getAgent(agentId: string): AgentConfig | undefined {
+  getAgent(agentId: string): AgentConfigSnapshot | undefined {
     return this.agentsById.get(agentId);
   }
 
-  async upsertAgent(agent: AgentConfig): Promise<void> {
+  async upsertAgent(agent: AgentConfigSnapshot): Promise<void> {
     const previous = this.agentsById.get(agent.id);
     this.agentsById.set(agent.id, agent);
     await this.agentClientRegistry.upsert(agent, previous);
@@ -32,13 +33,13 @@ export class RuntimeAgentRegistry {
     await this.agentClientRegistry.remove(existing);
   }
 
-  listAgents(): AgentConfig[] {
+  listAgents(): AgentConfigSnapshot[] {
     return Array.from(this.agentsById.values()).sort((a, b) =>
       a.createdAt.localeCompare(b.createdAt),
     );
   }
 
-  snapshotAgentsById(): ReadonlyMap<string, AgentConfig> {
+  snapshotAgentsById(): ReadonlyMap<string, AgentConfigSnapshot> {
     return new Map(this.agentsById);
   }
 

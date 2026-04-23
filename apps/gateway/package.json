@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@a2a-channels/agent-transport": "workspace:*",
-    "@a2a-channels/core": "workspace:*",
     "@a2a-channels/domain": "workspace:*",
     "@a2a-channels/event-store": "workspace:*",
     "@a2a-channels/openclaw-compat": "workspace:*",

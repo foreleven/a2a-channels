@@ -1,6 +1,12 @@
 import { injectable } from "inversify";
-import type { AgentConfig, ChannelBinding } from "@a2a-channels/core";
+import type {
+  AgentConfigSnapshot,
+  ChannelBindingSnapshot,
+} from "@a2a-channels/domain";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+
+type AgentConfig = AgentConfigSnapshot;
+type ChannelBinding = ChannelBindingSnapshot;
 
 interface FeishuChannelConfig {
   appId: string;
@@ -14,10 +20,7 @@ type FeishuConfig = NonNullable<OpenClawConfig["channels"]>["feishu"];
 
 @injectable()
 export class OpenClawConfigBuilder {
-  build(
-    bindings: ChannelBinding[],
-    agentsById: ReadonlyMap<string, AgentConfig>,
-  ): OpenClawConfig {
+  build(bindings: ChannelBinding[]): OpenClawConfig {
     const feishuBindings = bindings.filter(
       (binding) => binding.enabled && binding.channelType === "feishu",
     );
@@ -26,7 +29,7 @@ export class OpenClawConfigBuilder {
     let defaultFeishuConfig: FeishuConfig | null = null;
 
     for (const binding of feishuBindings) {
-      const accountConfig = this.buildFeishuAccountConfig(binding, agentsById);
+      const accountConfig = this.buildFeishuAccountConfig(binding);
       if (!accountConfig) {
         continue;
       }
@@ -54,17 +57,10 @@ export class OpenClawConfigBuilder {
 
   private buildFeishuAccountConfig(
     binding: ChannelBinding,
-    agentsById: ReadonlyMap<string, AgentConfig>,
   ): FeishuConfig | null {
-    const agentUrl = agentsById.get(binding.agentId)?.url;
-    if (!agentUrl) {
-      return null;
-    }
-
     const cfg = binding.channelConfig as unknown as FeishuChannelConfig;
     return {
       bindingId: binding.id,
-      agentUrl,
       appId: cfg.appId,
       appSecret: cfg.appSecret,
       encryptKey: cfg.encryptKey,

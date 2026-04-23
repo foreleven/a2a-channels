@@ -2,8 +2,10 @@ import { inject, injectable } from "inversify";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import { OpenClawConfigBuilder } from "./openclaw-config.js";
-import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
-import { RuntimeOwnedBindingManager } from "./runtime-owned-binding-manager.js";
+import {
+  RuntimeOwnershipState as RuntimeOwnershipStateToken,
+  type RuntimeOwnershipState,
+} from "./ownership-state.js";
 
 @injectable()
 export class RuntimeOpenClawConfigProjection {
@@ -12,15 +14,10 @@ export class RuntimeOpenClawConfigProjection {
   constructor(
     @inject(OpenClawConfigBuilder)
     private readonly openClawConfigBuilder: OpenClawConfigBuilder,
-    @inject(RuntimeAgentRegistry)
-    private readonly agentRegistry: RuntimeAgentRegistry,
-    @inject(RuntimeOwnedBindingManager)
-    private readonly ownedBindingManager: RuntimeOwnedBindingManager,
+    @inject(RuntimeOwnershipStateToken)
+    private readonly ownershipState: RuntimeOwnershipState,
   ) {
-    this.openClawConfig = this.openClawConfigBuilder.build(
-      this.ownedBindingManager.listBindings(),
-      this.agentRegistry.snapshotAgentsById(),
-    );
+    this.openClawConfig = this.openClawConfigBuilder.build(this.listBindings());
   }
 
   getConfig(): OpenClawConfig {
@@ -28,9 +25,13 @@ export class RuntimeOpenClawConfigProjection {
   }
 
   rebuild(): void {
-    this.openClawConfig = this.openClawConfigBuilder.build(
-      this.ownedBindingManager.listBindings(),
-      this.agentRegistry.snapshotAgentsById(),
-    );
+    this.openClawConfig = this.openClawConfigBuilder.build(this.listBindings());
+  }
+
+  private listBindings() {
+    return this.ownershipState
+      .listOwnedBindings()
+      .map(({ binding }) => binding)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 }

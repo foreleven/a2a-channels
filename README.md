@@ -15,10 +15,10 @@ apps/
   echo-agent/   Example A2A echo agent (mirrors messages back)
   web/          Next.js 16 admin UI (channel & agent management)
 packages/
-  core/              Shared domain types and store interfaces
-  agent-transport/   A2A JSON-RPC client
+  domain/            DDD aggregates, domain events, snapshots, repository ports
+  event-store/       Event-store port and domain-event publishing primitives
+  agent-transport/   Agent transport ports plus A2A / ACP clients
   openclaw-compat/   OpenClaw plugin runtime bridge
-  store-sqlite/      SQLite-backed ChannelStore & AgentStore
 ```
 
 ## Quick start

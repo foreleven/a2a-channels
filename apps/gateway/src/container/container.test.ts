@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { Container } from "inversify";
+import type { AgentTransport } from "@a2a-channels/agent-transport";
 import {
   AgentConfigRepository,
   ChannelBindingRepository,
@@ -23,16 +24,12 @@ import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js"
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
-import {
-  InMemoryRuntimeOwnershipState,
-  RuntimeOwnershipState,
-} from "../runtime/ownership-state.js";
+import { RuntimeOwnershipState } from "../runtime/ownership-state.js";
 import { ConnectionManager } from "../runtime/connection-manager.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
-import { RuntimeBindingStateService } from "../runtime/runtime-binding-state-service.js";
 import { RuntimeScheduler } from "../runtime/scheduler.js";
 import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
 import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
@@ -45,9 +42,8 @@ import { RuntimeDesiredStateQuery } from "../runtime/runtime-desired-state-query
 import { NodeRuntimeStateStore } from "../runtime/node-runtime-state-store.js";
 import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
-import { RuntimeOwnedBindingManager } from "../runtime/runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
-import { TransportRegistryAssembler } from "../runtime/transport-registry-assembler.js";
+import { AgentTransportToken } from "../runtime/transport-tokens.js";
 
 describe("buildGatewayContainer", () => {
   test("resolves typed config", async () => {
@@ -186,6 +182,16 @@ describe("buildGatewayContainer", () => {
     assert.ok(container.get(GatewayApp));
   });
 
+  test("binds supported agent transports behind a multi-injection token", () => {
+    const container = buildGatewayContainer(buildGatewayConfig({ port: 7896 }));
+    const transports = container.getAll<AgentTransport>(AgentTransportToken);
+
+    assert.deepEqual(
+      transports.map((transport) => transport.protocol).sort(),
+      ["a2a", "acp"],
+    );
+  });
+
   test("binds LocalScheduler for single-instance runtime mode", () => {
     const container = buildGatewayContainer(
       buildGatewayConfig({ port: 7896, clusterMode: false }),
@@ -228,14 +234,6 @@ describe("buildGatewayContainer", () => {
       container.get(RuntimeNodeState),
     );
     assert.strictEqual(
-      container.get(RuntimeBindingStateService),
-      container.get(RuntimeBindingStateService),
-    );
-    assert.strictEqual(
-      container.get(RuntimeOwnedBindingManager),
-      container.get(RuntimeOwnedBindingManager),
-    );
-    assert.strictEqual(
       container.get(RuntimeAgentRegistry),
       container.get(RuntimeAgentRegistry),
     );
@@ -256,10 +254,6 @@ describe("buildGatewayContainer", () => {
       container.get(RuntimeSnapshotPublisher),
     );
     assert.strictEqual(
-      container.get(TransportRegistryAssembler),
-      container.get(TransportRegistryAssembler),
-    );
-    assert.strictEqual(
       container.get(AgentClientRegistry),
       container.get(AgentClientRegistry),
     );
@@ -272,7 +266,7 @@ describe("buildGatewayContainer", () => {
       container.get(RuntimeDesiredStateQuery),
     );
     assert.strictEqual(
-      container.get(InMemoryRuntimeOwnershipState),
+      container.get(RuntimeOwnershipState),
       container.get(RuntimeOwnershipState),
     );
   });
