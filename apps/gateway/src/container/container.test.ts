@@ -26,7 +26,7 @@ import {
 } from "../runtime/ownership-state.js";
 import { ConnectionManager } from "../runtime/connection-manager.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
-import { RuntimeAgentCatalog } from "../runtime/runtime-agent-catalog.js";
+import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import { RuntimeBindingStateService } from "../runtime/runtime-binding-state-service.js";
@@ -35,6 +35,7 @@ import { RuntimeClusterStateReader } from "../runtime/runtime-cluster-state-read
 import { LocalNodeRuntimeStateStore } from "../runtime/local-node-runtime-state-store.js";
 import { NodeRuntimeStateStoreToken } from "../runtime/node-runtime-state-store.js";
 import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
+import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
 import { RuntimeOwnedBindingManager } from "../runtime/runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
 import { TransportRegistryAssembler } from "../runtime/transport-registry-assembler.js";
@@ -214,8 +215,12 @@ describe("buildGatewayContainer", () => {
       container.get(RuntimeOwnedBindingManager),
     );
     assert.strictEqual(
-      container.get(RuntimeAgentCatalog),
-      container.get(RuntimeAgentCatalog),
+      container.get(RuntimeAgentRegistry),
+      container.get(RuntimeAgentRegistry),
+    );
+    assert.strictEqual(
+      container.get(RuntimeOpenClawConfigProjection),
+      container.get(RuntimeOpenClawConfigProjection),
     );
     assert.strictEqual(
       container.get(ConnectionManager),

@@ -6,8 +6,9 @@ import type {
 
 import { ConnectionManager } from "./connection-manager.js";
 import { OpenClawRuntimeAssembler } from "./openclaw-runtime-assembler.js";
-import { RuntimeAgentCatalog } from "./runtime-agent-catalog.js";
+import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
+import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
 import { RuntimeOwnedBindingManager } from "./runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "./runtime-snapshot-publisher.js";
 
@@ -20,8 +21,10 @@ export class RelayRuntime {
   constructor(
     @inject(RuntimeAssignmentService)
     private readonly assignments: RuntimeAssignmentService,
-    @inject(RuntimeAgentCatalog)
-    private readonly agentCatalog: RuntimeAgentCatalog,
+    @inject(RuntimeAgentRegistry)
+    private readonly agentRegistry: RuntimeAgentRegistry,
+    @inject(RuntimeOpenClawConfigProjection)
+    private readonly openClawConfigProjection: RuntimeOpenClawConfigProjection,
     @inject(RuntimeOwnedBindingManager)
     private readonly ownedBindingManager: RuntimeOwnedBindingManager,
     @inject(OpenClawRuntimeAssembler)
@@ -35,7 +38,7 @@ export class RelayRuntime {
 
     const assembly = runtimeAssembler.assemble({
       config: {
-        loadConfig: () => this.agentCatalog.getConfig(),
+        loadConfig: () => this.openClawConfigProjection.getConfig(),
         writeConfigFile: async () => {
           throw new Error("Not implemented");
         },
@@ -48,7 +51,7 @@ export class RelayRuntime {
 
     this.connectionManager.initialize({
       host: this.pluginHost,
-      getAgentClient: (agentId) => this.agentCatalog.getAgentClient(agentId),
+      getAgentClient: (agentId) => this.agentRegistry.getAgentClient(agentId),
       emitMessageInbound: (event) => this.runtime.emit("message:inbound", event),
       emitMessageOutbound: (event) =>
         this.runtime.emit("message:outbound", event),
@@ -81,7 +84,7 @@ export class RelayRuntime {
     await this.snapshotPublisher.publishStoppingSafely();
     this.assignments.clearReconnectsForOwnedBindings();
     await this.connectionManager.stopAllConnections();
-    await this.agentCatalog.stopAllClients();
+    await this.agentRegistry.stopAllClients();
     await this.snapshotPublisher.publishStoppedSafely();
   }
 }

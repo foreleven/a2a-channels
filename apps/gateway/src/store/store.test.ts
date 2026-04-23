@@ -45,7 +45,7 @@ import { buildRedisCoordinationKeys } from "../runtime/cluster/redis-coordinatio
 import { createLocalOwnershipGate } from "../runtime/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local-scheduler.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
-import { RuntimeAgentCatalog } from "../runtime/runtime-agent-catalog.js";
+import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
 import {
   RuntimeAssignmentCoordinator,
@@ -57,10 +57,12 @@ import {
   RuntimeNodeState,
   type LocalRuntimeSnapshot,
 } from "../runtime/runtime-node-state.js";
+import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
 import { RuntimeOwnedBindingManager } from "../runtime/runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
 import type { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 import { TransportRegistryAssembler } from "../runtime/transport-registry-assembler.js";
+import { OpenClawConfigBuilder } from "../runtime/openclaw-config.js";
 import { initStore, seedDefaults } from "../services/initialization.js";
 import { buildOpenClawConfig } from "../services/openclaw-config.js";
 import {
@@ -152,7 +154,8 @@ interface RelayRuntimeTestOptions {
   runtimeAssembler?: OpenClawRuntimeAssembler;
   agentClientRegistry?: AgentClientRegistry;
   connectionManager?: ConnectionManager;
-  agentCatalog?: RuntimeAgentCatalog;
+  agentRegistry?: RuntimeAgentRegistry;
+  openClawConfigProjection?: RuntimeOpenClawConfigProjection;
   assignmentService?: RuntimeAssignmentService;
   ownershipState?: ReturnType<typeof createRuntimeOwnershipState>;
   reconnectPolicy?: ReconnectPolicy;
@@ -172,8 +175,8 @@ type RelayRuntimeTestHarness = RelayRuntime & {
   listEnabledBindings: RuntimeAssignmentService["listEnabledBindings"];
   listConnectionStatuses: RuntimeAssignmentService["listConnectionStatuses"];
   listOwnedBindingIds: RuntimeAssignmentService["listOwnedBindingIds"];
-  listAgents: RuntimeAgentCatalog["listAgents"];
-  getConfig: RuntimeAgentCatalog["getConfig"];
+  listAgents: RuntimeAgentRegistry["listAgents"];
+  getConfig: RuntimeOpenClawConfigProjection["getConfig"];
   connectionManager: RelayRuntime["connectionManager"];
   pluginHost: RelayRuntime["pluginHost"];
   runtime: RelayRuntime["runtime"];
@@ -223,20 +226,28 @@ function createRelayRuntime(
   const ownedBindingManager =
     options.ownedBindingManager ??
     new RuntimeOwnedBindingManager(bindingStateService, snapshotPublisher);
-  const agentCatalog =
-    options.agentCatalog ??
-    new RuntimeAgentCatalog(agentClientRegistry, ownedBindingManager);
+  const agentRegistry =
+    options.agentRegistry ?? new RuntimeAgentRegistry(agentClientRegistry);
+  const openClawConfigProjection =
+    options.openClawConfigProjection ??
+    new RuntimeOpenClawConfigProjection(
+      new OpenClawConfigBuilder(),
+      agentRegistry,
+      ownedBindingManager,
+    );
   const assignmentService =
     options.assignmentService ??
     new RuntimeAssignmentService(
-      agentCatalog,
+      agentRegistry,
+      openClawConfigProjection,
       ownedBindingManager,
       connectionManager,
     );
 
   const relay = new RelayRuntime(
     assignmentService,
-    agentCatalog,
+    agentRegistry,
+    openClawConfigProjection,
     ownedBindingManager,
     runtimeAssembler,
     connectionManager,
@@ -248,7 +259,10 @@ function createRelayRuntime(
     releaseBinding: assignmentService.releaseBinding.bind(assignmentService),
     applyAgentUpsert:
       assignmentService.applyAgentUpsert.bind(assignmentService),
-    applyAgentDelete: agentCatalog.deleteAgent.bind(agentCatalog),
+    applyAgentDelete: async (agentId: string) => {
+      await agentRegistry.deleteAgent(agentId);
+      openClawConfigProjection.rebuild();
+    },
     listBindings: assignmentService.listBindings.bind(assignmentService),
     listEnabledBindings:
       assignmentService.listEnabledBindings.bind(assignmentService),
@@ -256,8 +270,8 @@ function createRelayRuntime(
       assignmentService.listConnectionStatuses.bind(assignmentService),
     listOwnedBindingIds:
       assignmentService.listOwnedBindingIds.bind(assignmentService),
-    listAgents: agentCatalog.listAgents.bind(agentCatalog),
-    getConfig: agentCatalog.getConfig.bind(agentCatalog),
+    listAgents: agentRegistry.listAgents.bind(agentRegistry),
+    getConfig: openClawConfigProjection.getConfig.bind(openClawConfigProjection),
     connectionManager: relay.connectionManager,
     pluginHost: relay.pluginHost,
     runtime: relay.runtime,
@@ -2160,26 +2174,26 @@ describe("RelayRuntime node state snapshots", () => {
         createRuntimeOwnershipState(),
       ),
     );
-    const agentCatalog = {
+    const agentRegistry = new RuntimeAgentRegistry(
+      new AgentClientRegistry(
+        new AgentClientFactory(new TransportRegistryAssembler()),
+      ),
+    );
+    const openClawConfigProjection = {
       getConfig: () => ({}) as OpenClawConfig,
-      getAgentClient: async () => ({
-        client: {
-          agentUrl: "http://agent-1",
-          protocol: "a2a",
-          send: async () => ({ text: "" }),
-        } as AgentClientHandle,
-        url: "http://agent-1",
-      }),
-    } as Pick<RuntimeAgentCatalog, "getConfig" | "getAgentClient">;
+      rebuild: () => {},
+    } as Pick<RuntimeOpenClawConfigProjection, "getConfig" | "rebuild">;
     const assignmentService = new RuntimeAssignmentService(
-      agentCatalog as RuntimeAgentCatalog,
+      agentRegistry,
+      openClawConfigProjection as RuntimeOpenClawConfigProjection,
       ownedBindingManager,
       connectionManager,
     );
 
     const relayRuntime = new RelayRuntime(
       assignmentService,
-      agentCatalog as RuntimeAgentCatalog,
+      agentRegistry,
+      openClawConfigProjection as RuntimeOpenClawConfigProjection,
       ownedBindingManager,
       runtimeAssembler,
       connectionManager,

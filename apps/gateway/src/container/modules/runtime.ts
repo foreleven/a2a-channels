@@ -10,7 +10,7 @@ import { NodeRuntimeStateStoreToken } from "../../runtime/node-runtime-state-sto
 import { ConnectionManager } from "../../runtime/connection-manager.js";
 import { OpenClawRuntimeAssembler } from "../../runtime/openclaw-runtime-assembler.js";
 import { RelayRuntime } from "../../runtime/relay-runtime.js";
-import { RuntimeAgentCatalog } from "../../runtime/runtime-agent-catalog.js";
+import { RuntimeAgentRegistry } from "../../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "../../runtime/runtime-assignment-service.js";
 import { RuntimeAssignmentCoordinator } from "../../runtime/runtime-assignment-coordinator.js";
 import { RuntimeBootstrapper } from "../../runtime/runtime-bootstrapper.js";
@@ -18,7 +18,9 @@ import { RuntimeClusterStateReader } from "../../runtime/runtime-cluster-state-r
 import { RuntimeBindingStateService } from "../../runtime/runtime-binding-state-service.js";
 import { RuntimeBindingPolicy } from "../../runtime/runtime-binding-policy.js";
 import { AgentClientFactory } from "../../runtime/agent-clients.js";
+import { OpenClawConfigBuilder } from "../../runtime/openclaw-config.js";
 import { RuntimeNodeState } from "../../runtime/runtime-node-state.js";
+import { RuntimeOpenClawConfigProjection } from "../../runtime/runtime-openclaw-config-projection.js";
 import { RuntimeOwnedBindingManager } from "../../runtime/runtime-owned-binding-manager.js";
 import { RuntimeSnapshotPublisher } from "../../runtime/runtime-snapshot-publisher.js";
 import { TransportRegistryAssembler } from "../../runtime/transport-registry-assembler.js";
@@ -34,6 +36,7 @@ export function buildRuntimeModule(): ContainerModule {
 
     bind(TransportRegistryAssembler).toSelf().inSingletonScope();
     bind(AgentClientFactory).toSelf().inSingletonScope();
+    bind(OpenClawConfigBuilder).toSelf().inSingletonScope();
 
     bind(RuntimeNodeState).toSelf().inSingletonScope();
     bind(RuntimeBindingPolicy).toSelf().inSingletonScope();
@@ -42,7 +45,8 @@ export function buildRuntimeModule(): ContainerModule {
     bind(RuntimeSnapshotPublisher).toSelf().inSingletonScope();
 
     bind(AgentClientRegistry).toSelf().inSingletonScope();
-    bind(RuntimeAgentCatalog).toSelf().inSingletonScope();
+    bind(RuntimeAgentRegistry).toSelf().inSingletonScope();
+    bind(RuntimeOpenClawConfigProjection).toSelf().inSingletonScope();
 
     bind(InMemoryRuntimeOwnershipState).toSelf().inSingletonScope();
     bind(RuntimeOwnershipStateToken).toService(InMemoryRuntimeOwnershipState);

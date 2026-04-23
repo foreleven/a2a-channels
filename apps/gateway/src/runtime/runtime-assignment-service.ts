@@ -6,7 +6,8 @@ import type {
 } from "@a2a-channels/core";
 
 import { ConnectionManager } from "./connection-manager.js";
-import { RuntimeAgentCatalog } from "./runtime-agent-catalog.js";
+import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
+import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
 import {
   RuntimeOwnedBindingManager,
   type RuntimeOwnedBindingHooks,
@@ -21,8 +22,10 @@ export class RuntimeAssignmentService {
   private readonly ownedBindingHooks: RuntimeOwnedBindingHooks;
 
   constructor(
-    @inject(RuntimeAgentCatalog)
-    private readonly agentCatalog: RuntimeAgentCatalog,
+    @inject(RuntimeAgentRegistry)
+    private readonly agentRegistry: RuntimeAgentRegistry,
+    @inject(RuntimeOpenClawConfigProjection)
+    private readonly openClawConfigProjection: RuntimeOpenClawConfigProjection,
     @inject(RuntimeOwnedBindingManager)
     private readonly ownedBindingManager: RuntimeOwnedBindingManager,
     @inject(ConnectionManager)
@@ -32,7 +35,7 @@ export class RuntimeAssignmentService {
       hasActiveConnection: (bindingId) =>
         this.connectionManager.hasConnection(bindingId),
       onBindingsChanged: () => {
-        this.agentCatalog.rebuildConfig();
+        this.openClawConfigProjection.rebuild();
       },
       restartConnection: async (binding) => {
         await this.connectionManager.restartConnection(binding);
@@ -44,7 +47,7 @@ export class RuntimeAssignmentService {
   }
 
   async assignBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
-    const previousAgent = this.agentCatalog.getAgent(agent.id);
+    const previousAgent = this.agentRegistry.getAgent(agent.id);
     const agentChanged =
       !previousAgent ||
       previousAgent.url !== agent.url ||
@@ -74,7 +77,8 @@ export class RuntimeAssignmentService {
     agent: AgentConfig,
     options: ApplyAgentUpsertOptions = {},
   ): Promise<void> {
-    await this.agentCatalog.upsertAgent(agent);
+    await this.agentRegistry.upsertAgent(agent);
+    this.openClawConfigProjection.rebuild();
 
     const affectedBindings = this.listBindings().filter(
       (binding) =>
