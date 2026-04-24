@@ -11,7 +11,6 @@ import { GatewayConfigService } from "../bootstrap/config.js";
 import { AgentClientRegistry } from "./agent-client-registry.js";
 import { AgentClientFactory } from "./agent-clients.js";
 import { ConnectionManager } from "./connection-manager.js";
-import { OpenClawConfigBuilder } from "./openclaw-config.js";
 import { RuntimeOwnershipState } from "./ownership-state.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
@@ -58,7 +57,6 @@ function createService(): {
     ownershipState,
   );
   const openClawConfigProjection = new RuntimeOpenClawConfigProjection(
-    new OpenClawConfigBuilder(),
     ownershipState,
   );
   const connectionManager = new ConnectionManager();

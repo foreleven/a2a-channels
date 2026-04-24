@@ -31,7 +31,7 @@ export interface RuntimeOwnershipUpsertOptions {
   hasActiveConnection: boolean;
 }
 
-export interface RuntimeOwnershipState {
+export interface OwnershipState {
   attachBinding(binding: ChannelBinding): void;
   detachBinding(bindingId: string): void;
   upsertBinding(
@@ -109,8 +109,9 @@ function createOwnedBinding(
   };
 }
 
+/** Tracks locally owned bindings, connection status, and reconnect timers. */
 @injectable()
-export class RuntimeOwnershipState implements RuntimeOwnershipState {
+export class RuntimeOwnershipState implements OwnershipState {
   private readonly reconnectPolicy: ReconnectPolicy;
   private readonly bindings = new Map<string, OwnedRuntimeBindingRecord>();
 
@@ -328,6 +329,6 @@ export class RuntimeOwnershipState implements RuntimeOwnershipState {
 
 export function createRuntimeOwnershipState(
   options: CreateRuntimeOwnershipStateOptions = {},
-): RuntimeOwnershipState {
+): OwnershipState {
   return new RuntimeOwnershipState(options);
 }

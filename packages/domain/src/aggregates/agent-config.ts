@@ -20,6 +20,7 @@ export interface AgentConfigSnapshot {
   readonly createdAt: string;
 }
 
+/** DDD aggregate root for agent configuration write-side invariants. */
 export class AgentConfigAggregate {
   id!: string;
   name!: string;

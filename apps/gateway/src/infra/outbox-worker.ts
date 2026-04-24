@@ -9,6 +9,7 @@ export interface OutboxWorkerOptions {
   readonly batchSize?: number;
 }
 
+/** Polls pending outbox records and publishes their domain events locally. */
 @injectable()
 export class OutboxWorker {
   private stopped = true;

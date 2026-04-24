@@ -74,6 +74,7 @@ const MAX_POLLS = 60;
 // ACPTransport
 // ---------------------------------------------------------------------------
 
+/** Agent transport adapter for ACP-compatible agents. */
 export class ACPTransport implements AgentTransport {
   readonly protocol = "acp";
 

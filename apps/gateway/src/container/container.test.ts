@@ -10,6 +10,7 @@ import {
 } from "@a2a-channels/domain";
 
 import { AgentService } from "../application/agent-service.js";
+import { RuntimeStatusQueryService } from "../application/queries/runtime-status/runtime-status-query-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import {
   buildGatewayConfig,
@@ -30,16 +31,19 @@ import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
+import { RuntimeCommandHandler } from "../runtime/runtime-command-handler.js";
+import { DomainEventBridge } from "../runtime/domain-event-bridge.js";
+import { RuntimeEventBus } from "../runtime/event-transport/index.js";
 import { RuntimeScheduler } from "../runtime/scheduler.js";
-import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
-import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
 import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local/local-scheduler.js";
 import { RuntimeOwnershipGate } from "../runtime/ownership-gate.js";
 import { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
-import { RuntimeClusterStateReader } from "../runtime/runtime-cluster-state-reader.js";
-import { RuntimeDesiredStateQuery } from "../runtime/runtime-desired-state-query.js";
-import { NodeRuntimeStateStore } from "../runtime/node-runtime-state-store.js";
+import { LocalRuntimeSnapshotStore } from "../runtime/local/local-runtime-snapshot-store.js";
+import {
+  NodeRuntimeSnapshotReader,
+  NodeRuntimeSnapshotWriter,
+} from "../runtime/node-runtime-snapshot-store.js";
 import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
@@ -57,7 +61,7 @@ describe("buildGatewayContainer", () => {
   test("runtime config fields are exposed on the resolved config", async () => {
     const config = buildGatewayConfig({
       port: 7891,
-      clusterMode: true,
+      clusterMode: false,
       redisUrl: "redis://localhost:6379",
       nodeId: "node-a",
       nodeDisplayName: "Node A",
@@ -66,7 +70,7 @@ describe("buildGatewayContainer", () => {
     const container: Container = buildGatewayContainer(config);
     const resolved = container.get(GatewayConfigService);
 
-    assert.equal(resolved.clusterMode, true);
+    assert.equal(resolved.clusterMode, false);
     assert.equal(resolved.redisUrl, "redis://localhost:6379");
     assert.equal(resolved.nodeId, "node-a");
     assert.equal(resolved.nodeDisplayName, "Node A");
@@ -173,11 +177,11 @@ describe("buildGatewayContainer", () => {
     assert.ok(worker);
   });
 
-  test("resolves runtime bootstrapper and RuntimeClusterStateReader", () => {
+  test("resolves runtime bootstrapper and runtime state reader", () => {
     const container = buildGatewayContainer(buildGatewayConfig({ port: 7896 }));
 
     assert.ok(container.get(RuntimeBootstrapper));
-    assert.ok(container.get(RuntimeClusterStateReader));
+    assert.ok(container.get(RuntimeStatusQueryService));
     assert.ok(container.get(GatewayServer));
     assert.ok(container.get(GatewayApp));
   });
@@ -186,10 +190,10 @@ describe("buildGatewayContainer", () => {
     const container = buildGatewayContainer(buildGatewayConfig({ port: 7896 }));
     const transports = container.getAll<AgentTransport>(AgentTransportToken);
 
-    assert.deepEqual(
-      transports.map((transport) => transport.protocol).sort(),
-      ["a2a", "acp"],
-    );
+    assert.deepEqual(transports.map((transport) => transport.protocol).sort(), [
+      "a2a",
+      "acp",
+    ]);
   });
 
   test("binds LocalScheduler for single-instance runtime mode", () => {
@@ -203,18 +207,17 @@ describe("buildGatewayContainer", () => {
     );
   });
 
-  test("binds LeaderScheduler for cluster runtime mode", () => {
-    const container = buildGatewayContainer(
-      buildGatewayConfig({
-        port: 7896,
-        clusterMode: true,
-        redisUrl: "redis://localhost:6379",
-      }),
-    );
-
-    assert.ok(container.get(RuntimeScheduler) instanceof LeaderScheduler);
-    assert.ok(
-      container.get(RuntimeOwnershipGate) instanceof RedisOwnershipGate,
+  test("rejects cluster runtime mode until cluster scheduling is implemented", () => {
+    assert.throws(
+      () =>
+        buildGatewayContainer(
+          buildGatewayConfig({
+            port: 7896,
+            clusterMode: true,
+            redisUrl: "redis://localhost:6379",
+          }),
+        ),
+      /Cluster runtime mode is not implemented yet/,
     );
   });
 
@@ -226,8 +229,12 @@ describe("buildGatewayContainer", () => {
       container.get(LocalScheduler),
     );
     assert.strictEqual(
-      container.get(LocalScheduler),
-      container.get(NodeRuntimeStateStore),
+      container.get(LocalRuntimeSnapshotStore),
+      container.get(NodeRuntimeSnapshotWriter),
+    );
+    assert.strictEqual(
+      container.get(LocalRuntimeSnapshotStore),
+      container.get(NodeRuntimeSnapshotReader),
     );
     assert.strictEqual(
       container.get(RuntimeNodeState),
@@ -262,8 +269,16 @@ describe("buildGatewayContainer", () => {
       container.get(RuntimeAssignmentCoordinator),
     );
     assert.strictEqual(
-      container.get(RuntimeDesiredStateQuery),
-      container.get(RuntimeDesiredStateQuery),
+      container.get(RuntimeCommandHandler),
+      container.get(RuntimeCommandHandler),
+    );
+    assert.strictEqual(
+      container.get(DomainEventBridge),
+      container.get(DomainEventBridge),
+    );
+    assert.strictEqual(
+      container.get(RuntimeEventBus),
+      container.get(RuntimeEventBus),
     );
     assert.strictEqual(
       container.get(RuntimeOwnershipState),

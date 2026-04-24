@@ -4,13 +4,13 @@ import { injectable, inject } from "inversify";
 import type {
   RuntimeConnectionListItem,
   RuntimeNodeListItem,
-} from "../../runtime/node-runtime-state-store.js";
+} from "../../application/queries/runtime-status/runtime-status-view.js";
 import type { RuntimeConnectionStatus } from "../../runtime/runtime-connection-status.js";
 
 type MaybePromise<T> = T | Promise<T>;
 
 /**
- * Small read-model boundary for runtime status endpoints.
+ * Small query boundary for runtime status endpoints.
  *
  * The runtime UI has evolved across two shapes:
  * - newer readers expose listNodes/listConnections
@@ -32,7 +32,7 @@ export const RuntimeStatusSourceToken = Symbol.for(
  * Read-only runtime endpoints used by the admin UI.
  *
  * Unlike the channel/agent routes, these endpoints sit on top of a derived
- * read model rather than command-oriented application services.
+ * query service rather than command-oriented application services.
  */
 @injectable()
 export class RuntimeRoutes {
@@ -61,7 +61,7 @@ export class RuntimeRoutes {
   private async listRuntimeConnections(): Promise<
     RuntimeConnectionListItem[] | RuntimeConnectionStatus[]
   > {
-    // Prefer the richer read model when available, but keep compatibility with
+    // Prefer the richer query service when available, but keep compatibility with
     // the narrower status-only API used by older tests and adapters.
     if (typeof this.runtime.listConnections === "function") {
       return await this.runtime.listConnections();

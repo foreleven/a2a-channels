@@ -5,10 +5,7 @@ import type {
 } from "@a2a-channels/domain";
 
 import { ConnectionManager } from "./connection-manager.js";
-import {
-  RuntimeOwnershipState as RuntimeOwnershipStateToken,
-  type RuntimeOwnershipState,
-} from "./ownership-state.js";
+import { RuntimeOwnershipState } from "./ownership-state.js";
 import {
   RuntimeOwnershipGate,
   type OwnershipGate,
@@ -26,6 +23,7 @@ interface ApplyAgentUpsertOptions {
   skipRestartBindingIds?: string[];
 }
 
+/** Applies runtime assignment commands to local ownership and connections. */
 @injectable()
 export class RuntimeAssignmentService {
   private readonly leases = new Map<string, OwnershipLease>();
@@ -35,7 +33,7 @@ export class RuntimeAssignmentService {
     private readonly agentRegistry: RuntimeAgentRegistry,
     @inject(RuntimeOpenClawConfigProjection)
     private readonly openClawConfigProjection: RuntimeOpenClawConfigProjection,
-    @inject(RuntimeOwnershipStateToken)
+    @inject(RuntimeOwnershipState)
     private readonly ownershipState: RuntimeOwnershipState,
     @inject(RuntimeSnapshotPublisher)
     private readonly snapshotPublisher: RuntimeSnapshotPublisher,
@@ -45,7 +43,10 @@ export class RuntimeAssignmentService {
     private readonly connectionManager: ConnectionManager,
   ) {}
 
-  async assignBinding(binding: ChannelBinding, agent: AgentConfig): Promise<void> {
+  async assignBinding(
+    binding: ChannelBinding,
+    agent: AgentConfig,
+  ): Promise<void> {
     if (!(await this.acquireBindingLease(binding.id))) {
       return;
     }

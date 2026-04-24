@@ -6,6 +6,7 @@ import { RuntimeScheduler } from "../scheduler.js";
 import { RuntimeOwnershipGate, type OwnershipGate } from "../ownership-gate.js";
 import { RuntimeAssignmentCoordinator } from "../runtime-assignment-coordinator.js";
 
+/** Coordinates desired-state reconciliation for the cluster leader role. */
 @injectable()
 export class LeaderScheduler implements RuntimeScheduler {
   readonly kind = "leader";

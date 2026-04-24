@@ -6,7 +6,8 @@
  *
  * The entrypoint deliberately does very little work itself:
  * 1. Build the DI container.
- * 2. Start the HTTP server and background runtime processes.
+ * 2. Resolve the GatewayServer application service.
+ * 3. Start the HTTP server and background runtime processes.
  *
  * Keeping startup orchestration here makes the boot path easy to inspect
  * without spreading process lifecycle code across unrelated modules.
@@ -26,11 +27,14 @@
 import { buildGatewayContainer } from "./bootstrap/container.js";
 import { GatewayServer } from "./bootstrap/gateway-server.js";
 
-// Build the singleton object graph once for the entire process.
-// Every long-lived gateway service hangs off this container.
+// Build the singleton object graph once for the entire process. The container
+// is the only place where concrete infrastructure classes are wired to domain
+// ports; everything below this entrypoint talks through injected abstractions.
 
 const container = buildGatewayContainer();
 
+// GatewayServer owns process-level lifetime. index.ts should not reach into
+// HTTP, outbox, scheduler, or runtime collaborators directly.
 const server = container.get(GatewayServer);
 server.start();
 

@@ -25,6 +25,7 @@ export interface LocalRuntimeSnapshot {
   updatedAt: string;
 }
 
+/** Builds mutable lifecycle snapshots for the local runtime node. */
 @injectable()
 export class RuntimeNodeState {
   private lifecycle: LocalRuntimeLifecycle = "stopped";

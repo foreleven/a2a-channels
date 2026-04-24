@@ -37,6 +37,7 @@ function mapPrismaRowToSnapshot(row: {
   };
 }
 
+/** Prisma-backed current-state repository for ChannelBinding aggregates. */
 @injectable()
 export class ChannelBindingStateRepository implements ChannelBindingRepository {
   async findById(id: string): Promise<ChannelBindingAggregate | null> {

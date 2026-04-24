@@ -1,18 +1,16 @@
 import { inject, injectable } from "inversify";
 
+import { RuntimeOwnershipState } from "./ownership-state.js";
 import {
-  RuntimeOwnershipState as RuntimeOwnershipStateToken,
-  type RuntimeOwnershipState,
-} from "./ownership-state.js";
-import {
-  NodeRuntimeStateStore as NodeRuntimeStateStoreToken,
-  type NodeRuntimeStateStore,
-} from "./node-runtime-state-store.js";
+  NodeRuntimeSnapshotWriter,
+  type NodeRuntimeSnapshotWriter as NodeRuntimeSnapshotWriterPort,
+} from "./node-runtime-snapshot-store.js";
 import {
   RuntimeNodeState,
   type LocalRuntimeSnapshot,
 } from "./runtime-node-state.js";
 
+/** Serializes local runtime snapshot publication through the writer port. */
 @injectable()
 export class RuntimeSnapshotPublisher {
   private publishQueue: Promise<void> = Promise.resolve();
@@ -20,9 +18,9 @@ export class RuntimeSnapshotPublisher {
   constructor(
     @inject(RuntimeNodeState)
     private readonly nodeState: RuntimeNodeState,
-    @inject(NodeRuntimeStateStoreToken)
-    private readonly stateStore: NodeRuntimeStateStore,
-    @inject(RuntimeOwnershipStateToken)
+    @inject(NodeRuntimeSnapshotWriter)
+    private readonly snapshotWriter: NodeRuntimeSnapshotWriterPort,
+    @inject(RuntimeOwnershipState)
     private readonly ownershipState: RuntimeOwnershipState,
   ) {}
 
@@ -60,7 +58,7 @@ export class RuntimeSnapshotPublisher {
     ),
   ): Promise<void> {
     const publish = this.publishQueue.then(() =>
-      this.stateStore.publishNodeSnapshot(snapshot),
+      this.snapshotWriter.publishNodeSnapshot(snapshot),
     );
     this.publishQueue = publish.catch(() => {});
     await publish;

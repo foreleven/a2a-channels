@@ -12,6 +12,7 @@ import { injectable } from "inversify";
 
 type EventHandler<T extends DomainEvent> = (event: T) => void;
 
+/** In-process domain event bus used for best-effort fast-path wakeups. */
 @injectable()
 export class DomainEventBus {
   private readonly emitter = new EventEmitter();

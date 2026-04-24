@@ -27,6 +27,7 @@ function shouldWriteOutbox(event: AgentEvent): boolean {
   return event.eventType !== "AgentRegistered.v1";
 }
 
+/** Prisma-backed current-state repository for AgentConfig aggregates. */
 @injectable()
 export class AgentConfigStateRepository implements AgentConfigRepository {
   async findById(id: string): Promise<AgentConfigAggregate | null> {

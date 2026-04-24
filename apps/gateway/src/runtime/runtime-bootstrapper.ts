@@ -4,10 +4,11 @@ import { GatewayConfigService } from "../bootstrap/config.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { RuntimeScheduler } from "./scheduler.js";
 import {
-  NodeRuntimeStateStore as NodeRuntimeStateStoreToken,
-  type NodeRuntimeStateStore,
-} from "./node-runtime-state-store.js";
+  NodeRuntimeSnapshotWriter,
+  type NodeRuntimeSnapshotWriter as NodeRuntimeSnapshotWriterPort,
+} from "./node-runtime-snapshot-store.js";
 import { RelayRuntime } from "./relay-runtime.js";
+import { DomainEventBridge } from "./domain-event-bridge.js";
 import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
 
 /**
@@ -28,12 +29,14 @@ export class RuntimeBootstrapper {
     private readonly config: GatewayConfigService,
     @inject(RuntimeNodeStateRepository)
     private readonly runtimeNodeRepository: RuntimeNodeStateRepository,
-    @inject(NodeRuntimeStateStoreToken)
-    private readonly stateStore: NodeRuntimeStateStore,
+    @inject(NodeRuntimeSnapshotWriter)
+    private readonly snapshotWriter: NodeRuntimeSnapshotWriterPort,
     @inject(RelayRuntime)
     private readonly relay: RelayRuntime,
     @inject(RuntimeScheduler)
     private readonly scheduler: RuntimeScheduler,
+    @inject(DomainEventBridge)
+    private readonly domainEventBridge: DomainEventBridge,
   ) {}
 
   async bootstrap(): Promise<void> {
@@ -71,6 +74,8 @@ export class RuntimeBootstrapper {
       await this.scheduler.stop();
     }
 
+    this.domainEventBridge.stop();
+
     if (!this.bootstrapped) {
       return;
     }
@@ -98,6 +103,11 @@ export class RuntimeBootstrapper {
 
       await this.relay.bootstrap();
       relayBootstrapped = true;
+
+      // The bridge converts write-side domain events into runtime broadcasts.
+      // LocalScheduler also schedules its own startup reconcile, so the runtime
+      // does not depend on this synchronous NodeJoined broadcast being observed.
+      this.domainEventBridge.start(this.config.nodeId);
 
       this.scheduler.start();
       schedulerStarted = true;
@@ -135,7 +145,7 @@ export class RuntimeBootstrapper {
     };
 
     try {
-      await this.stateStore.publishNodeSnapshot(snapshot);
+      await this.snapshotWriter.publishNodeSnapshot(snapshot);
     } catch (publishError) {
       console.error(
         "[runtime] failed to publish bootstrap error snapshot:",
@@ -157,6 +167,8 @@ export class RuntimeBootstrapper {
         cleanupErrors.push(cleanupError);
       }
     }
+
+    this.domainEventBridge.stop();
 
     if (context.relayBootstrapped) {
       try {

@@ -6,6 +6,7 @@ import type {
   OwnershipLease,
 } from "../ownership-gate.js";
 
+/** In-process ownership gate for single-node runtime assignments. */
 @injectable()
 export class LocalOwnershipGate implements OwnershipGate {
   private readonly held = new Map<string, OwnershipLease>();

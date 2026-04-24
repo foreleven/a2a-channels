@@ -8,6 +8,7 @@ import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentTransportToken } from "./transport-tokens.js";
 
+/** Creates runtime agent client handles from registered transport implementations. */
 @injectable()
 export class AgentClientFactory {
   private readonly transportRegistry = new TransportRegistry();

@@ -5,6 +5,7 @@ import type {
   OwnershipLease,
 } from "../ownership-gate.js";
 
+/** Redis-backed ownership gate placeholder for phase-two binding leases. */
 @injectable()
 export class RedisOwnershipGate implements OwnershipGate {
   async acquire(_bindingId: string): Promise<OwnershipLease | null> {

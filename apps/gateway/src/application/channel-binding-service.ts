@@ -1,34 +1,34 @@
 /**
- * ChannelBindingService – thin application facade over channel binding use-cases.
+ * ChannelBindingService – application service for channel binding use-cases.
  */
 
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
+import { randomUUID } from "node:crypto";
 import {
   AgentConfigRepository,
+  ChannelBindingAggregate,
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
+import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
 
-import {
-  createChannelBinding,
-  type CreateChannelBindingData,
-} from "./use-cases/create-channel-binding.js";
-import { deleteChannelBinding } from "./use-cases/delete-channel-binding.js";
-import { getChannelBindingById } from "./use-cases/get-channel-binding-by-id.js";
-import { listChannelBindings } from "./use-cases/list-channel-bindings.js";
-import {
-  updateChannelBinding,
-  type UpdateChannelBindingData,
-} from "./use-cases/update-channel-binding.js";
 import { AgentNotFoundError, DuplicateEnabledBindingError } from "./errors.js";
 
 export { AgentNotFoundError, DuplicateEnabledBindingError };
-export type {
+export type { ChannelBindingSnapshot };
+export type CreateChannelBindingData = Omit<
   ChannelBindingSnapshot,
-  CreateChannelBindingData,
-  UpdateChannelBindingData,
-};
+  "id" | "createdAt"
+>;
+export type UpdateChannelBindingData = Partial<
+  Omit<ChannelBindingSnapshot, "id" | "createdAt">
+>;
 
+/**
+ * Application service for ChannelBinding commands and queries.
+ *
+ * It enforces application-level cross-aggregate checks before delegating state
+ * transitions to ChannelBindingAggregate.
+ */
 @injectable()
 export class ChannelBindingService {
   constructor(
@@ -39,27 +39,88 @@ export class ChannelBindingService {
   ) {}
 
   async list(): Promise<ChannelBindingSnapshot[]> {
-    return listChannelBindings(this.repo);
+    return this.repo.findAll();
   }
 
   async getById(id: string): Promise<ChannelBindingSnapshot | null> {
-    return getChannelBindingById(this.repo, id);
+    const aggregate = await this.repo.findById(id);
+    return aggregate ? aggregate.snapshot() : null;
   }
 
-  async create(
-    data: CreateChannelBindingData,
-  ): Promise<ChannelBindingSnapshot> {
-    return createChannelBinding(this.repo, this.agentRepo, data);
+  async create(data: CreateChannelBindingData): Promise<ChannelBindingSnapshot> {
+    await this.assertAgentExists(data.agentId);
+    await this.assertNoDuplicateEnabled(
+      data.channelType,
+      data.accountId,
+      data.enabled,
+    );
+
+    const aggregate = ChannelBindingAggregate.create({
+      id: randomUUID(),
+      ...data,
+    });
+    await this.repo.save(aggregate);
+    return aggregate.snapshot();
   }
 
   async update(
     id: string,
     changes: UpdateChannelBindingData,
   ): Promise<ChannelBindingSnapshot | null> {
-    return updateChannelBinding(this.repo, this.agentRepo, id, changes);
+    const aggregate = await this.repo.findById(id);
+    if (!aggregate) {
+      return null;
+    }
+
+    const effectiveEnabled = changes.enabled ?? aggregate.enabled;
+    const effectiveChannelType = changes.channelType ?? aggregate.channelType;
+    const effectiveAccountId = changes.accountId ?? aggregate.accountId;
+    const effectiveAgentId = changes.agentId ?? aggregate.agentId;
+
+    await this.assertAgentExists(effectiveAgentId);
+    await this.assertNoDuplicateEnabled(
+      effectiveChannelType,
+      effectiveAccountId,
+      effectiveEnabled,
+      id,
+    );
+
+    aggregate.update(changes);
+    await this.repo.save(aggregate);
+    return aggregate.snapshot();
   }
 
   async delete(id: string): Promise<boolean> {
-    return deleteChannelBinding(this.repo, id);
+    const aggregate = await this.repo.findById(id);
+    if (!aggregate) {
+      return false;
+    }
+
+    aggregate.delete();
+    await this.repo.save(aggregate);
+    return true;
+  }
+
+  private async assertAgentExists(agentId: string): Promise<void> {
+    const agent = await this.agentRepo.findById(agentId);
+    if (!agent) {
+      throw new AgentNotFoundError(agentId);
+    }
+  }
+
+  private async assertNoDuplicateEnabled(
+    channelType: string,
+    accountId: string,
+    enabled: boolean,
+    excludeId?: string,
+  ): Promise<void> {
+    if (!enabled) {
+      return;
+    }
+
+    const existing = await this.repo.findEnabled(channelType, accountId, excludeId);
+    if (existing) {
+      throw new DuplicateEnabledBindingError(channelType, accountId);
+    }
   }
 }

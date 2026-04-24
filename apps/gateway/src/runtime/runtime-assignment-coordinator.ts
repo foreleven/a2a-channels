@@ -1,6 +1,9 @@
 import { inject, injectable } from "inversify";
+import {
+  AgentConfigRepository,
+  ChannelBindingRepository,
+} from "@a2a-channels/domain";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
-import { RuntimeDesiredStateQuery } from "./runtime-desired-state-query.js";
 
 /**
  * Reconciles desired runtime state against bindings currently owned by this
@@ -9,25 +12,32 @@ import { RuntimeDesiredStateQuery } from "./runtime-desired-state-query.js";
  * Important boundary rule: this coordinator talks to RuntimeAssignmentService,
  * not RelayRuntime. It decides ownership changes; execution details stay below
  * that boundary.
+ *
+ * In the current single-instance runtime, this is allowed to scan all desired
+ * bindings because every runnable binding belongs to the local node. A future
+ * cluster scheduler should not reuse this as-is for cross-node balancing.
  */
 @injectable()
 export class RuntimeAssignmentCoordinator {
   constructor(
     @inject(RuntimeAssignmentService)
     private readonly assignments: RuntimeAssignmentService,
-    @inject(RuntimeDesiredStateQuery)
-    private readonly desiredStateQuery: RuntimeDesiredStateQuery,
+    @inject(ChannelBindingRepository)
+    private readonly bindingRepo: ChannelBindingRepository,
+    @inject(AgentConfigRepository)
+    private readonly agentRepo: AgentConfigRepository,
   ) {}
 
   async reconcile(): Promise<void> {
-    const snapshot = await this.desiredStateQuery.loadSnapshot();
+    const [bindings, agents] = await Promise.all([
+      this.bindingRepo.findAll(),
+      this.agentRepo.findAll(),
+    ]);
     // Build lookup tables once so reconcile stays linear in the number of
     // desired bindings/agents.
-    const agentsById = new Map(
-      snapshot.agents.map((agent) => [agent.id, agent]),
-    );
+    const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
     const bindingsById = new Map(
-      snapshot.bindings.map((binding) => [binding.id, binding]),
+      bindings.map((binding) => [binding.id, binding]),
     );
     const ownedBindingIds = this.assignments.listOwnedBindingIds();
     const staleBindingIds = ownedBindingIds.filter((bindingId) => {
@@ -44,7 +54,7 @@ export class RuntimeAssignmentCoordinator {
       await this.assignments.releaseBinding(bindingId);
     }
 
-    for (const binding of snapshot.bindings) {
+    for (const binding of bindings) {
       const agent = agentsById.get(binding.agentId);
       if (!binding.enabled || !agent) {
         continue;

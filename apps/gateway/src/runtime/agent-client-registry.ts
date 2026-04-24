@@ -4,6 +4,7 @@ import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentClientFactory } from "./agent-clients.js";
 
+/** Caches transport clients by agent URL and owns their lifecycle. */
 @injectable()
 export class AgentClientRegistry {
   private readonly clients = new Map<string, AgentClientHandle>();

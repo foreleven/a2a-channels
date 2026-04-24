@@ -67,6 +67,7 @@ const logger: ChannelLogSink = {
 // OpenClawPluginHost
 // ---------------------------------------------------------------------------
 
+/** Hosts OpenClaw channel plugins and controls channel account lifecycles. */
 export class OpenClawPluginHost {
   private readonly channels = new Map<string, ChannelPlugin>();
   private readonly hookHandlers = new Map<

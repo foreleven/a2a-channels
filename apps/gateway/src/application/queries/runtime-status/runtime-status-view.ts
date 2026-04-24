@@ -1,10 +1,5 @@
-import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
-
-import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
-
-export const NodeRuntimeStateStore = Symbol.for(
-  "runtime.NodeRuntimeStateStore",
-);
+import type { RuntimeConnectionStatus } from "../../../runtime/runtime-connection-status.js";
+import type { LocalRuntimeSnapshot } from "../../../runtime/runtime-node-state.js";
 
 export interface RuntimeNodeListItem {
   nodeId: string;
@@ -29,11 +24,4 @@ export interface RuntimeConnectionListItem {
   ownerNodeId: string | null;
   status: RuntimeConnectionStatus["status"];
   updatedAt: string | null;
-}
-
-export interface NodeRuntimeStateStore {
-  publishNodeSnapshot(snapshot: LocalRuntimeSnapshot): Promise<void>;
-  listNodeSnapshots?():
-    | LocalRuntimeSnapshot[]
-    | Promise<LocalRuntimeSnapshot[]>;
 }

@@ -29,6 +29,7 @@ function mapRuntimeNodeRow(row: {
   };
 }
 
+/** Persists registered runtime node metadata for status queries. */
 @injectable()
 export class RuntimeNodeStateRepository {
   async upsert(record: RuntimeNodeStateRecord): Promise<void> {

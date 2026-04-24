@@ -4,6 +4,7 @@ import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentClientRegistry } from "./agent-client-registry.js";
 
+/** Maintains runtime agent snapshots and their transport client registrations. */
 @injectable()
 export class RuntimeAgentRegistry {
   private readonly agentsById = new Map<string, AgentConfigSnapshot>();

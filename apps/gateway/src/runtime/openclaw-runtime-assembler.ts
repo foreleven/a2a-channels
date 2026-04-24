@@ -13,6 +13,7 @@ export interface OpenClawRuntimeAssembly {
   pluginHost: OpenClawPluginHost;
 }
 
+/** Assembles the OpenClaw runtime and plugin host for gateway startup. */
 @injectable()
 export class OpenClawRuntimeAssembler {
   assemble(options: PluginRuntimeOptions): OpenClawRuntimeAssembly {

@@ -1,25 +1,38 @@
 /**
- * AgentService – thin application facade over agent use-cases.
+ * AgentService – application service for Agent configuration use-cases.
  */
 
-import type { AgentConfigSnapshot } from "@a2a-channels/domain";
+import { randomUUID } from "node:crypto";
 import {
+  AgentConfigAggregate,
   AgentConfigRepository,
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
+import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
 
-import { deleteAgent, ReferencedAgentError } from "./use-cases/delete-agent.js";
-import { getAgentById } from "./use-cases/get-agent-by-id.js";
-import { listAgents } from "./use-cases/list-agents.js";
-import { registerAgent } from "./use-cases/register-agent.js";
-import { updateAgent } from "./use-cases/update-agent.js";
-
 export type { AgentConfigSnapshot };
-export type { RegisterAgentData } from "./use-cases/register-agent.js";
-export type { UpdateAgentData } from "./use-cases/update-agent.js";
-export { ReferencedAgentError };
+export type RegisterAgentData = Omit<AgentConfigSnapshot, "id" | "createdAt">;
+export type UpdateAgentData = Partial<
+  Omit<AgentConfigSnapshot, "id" | "createdAt">
+>;
 
+/** Raised when deleting an Agent would leave existing bindings orphaned. */
+export class ReferencedAgentError extends Error {
+  constructor(
+    readonly agentId: string,
+    readonly bindingIds: string[],
+  ) {
+    super(`Agent ${agentId} is referenced by ${bindingIds.length} channel binding(s)`);
+  }
+}
+
+/**
+ * Application service for Agent configuration commands and queries.
+ *
+ * It orchestrates repositories and AgentConfigAggregate methods, keeping HTTP
+ * route handlers free of domain mutation details.
+ */
 @injectable()
 export class AgentService {
   constructor(
@@ -30,27 +43,53 @@ export class AgentService {
   ) {}
 
   async list(): Promise<AgentConfigSnapshot[]> {
-    return listAgents(this.repo);
+    return this.repo.findAll();
   }
 
   async getById(id: string): Promise<AgentConfigSnapshot | null> {
-    return getAgentById(this.repo, id);
+    const aggregate = await this.repo.findById(id);
+    return aggregate ? aggregate.snapshot() : null;
   }
 
-  async register(
-    data: import("./use-cases/register-agent.js").RegisterAgentData,
-  ): Promise<AgentConfigSnapshot> {
-    return registerAgent(this.repo, data);
+  async register(data: RegisterAgentData): Promise<AgentConfigSnapshot> {
+    const aggregate = AgentConfigAggregate.register({
+      id: randomUUID(),
+      ...data,
+    });
+    await this.repo.save(aggregate);
+    return aggregate.snapshot();
   }
 
   async update(
     id: string,
-    changes: import("./use-cases/update-agent.js").UpdateAgentData,
+    changes: UpdateAgentData,
   ): Promise<AgentConfigSnapshot | null> {
-    return updateAgent(this.repo, id, changes);
+    const aggregate = await this.repo.findById(id);
+    if (!aggregate) {
+      return null;
+    }
+
+    aggregate.update(changes);
+    await this.repo.save(aggregate);
+    return aggregate.snapshot();
   }
 
   async delete(id: string): Promise<boolean> {
-    return deleteAgent(this.repo, id, this.bindingRepo);
+    const aggregate = await this.repo.findById(id);
+    if (!aggregate) {
+      return false;
+    }
+
+    const bindings = await this.bindingRepo.findByAgentId(id);
+    if (bindings.length > 0) {
+      throw new ReferencedAgentError(
+        id,
+        bindings.map((binding) => binding.id),
+      );
+    }
+
+    aggregate.delete();
+    await this.repo.save(aggregate);
+    return true;
   }
 }

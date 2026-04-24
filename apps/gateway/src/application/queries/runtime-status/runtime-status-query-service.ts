@@ -1,15 +1,20 @@
 import { inject, injectable } from "inversify";
-
-import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
-import type { RuntimeNodeStateRecord } from "../infra/runtime-node-repo.js";
 import {
-  NodeRuntimeStateStore as NodeRuntimeStateStoreToken,
-  type NodeRuntimeStateStore,
-  type RuntimeConnectionListItem,
-  type RuntimeNodeListItem,
-} from "./node-runtime-state-store.js";
-import { RuntimeDesiredStateQuery } from "./runtime-desired-state-query.js";
-import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
+  AgentConfigRepository,
+  ChannelBindingRepository,
+} from "@a2a-channels/domain";
+
+import { RuntimeNodeStateRepository } from "../../../infra/runtime-node-repo.js";
+import type { RuntimeNodeStateRecord } from "../../../infra/runtime-node-repo.js";
+import {
+  NodeRuntimeSnapshotReader,
+  type NodeRuntimeSnapshotReader as NodeRuntimeSnapshotReaderPort,
+} from "../../../runtime/node-runtime-snapshot-store.js";
+import type { LocalRuntimeSnapshot } from "../../../runtime/runtime-node-state.js";
+import type {
+  RuntimeConnectionListItem,
+  RuntimeNodeListItem,
+} from "./runtime-status-view.js";
 
 interface BindingOwner {
   nodeId: string;
@@ -18,15 +23,24 @@ interface BindingOwner {
   agentUrl?: string;
 }
 
+/**
+ * Application query service for runtime status.
+ *
+ * It merges durable desired state (bindings/agents), persisted node
+ * registration, and the latest in-memory runtime snapshots into a view shape
+ * for HTTP callers. It does not own runtime execution or mutate state.
+ */
 @injectable()
-export class RuntimeClusterStateReader {
+export class RuntimeStatusQueryService {
   constructor(
-    @inject(RuntimeDesiredStateQuery)
-    private readonly desiredStateQuery: RuntimeDesiredStateQuery,
+    @inject(ChannelBindingRepository)
+    private readonly bindingRepo: ChannelBindingRepository,
+    @inject(AgentConfigRepository)
+    private readonly agentRepo: AgentConfigRepository,
     @inject(RuntimeNodeStateRepository)
     private readonly runtimeNodeRepository: RuntimeNodeStateRepository,
-    @inject(NodeRuntimeStateStoreToken)
-    private readonly stateStore: NodeRuntimeStateStore,
+    @inject(NodeRuntimeSnapshotReader)
+    private readonly snapshotReader: NodeRuntimeSnapshotReaderPort,
   ) {}
 
   async listNodes(): Promise<RuntimeNodeListItem[]> {
@@ -52,19 +66,18 @@ export class RuntimeClusterStateReader {
   }
 
   async listConnections(): Promise<RuntimeConnectionListItem[]> {
-    const [desiredState, snapshots] = await Promise.all([
-      this.desiredStateQuery.loadSnapshot(),
+    const [bindings, agents, snapshots] = await Promise.all([
+      this.bindingRepo.findAll(),
+      this.agentRepo.findAll(),
       this.readSnapshots(),
     ]);
-    const agentById = new Map(
-      desiredState.agents.map((agent) => [agent.id, agent]),
-    );
+    const agentById = new Map(agents.map((agent) => [agent.id, agent]));
     const latestSnapshotsByNodeId = this.buildLatestSnapshotByNodeId(snapshots);
     const ownerByBindingId = this.buildOwnerByBindingId(
       Array.from(latestSnapshotsByNodeId.values()),
     );
 
-    return desiredState.bindings.map((binding) => {
+    return bindings.map((binding) => {
       const agent = agentById.get(binding.agentId);
       const owner = ownerByBindingId.get(binding.id);
 
@@ -161,11 +174,7 @@ export class RuntimeClusterStateReader {
   }
 
   private async readSnapshots(): Promise<LocalRuntimeSnapshot[]> {
-    if (typeof this.stateStore.listNodeSnapshots !== "function") {
-      return [];
-    }
-
-    const snapshots = await this.stateStore.listNodeSnapshots();
+    const snapshots = await this.snapshotReader.listNodeSnapshots();
     return snapshots.map(cloneSnapshot);
   }
 }

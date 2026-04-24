@@ -59,6 +59,7 @@ function extractText(result: unknown): string {
   return "";
 }
 
+/** Agent transport adapter for JSON-RPC A2A-compatible agents. */
 export class A2ATransport implements AgentTransport {
   readonly protocol = "a2a";
   private readonly factory = new ClientFactory();

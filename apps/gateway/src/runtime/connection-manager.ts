@@ -61,6 +61,7 @@ export interface ConnectionManagerOptions {
   callbacks?: ConnectionManagerCallbacks;
 }
 
+/** Orchestrates channel plugin connections and forwards inbound messages to agents. */
 @injectable()
 export class ConnectionManager {
   private readonly connections = new Map<string, Connection>();

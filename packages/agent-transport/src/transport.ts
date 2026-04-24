@@ -21,6 +21,7 @@ export interface AgentTransport {
   send(agentUrl: string, request: AgentRequest): Promise<AgentResponse>;
 }
 
+/** Protocol-keyed registry for resolving agent transport implementations. */
 export class TransportRegistry {
   private readonly transports = new Map<string, AgentTransport>();
 

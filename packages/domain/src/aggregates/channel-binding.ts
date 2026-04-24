@@ -28,6 +28,7 @@ export interface ChannelBindingSnapshot {
   readonly createdAt: string;
 }
 
+/** DDD aggregate root for channel binding configuration invariants. */
 export class ChannelBindingAggregate {
   id!: string;
   name!: string;
