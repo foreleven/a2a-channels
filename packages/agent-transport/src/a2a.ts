@@ -13,7 +13,7 @@ import type {
   AgentRequest,
   AgentResponse,
   AgentTransport,
-} from "@a2a-channels/core";
+} from "./transport.js";
 
 /** Extract the first text reply from an A2A result envelope. */
 function extractText(result: unknown): string {

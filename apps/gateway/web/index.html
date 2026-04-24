@@ -212,7 +212,7 @@
             </select>
           </div>
           <div>
-            <label>Agent URL</label>
+            <label>Agent</label>
             <input id="ag-url" placeholder="http://localhost:3001" required />
           </div>
           <div>
@@ -354,7 +354,7 @@
       return;
     }
     tbody.innerHTML = channels.map(c => {
-      const agent = agentMap[c.agentId] || { name: c.agentUrl, url: c.agentUrl };
+      const agent = agentMap[c.agentId] || { name: c.agentId, url: c.agentId };
       return `
         <tr>
           <td><strong>${esc(c.name)}</strong></td>
@@ -376,10 +376,8 @@
   async function submitChannel(e) {
     e.preventDefault();
     const agentSel = document.getElementById('ch-agentId');
-    const agentOpt = agentSel.options[agentSel.selectedIndex];
     if (!agentSel.value) { toast('Please select an agent', 'error'); return; }
 
-    const agentUrl = agentOpt.text.match(/\((.+)\)$/)?.[1] ?? agentSel.value;
     const allowFromRaw = document.getElementById('ch-allowFrom').value.trim();
     const allowFrom = allowFromRaw ? allowFromRaw.split(',').map(s => s.trim()).filter(Boolean) : ['*'];
 
@@ -397,7 +395,6 @@
             allowFrom,
           },
           agentId: agentSel.value,
-          agentUrl,
           enabled: true,
         }),
       });

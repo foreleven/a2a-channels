@@ -9,7 +9,7 @@
 const BASE = process.env["NEXT_PUBLIC_GATEWAY_URL"] ?? "";
 
 // ---------------------------------------------------------------------------
-// Shared types (mirror packages/core/src/types.ts)
+// Shared DTOs returned by the gateway API.
 // ---------------------------------------------------------------------------
 
 export interface ChannelBinding {
@@ -18,7 +18,7 @@ export interface ChannelBinding {
   channelType: string;
   accountId: string;
   channelConfig: Record<string, unknown>;
-  agentUrl: string;
+  agentId: string;
   enabled: boolean;
   createdAt: string;
 }

@@ -36,10 +36,10 @@ End-to-end flow:
 - `apps/gateway/`: Hono HTTP server, monitor orchestration, OpenClaw runtime integration, and gateway API.
 - `apps/echo-agent/`: standalone minimal A2A-compatible JSON-RPC echo agent for local end-to-end testing.
 - `apps/web/`: Next.js 16 admin UI for channel and agent management.
-- `packages/core/`: shared domain types and channel/store contracts.
-- `packages/agent-transport/`: A2A JSON-RPC client used by the runtime bridge.
+- `packages/domain/`: DDD aggregates, domain events, snapshots, and repository ports.
+- `packages/agent-transport/`: agent transport ports plus A2A/ACP client implementations used by the runtime bridge.
 - `packages/openclaw-compat/`: OpenClaw plugin host/runtime compatibility layer.
-- `packages/store-sqlite/`: SQLite-backed `ChannelStore` and `AgentStore` implementation.
+- `packages/event-store/`: event-store port and domain-event publishing primitives.
 
 ## Main subsystems
 
@@ -56,9 +56,10 @@ The server owns a single `MonitorManager` instance and uses it to keep channel m
 
 The monitor lifecycle is intentionally split in layers:
 
-- `packages/core/src/channel.ts` defines the `ChannelProvider` / `ChannelAccountRunner` contracts.
-- `apps/gateway/src/monitor-manager.ts` is channel-agnostic lifecycle orchestration: start, restart, stop, and reconcile monitors against store state.
-- `packages/openclaw-compat/src/channel-provider.ts` is the generic `OpenClawChannelProvider` that bridges registered OpenClaw channel plugins to the `ChannelProvider` interface.
+- `packages/domain` defines the desired-state model as channel binding and agent aggregates.
+- `apps/gateway/src/runtime/runtime-assignment-service.ts` owns assignment changes for bindings currently granted to this node.
+- `apps/gateway/src/runtime/connection-manager.ts` is channel-agnostic connection lifecycle orchestration: start, restart, stop, and route replies through agent transports.
+- `packages/openclaw-compat/src/plugin-host.ts` bridges registered OpenClaw channel plugins to gateway runtime connections.
 
 To add a new channel, register its OpenClaw plugin in `apps/gateway/src/register-plugins.ts`. No per-channel package is needed.
 
@@ -82,13 +83,13 @@ The runtime reuses selected helpers from `openclaw/plugin-sdk/*`, but most nones
 The gateway uses a SQLite-backed store by default. Important implications:
 
 - `DB_PATH` controls the database file and defaults to `./a2a-channels.db`.
-- The gateway seeds a default echo agent at `ECHO_AGENT_URL` or `http://localhost:3001` on first launch.
-- OpenClaw-compatible config is synthesized on demand from current bindings via `buildOpenClawConfig()`.
+- `npm run seed` writes the default echo agent at `ECHO_AGENT_URL` or `http://localhost:3001` and optional Feishu bootstrap binding.
+- OpenClaw-compatible config is synthesized from runtime-owned bindings via `RuntimeOpenClawConfigProjection`.
 
 The store is the source of truth for both:
 
 - monitor reconciliation
-- binding/account-to-agent routing (`getAgentUrlForBinding`, `getAgentUrlForChannelAccount`)
+- binding/account-to-agent routing through runtime desired-state projections
 
 ### Admin UI
 
@@ -108,6 +109,6 @@ It exposes:
 ## Repository-specific notes
 
 - Feishu and Lark are treated as aliases; both are handled by the `@larksuite/openclaw-lark` plugin registered in `apps/gateway/src/register-plugins.ts`.
-- The web UI may submit an `agentId`, but the backend persists and routes by `agentUrl`; the URL is the effective binding value.
+- Channel bindings persist `agentId`; the gateway resolves the effective target URL from the Agent config when building runtime/OpenClaw config or routing messages.
 - All OpenClaw-compatible channel plugins should work without a dedicated wrapper package — registering them in `register-plugins.ts` is sufficient.
 - Gateway environment variables include `PORT`, `DB_PATH`, `CORS_ORIGIN`, `ECHO_AGENT_URL`, and Feishu bootstrap credentials; see `.env.example` and `README.md` for details.

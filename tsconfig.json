@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "lib": [
       "ESNext"
     ],
@@ -26,8 +28,11 @@
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@a2a-channels/core": [
-        "./packages/core/src/index.ts"
+      "@a2a-channels/domain": [
+        "./packages/domain/src/index.ts"
+      ],
+      "@a2a-channels/event-store": [
+        "./packages/event-store/src/index.ts"
       ],
       "@a2a-channels/agent-transport": [
         "./packages/agent-transport/src/index.ts"

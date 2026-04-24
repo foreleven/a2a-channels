@@ -1,5 +1,12 @@
-import type { ChannelBinding } from "@a2a-channels/core";
+import { injectable } from "inversify";
+import type {
+  AgentConfigSnapshot,
+  ChannelBindingSnapshot,
+} from "@a2a-channels/domain";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+
+type AgentConfig = AgentConfigSnapshot;
+type ChannelBinding = ChannelBindingSnapshot;
 
 interface FeishuChannelConfig {
   appId: string;
@@ -11,33 +18,49 @@ interface FeishuChannelConfig {
 
 type FeishuConfig = NonNullable<OpenClawConfig["channels"]>["feishu"];
 
-export function hasValidFeishuCredentials(binding: ChannelBinding): boolean {
-  if (binding.channelType !== "feishu") {
-    return true;
+@injectable()
+export class OpenClawConfigBuilder {
+  build(bindings: ChannelBinding[]): OpenClawConfig {
+    const feishuBindings = bindings.filter(
+      (binding) => binding.enabled && binding.channelType === "feishu",
+    );
+
+    const feishuAccounts: Record<string, FeishuConfig> = {};
+    let defaultFeishuConfig: FeishuConfig | null = null;
+
+    for (const binding of feishuBindings) {
+      const accountConfig = this.buildFeishuAccountConfig(binding);
+      if (!accountConfig) {
+        continue;
+      }
+
+      if (binding.accountId === "default") {
+        defaultFeishuConfig = accountConfig;
+      } else {
+        feishuAccounts[binding.accountId] = accountConfig;
+      }
+    }
+
+    return {
+      channels: {
+        feishu: {
+          ...(defaultFeishuConfig ?? {}),
+          ...(Object.keys(feishuAccounts).length > 0
+            ? { accounts: feishuAccounts }
+            : {}),
+        },
+        feishu_doc: {},
+      },
+      agents: {},
+    } as OpenClawConfig;
   }
 
-  const cfg = binding.channelConfig as unknown as FeishuChannelConfig;
-  return Boolean(cfg.appId && cfg.appSecret);
-}
-
-export function buildOpenClawConfigFromBindings(
-  bindings: ChannelBinding[],
-): OpenClawConfig {
-  const feishuBindings = bindings.filter(
-    (binding) =>
-      binding.enabled &&
-      binding.channelType === "feishu" &&
-      hasValidFeishuCredentials(binding),
-  );
-
-  const feishuAccounts: Record<string, FeishuConfig> = {};
-  let defaultFeishuConfig: FeishuConfig | null = null;
-
-  for (const binding of feishuBindings) {
+  private buildFeishuAccountConfig(
+    binding: ChannelBinding,
+  ): FeishuConfig | null {
     const cfg = binding.channelConfig as unknown as FeishuChannelConfig;
-    const accountConfig: FeishuConfig = {
+    return {
       bindingId: binding.id,
-      agentUrl: binding.agentUrl,
       appId: cfg.appId,
       appSecret: cfg.appSecret,
       encryptKey: cfg.encryptKey,
@@ -48,26 +71,5 @@ export function buildOpenClawConfigFromBindings(
       dmPolicy: "open",
       groupPolicy: "open",
     };
-
-    if (binding.accountId === "default") {
-      defaultFeishuConfig = accountConfig;
-    } else {
-      feishuAccounts[binding.accountId] = accountConfig;
-    }
   }
-
-  console.log("feishu accounts", defaultFeishuConfig, feishuAccounts);
-
-  return {
-    channels: {
-      feishu: {
-        ...(defaultFeishuConfig ?? {}),
-        ...(Object.keys(feishuAccounts).length > 0
-          ? { accounts: feishuAccounts }
-          : {}),
-      },
-      feishu_doc: {},
-    },
-    agents: {},
-  } as OpenClawConfig;
 }

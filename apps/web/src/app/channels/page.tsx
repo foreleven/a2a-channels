@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import type { ChannelBinding } from "@/lib/api";
+import type { AgentConfig, ChannelBinding } from "@/lib/api";
 import {
+  listAgents,
   listChannels,
   createChannel,
   updateChannel,
@@ -17,7 +18,7 @@ const EMPTY_FORM = {
   name: "",
   channelType: "feishu",
   accountId: "default",
-  agentUrl: "",
+  agentId: "",
   enabled: true,
   appId: "",
   appSecret: "",
@@ -32,7 +33,7 @@ function formToPayload(f: FormState): Omit<ChannelBinding, "id" | "createdAt"> {
     name: f.name,
     channelType: f.channelType,
     accountId: f.accountId,
-    agentUrl: f.agentUrl,
+    agentId: f.agentId,
     enabled: f.enabled,
     channelConfig: {
       appId: f.appId,
@@ -55,7 +56,7 @@ function bindingToForm(b: ChannelBinding): FormState {
     name: b.name,
     channelType: b.channelType,
     accountId: b.accountId,
-    agentUrl: b.agentUrl,
+    agentId: b.agentId,
     enabled: b.enabled,
     appId: cfg.appId ?? "",
     appSecret: cfg.appSecret ?? "",
@@ -70,6 +71,7 @@ function bindingToForm(b: ChannelBinding): FormState {
 
 export default function ChannelsPage() {
   const [channels, setChannels] = useState<ChannelBinding[]>([]);
+  const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,8 +83,12 @@ export default function ChannelsPage() {
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const data = await listChannels();
-      setChannels(data);
+      const [channelData, agentData] = await Promise.all([
+        listChannels(),
+        listAgents(),
+      ]);
+      setChannels(channelData);
+      setAgents(agentData);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -96,7 +102,7 @@ export default function ChannelsPage() {
 
   function openNew() {
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, agentId: agents[0]?.id ?? "" });
     setShowForm(true);
   }
 
@@ -187,7 +193,7 @@ export default function ChannelsPage() {
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5 truncate">
-                  account: {b.accountId} · agent: {b.agentUrl}
+                  account: {b.accountId} · agent: {b.agentId}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -253,15 +259,23 @@ export default function ChannelsPage() {
                   placeholder="default"
                 />
               </Field>
-              <Field label="Agent URL">
-                <input
+              <Field label="Agent">
+                <select
                   className={input}
-                  value={form.agentUrl}
+                  value={form.agentId}
                   onChange={(e) =>
-                    setForm({ ...form, agentUrl: e.target.value })
+                    setForm({ ...form, agentId: e.target.value })
                   }
-                  placeholder="http://localhost:3001/a2a/jsonrpc"
-                />
+                >
+                  <option value="" disabled>
+                    Select an agent
+                  </option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name} ({agent.url})
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field label="App ID">
                 <input

@@ -5,22 +5,26 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "start": "node --env-file-if-exists ../../.env --import tsx/esm src/index.ts",
-    "dev": "node --env-file-if-exists ../../.env --import tsx/esm src/index.ts",
+    "start": "make -C ../.. gateway",
+    "dev": "make -C ../.. gateway-dev",
     "postinstall": "prisma generate --schema=prisma/schema.prisma",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:push": "prisma db push --schema=prisma/schema.prisma",
-    "test": "DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts"
+    "test": "make -C ../.. test"
   },
   "dependencies": {
     "@a2a-channels/agent-transport": "workspace:*",
-    "@a2a-channels/core": "workspace:*",
+    "@a2a-channels/domain": "workspace:*",
+    "@a2a-channels/event-store": "workspace:*",
     "@a2a-channels/openclaw-compat": "workspace:*",
     "@larksuite/openclaw-lark": "^2026.4.7",
     "@prisma/adapter-better-sqlite3": "7.7.0",
     "@prisma/client": "7.7.0",
     "@prisma/client-runtime-utils": "7.7.0",
-    "openclaw": "^2026.4.15"
+    "inversify": "^7.7.1",
+    "openclaw": "^2026.4.15",
+    "reflect-metadata": "^0.2.2",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "prisma": "7.7.0"

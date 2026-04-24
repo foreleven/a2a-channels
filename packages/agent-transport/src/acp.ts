@@ -14,7 +14,11 @@
  * channel accounts.
  */
 
-import type { AgentRequest, AgentResponse, AgentTransport } from "@a2a-channels/core";
+import type {
+  AgentRequest,
+  AgentResponse,
+  AgentTransport,
+} from "./transport.js";
 
 // ---------------------------------------------------------------------------
 // ACP wire types (minimal subset we actually use)

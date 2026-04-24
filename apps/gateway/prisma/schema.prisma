@@ -16,9 +16,13 @@ model ChannelBinding {
   channelType   String   @map("channel_type")
   accountId     String   @map("account_id")
   channelConfig String   @default("{}") @map("channel_config")
-  agentUrl      String   @map("agent_url")
+  agentId       String   @map("agent_id")
+  enabledKey    String?  @unique @map("enabled_key")
   enabled       Boolean  @default(true)
   createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  agent         Agent    @relation(fields: [agentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("channel_bindings")
 }
@@ -30,6 +34,34 @@ model Agent {
   protocol    String   @default("a2a")
   description String?
   createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  bindings    ChannelBinding[]
 
   @@map("agents")
+}
+
+model RuntimeNode {
+  nodeId           String   @id @map("node_id")
+  displayName      String   @map("display_name")
+  mode             String
+  lastKnownAddress String   @map("last_known_address")
+  registeredAt     DateTime @default(now()) @map("registered_at")
+  updatedAt        DateTime @default(now()) @map("updated_at")
+
+  @@map("runtime_nodes")
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid())
+  aggregateType String    @map("aggregate_type")
+  aggregateId   String    @map("aggregate_id")
+  eventType     String    @map("event_type")
+  payload       String
+  occurredAt    DateTime  @map("occurred_at")
+  processedAt   DateTime? @map("processed_at")
+
+  @@index([processedAt, occurredAt])
+  @@index([aggregateType, aggregateId])
+  @@map("outbox_events")
 }
