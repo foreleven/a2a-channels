@@ -1,3 +1,4 @@
+/** Runtime lifecycle states reported for an owned channel binding. */
 export type ConnectionStatus =
   | "idle"
   | "connecting"
@@ -5,6 +6,7 @@ export type ConnectionStatus =
   | "disconnected"
   | "error";
 
+/** Snapshot of the last known connection state for one binding. */
 export interface RuntimeConnectionStatus {
   bindingId: string;
   status: ConnectionStatus;

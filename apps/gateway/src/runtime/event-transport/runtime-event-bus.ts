@@ -11,6 +11,7 @@ import type { RuntimeBroadcastEvent, RuntimeDirectedCommand } from "./types.js";
  */
 export const LOCAL_NODE_ID = "__local__";
 
+/** Transport boundary for runtime coordination events and directed commands. */
 export interface RuntimeEventBus {
   /** Broadcast an event to all nodes (including self). */
   broadcast(event: RuntimeBroadcastEvent): void;
@@ -35,4 +36,5 @@ export interface RuntimeEventBus {
   ): () => void;
 }
 
+/** DI token for the active runtime event bus implementation. */
 export const RuntimeEventBus = Symbol.for("runtime.RuntimeEventBus");

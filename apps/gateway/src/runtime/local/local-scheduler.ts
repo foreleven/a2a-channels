@@ -10,6 +10,7 @@ import {
 } from "../event-transport/runtime-event-bus.js";
 import type { RuntimeBroadcastEvent } from "../event-transport/types.js";
 
+/** Timing options for local debounce and periodic reconciliation. */
 export interface LocalSchedulerOptions {
   readonly debounceMs?: number;
   readonly reconcileIntervalMs?: number;
@@ -29,6 +30,7 @@ export class LocalScheduler implements RuntimeScheduler {
   private runtimeBus: RuntimeEventBus | null;
   private coordinator: RuntimeAssignmentCoordinator | null;
 
+  /** Accepts optional collaborators so tests can construct before container wiring. */
   constructor(
     assignments: RuntimeAssignmentService | null = null,
     commandHandler: RuntimeCommandHandler | null = null,
@@ -42,6 +44,7 @@ export class LocalScheduler implements RuntimeScheduler {
     this.coordinator = coordinator;
   }
 
+  /** Supplies collaborators before start when the scheduler is created early by DI. */
   configure(
     assignments: RuntimeAssignmentService,
     commandHandler: RuntimeCommandHandler,
@@ -59,6 +62,7 @@ export class LocalScheduler implements RuntimeScheduler {
     return this;
   }
 
+  /** Subscribes to the local bus and schedules periodic desired-state reconciliation. */
   start(): void {
     if (!this.stopped) return;
     const bus = this.requireRuntimeBus();
@@ -82,6 +86,7 @@ export class LocalScheduler implements RuntimeScheduler {
     this.scheduleNodeJoined();
   }
 
+  /** Cancels timers and unsubscribes from local runtime bus events. */
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
@@ -96,11 +101,13 @@ export class LocalScheduler implements RuntimeScheduler {
 
   // Public wake-up hook for callers that know desired state may have drifted.
   // The scheduler debounces this into the same path as startup reconciliation.
+  /** Debounces an explicit reconciliation request through the node-joined path. */
   scheduleReconcile(): void {
     if (this.stopped) return;
     this.scheduleNodeJoined();
   }
 
+  /** Converts broadcast events into local directed commands and full scans. */
   private handleBroadcast(event: RuntimeBroadcastEvent): void {
     if (this.stopped) return;
     const bus = this.runtimeBus!;
@@ -149,6 +156,7 @@ export class LocalScheduler implements RuntimeScheduler {
     }
   }
 
+  /** Debounces a synthetic NodeJoined broadcast to refresh local desired state. */
   private scheduleNodeJoined(): void {
     if (this.stopped) return;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
@@ -171,12 +179,14 @@ export class LocalScheduler implements RuntimeScheduler {
     }, this.options.debounceMs ?? 100);
   }
 
+  /** Runs the coordinator reconciliation unless the scheduler has been stopped. */
   private async fullScan(): Promise<void> {
     if (this.stopped) return;
 
     await this.requireCoordinator().reconcile();
   }
 
+  /** Returns the configured runtime bus or fails before scheduler startup. */
   private requireRuntimeBus(): RuntimeEventBus {
     if (!this.runtimeBus) {
       throw new Error("LocalScheduler runtimeBus is not configured");
@@ -185,6 +195,7 @@ export class LocalScheduler implements RuntimeScheduler {
     return this.runtimeBus;
   }
 
+  /** Returns the configured command handler or fails before directed handling. */
   private requireCommandHandler(): RuntimeCommandHandler {
     if (!this.commandHandler) {
       throw new Error("LocalScheduler commandHandler is not configured");
@@ -193,6 +204,7 @@ export class LocalScheduler implements RuntimeScheduler {
     return this.commandHandler;
   }
 
+  /** Returns the configured assignment coordinator or fails before full scans. */
   private requireCoordinator(): RuntimeAssignmentCoordinator {
     if (!this.coordinator) {
       throw new Error("LocalScheduler coordinator is not configured");

@@ -46,11 +46,13 @@ export class RedisOwnershipGate implements OwnershipGate {
     end
   `;
 
+  /** Receives the Redis client service used to perform lease operations. */
   constructor(
     @inject(RedisClientService)
     private readonly redis: RedisClientService,
   ) {}
 
+  /** Attempts to atomically acquire a lease key for a binding or leader role. */
   async acquire(bindingId: string): Promise<OwnershipLease | null> {
     const token = randomUUID();
     const key = this.leaseKey(bindingId);
@@ -63,6 +65,7 @@ export class RedisOwnershipGate implements OwnershipGate {
     return { bindingId, token };
   }
 
+  /** Extends a lease only when the stored Redis token still matches this owner. */
   async renew(lease: OwnershipLease): Promise<boolean> {
     const key = this.leaseKey(lease.bindingId);
     const result = await this.redis
@@ -77,6 +80,7 @@ export class RedisOwnershipGate implements OwnershipGate {
     return result === 1;
   }
 
+  /** Deletes a lease only when the stored Redis token still matches this owner. */
   async release(lease: OwnershipLease): Promise<void> {
     const key = this.leaseKey(lease.bindingId);
     await this.redis
@@ -84,12 +88,14 @@ export class RedisOwnershipGate implements OwnershipGate {
       .eval(RedisOwnershipGate.RELEASE_SCRIPT, 1, key, lease.token);
   }
 
+  /** Checks whether any owner currently holds the lease key. */
   async isHeld(bindingId: string): Promise<boolean> {
     const key = this.leaseKey(bindingId);
     const value = await this.redis.getClient().exists(key);
     return value === 1;
   }
 
+  /** Builds the namespaced Redis key for a binding or coordinator lease. */
   private leaseKey(bindingId: string): string {
     return `${this.KEY_PREFIX}${bindingId}`;
   }

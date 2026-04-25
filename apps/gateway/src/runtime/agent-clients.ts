@@ -13,6 +13,7 @@ import { AgentTransportToken } from "./transport-tokens.js";
 export class AgentClientFactory {
   private readonly transportRegistry = new TransportRegistry();
 
+  /** Registers all injected transport implementations by protocol. */
   constructor(
     @multiInject(AgentTransportToken)
     transports: AgentTransport[],
@@ -22,6 +23,7 @@ export class AgentClientFactory {
     }
   }
 
+  /** Creates a lightweight agent client handle for the configured agent transport. */
   create(agent: AgentConfigSnapshot): AgentClientHandle {
     const transport = this.transportRegistry.resolve(
       agent.protocol ?? "a2a",
@@ -34,14 +36,17 @@ export class AgentClientFactory {
     };
   }
 
+  /** Starts a client when its transport exposes startup work. */
   async start(client: AgentClientHandle): Promise<void> {
     await client.start?.();
   }
 
+  /** Stops a client when its transport exposes cleanup work. */
   async stop(client: AgentClientHandle): Promise<void> {
     await client.stop?.();
   }
 
+  /** Stops a set of clients concurrently during registry cleanup. */
   async stopAll(clients: Iterable<AgentClientHandle>): Promise<void> {
     await Promise.all(Array.from(clients, (client) => this.stop(client)));
   }

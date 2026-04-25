@@ -27,11 +27,13 @@ export class DomainEventBridge {
     (event: DomainEvent) => void
   >();
 
+  /** Receives the write-side domain bus and runtime coordination bus. */
   constructor(
     @inject(DomainEventBus) private readonly domainBus: DomainEventBus,
     @inject(RuntimeEventBus) private readonly runtimeBus: RuntimeEventBus,
   ) {}
 
+  /** Subscribes to domain events and announces this runtime node as joined. */
   start(nodeId: string = LOCAL_NODE_ID): void {
     if (this.handlers.size > 0) {
       return;
@@ -59,6 +61,7 @@ export class DomainEventBridge {
     this.runtimeBus.broadcast({ type: "NodeJoined", nodeId });
   }
 
+  /** Removes all domain event listeners installed by start(). */
   stop(): void {
     for (const [eventType, handler] of this.handlers) {
       this.domainBus.off(eventType, handler as never);
@@ -66,6 +69,7 @@ export class DomainEventBridge {
     this.handlers.clear();
   }
 
+  /** Registers a typed domain event listener and tracks it for idempotent cleanup. */
   private on<T extends DomainEvent["eventType"]>(
     eventType: T,
     handler: (event: Extract<DomainEvent, { eventType: T }>) => void,
@@ -75,10 +79,12 @@ export class DomainEventBridge {
     this.domainBus.on(eventType, handler);
   }
 
+  /** Broadcasts that one binding's desired runtime state may have changed. */
   private broadcastBindingChanged(bindingId: string): void {
     this.runtimeBus.broadcast({ type: "BindingChanged", bindingId });
   }
 
+  /** Broadcasts that bindings referencing one agent may need refresh. */
   private broadcastAgentChanged(agentId: string): void {
     this.runtimeBus.broadcast({ type: "AgentChanged", agentId });
   }

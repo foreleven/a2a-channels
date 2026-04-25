@@ -20,6 +20,7 @@ import type { RuntimeDirectedCommand } from "./event-transport/types.js";
  */
 @injectable()
 export class RuntimeCommandHandler {
+  /** Receives repositories for durable state reloads plus the assignment service. */
   constructor(
     @inject(RuntimeAssignmentService)
     private readonly assignments: RuntimeAssignmentService,
@@ -29,6 +30,7 @@ export class RuntimeCommandHandler {
     private readonly agentRepo: AgentConfigRepository,
   ) {}
 
+  /** Executes one directed command for this node. */
   async handle(command: RuntimeDirectedCommand): Promise<void> {
     switch (command.type) {
       case "AttachBinding":
@@ -39,6 +41,7 @@ export class RuntimeCommandHandler {
     }
   }
 
+  /** Reloads a binding and agent from durable state before assigning ownership locally. */
   private async attach(bindingId: string): Promise<void> {
     const bindingAggregate = await this.bindingRepo.findById(bindingId);
     if (!bindingAggregate) {

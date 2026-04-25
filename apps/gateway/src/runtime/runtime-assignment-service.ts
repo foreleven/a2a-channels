@@ -18,6 +18,7 @@ import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
 type AgentConfig = AgentConfigSnapshot;
 type ChannelBinding = ChannelBindingSnapshot;
 
+/** Options that prevent duplicate restarts while an agent-triggered assignment is in progress. */
 interface ApplyAgentUpsertOptions {
   skipRestartBindingIds?: string[];
 }
@@ -27,6 +28,7 @@ interface ApplyAgentUpsertOptions {
 export class RuntimeAssignmentService {
   private readonly leases = new Map<string, OwnershipLease>();
 
+  /** Receives ownership, state, connection, and projection collaborators from the container. */
   constructor(
     @inject(RuntimeAgentRegistry)
     private readonly agentRegistry: RuntimeAgentRegistry,
@@ -40,6 +42,7 @@ export class RuntimeAssignmentService {
     private readonly connectionManager: ConnectionManager,
   ) {}
 
+  /** Acquires ownership for a binding, updates its agent if needed, and reconciles connection state. */
   async assignBinding(
     binding: ChannelBinding,
     agent: AgentConfig,
@@ -63,6 +66,7 @@ export class RuntimeAssignmentService {
     await this.applyBindingUpsert(binding, { forceRestart: agentChanged });
   }
 
+  /** Releases local ownership, stops the connection, and removes the binding from projections. */
   async releaseBinding(bindingId: string): Promise<void> {
     if (!this.ownershipState.getOwnedBinding(bindingId)) {
       await this.releaseBindingLease(bindingId);
@@ -80,6 +84,7 @@ export class RuntimeAssignmentService {
     this.openClawConfigProjection.rebuild();
   }
 
+  /** Stores an agent snapshot and restarts owned bindings that route through it. */
   async applyAgentUpsert(
     agent: AgentConfig,
     options: ApplyAgentUpsertOptions = {},
@@ -98,6 +103,7 @@ export class RuntimeAssignmentService {
     }
   }
 
+  /** Lists owned bindings in creation order for stable projection and API output. */
   listBindings(): ChannelBinding[] {
     return this.ownershipState
       .listOwnedBindings()
@@ -105,26 +111,31 @@ export class RuntimeAssignmentService {
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
+  /** Lists owned bindings that should currently be represented as active channel config. */
   listEnabledBindings(): ChannelBinding[] {
     return this.listBindings().filter((binding) => binding.enabled);
   }
 
+  /** Lists binding ids currently owned by this runtime node. */
   listOwnedBindingIds(): string[] {
     return this.ownershipState
       .listOwnedBindings()
       .map(({ binding }) => binding.id);
   }
 
+  /** Returns cloned connection status snapshots for all owned bindings. */
   listConnectionStatuses(): RuntimeConnectionStatus[] {
     return this.ownershipState.listConnectionStatuses();
   }
 
+  /** Cancels pending reconnect timers before relay shutdown or ownership cleanup. */
   clearReconnectsForOwnedBindings(): void {
     for (const bindingId of this.listOwnedBindingIds()) {
       this.ownershipState.clearReconnect(bindingId);
     }
   }
 
+  /** Applies connection callbacks to ownership state and schedules retries when needed. */
   handleOwnedConnectionStatus(
     bindingId: string,
     status: RuntimeConnectionStatus["status"],
@@ -176,6 +187,7 @@ export class RuntimeAssignmentService {
     }
   }
 
+  /** Updates owned binding state, rebuilds projected config, and starts/stops as required. */
   private async applyBindingUpsert(
     binding: ChannelBinding,
     options: { forceRestart?: boolean } = {},
@@ -201,6 +213,7 @@ export class RuntimeAssignmentService {
     await this.connectionManager.restartConnection(binding);
   }
 
+  /** Acquires or renews the distributed/local lease before this node mutates binding state. */
   private async acquireBindingLease(bindingId: string): Promise<boolean> {
     const existingLease = this.leases.get(bindingId);
     if (existingLease) {
@@ -229,6 +242,7 @@ export class RuntimeAssignmentService {
     return true;
   }
 
+  /** Releases the stored ownership lease and logs release failures without masking cleanup. */
   private async releaseBindingLease(bindingId: string): Promise<void> {
     const lease = this.leases.get(bindingId);
     if (!lease) {
@@ -246,6 +260,7 @@ export class RuntimeAssignmentService {
     }
   }
 
+  /** Registers a delayed restart that rechecks latest ownership and enabled state before firing. */
   private scheduleReconnect(
     bindingId: string,
     delayMs: number,

@@ -21,6 +21,7 @@ import type { ConnectionStatus } from "./runtime-connection-status.js";
 
 type ChannelBinding = ChannelBindingSnapshot;
 
+/** Live connection record for one owned channel binding. */
 export interface Connection {
   abortController: AbortController;
   agentClient: AgentClientHandle;
@@ -31,6 +32,7 @@ export interface Connection {
   suppressDisconnectStatus: boolean;
 }
 
+/** Connection status event emitted when a binding lifecycle edge changes. */
 export interface ConnectionLifecycleEvent {
   binding: ChannelBinding;
   status: ConnectionStatus;
@@ -38,17 +40,20 @@ export interface ConnectionLifecycleEvent {
   error?: unknown;
 }
 
+/** Failure event emitted when an inbound channel message cannot reach its agent. */
 export interface AgentCallFailureEvent {
   binding: ChannelBinding;
   agentUrl: string;
   error: unknown;
 }
 
+/** Optional observers for connection state and agent dispatch failures. */
 export interface ConnectionManagerCallbacks {
   onConnectionStatus?: (event: ConnectionLifecycleEvent) => void;
   onAgentCallFailed?: (event: AgentCallFailureEvent) => void;
 }
 
+/** Runtime collaborators needed before the manager can start bindings. */
 export interface ConnectionManagerOptions {
   host: OpenClawPluginHost;
   getAgentClient: (
@@ -73,6 +78,7 @@ export class ConnectionManager {
   private emitMessageOutbound?: (event: MessageOutboundEvent) => void;
   private callbacks: ConnectionManagerCallbacks = {};
 
+  /** Supplies runtime collaborators after DI construction and returns the manager for chaining. */
   initialize(options: ConnectionManagerOptions): this {
     this.host = options.host;
     this.getAgentClient = options.getAgentClient;
@@ -82,6 +88,7 @@ export class ConnectionManager {
     return this;
   }
 
+  /** Creates a plugin-host connection record and reports status transitions from the host. */
   private async createConnection(binding: ChannelBinding): Promise<Connection> {
     const abortController = new AbortController();
     const target = await this.requireAgentClientFactory()(binding.agentId);
@@ -174,6 +181,7 @@ export class ConnectionManager {
     return connection;
   }
 
+  /** Replaces any existing binding connection, then starts a fresh one for the snapshot. */
   private async startConnection(binding: ChannelBinding): Promise<void> {
     const existing = this.connections.get(binding.id);
     if (existing) {
@@ -190,6 +198,7 @@ export class ConnectionManager {
     this.connections.set(binding.id, connection);
   }
 
+  /** Resolves a live connection by channel/account, applying legacy Feishu defaults. */
   private getConnectionForChannelAccount(
     channelType: string | undefined,
     accountId: string | undefined,
@@ -212,6 +221,7 @@ export class ConnectionManager {
     );
   }
 
+  /** Extracts normalized routing and text fields from an OpenClaw channel context. */
   private buildMessageEvent(ctx: Record<string, unknown>): {
     accountId: string | undefined;
     channelType: string | undefined;
@@ -234,6 +244,7 @@ export class ConnectionManager {
     return { accountId, channelType, sessionKey, userMessage };
   }
 
+  /** Sends inbound channel text to the bound agent and emits runtime message telemetry. */
   private async dispatchReply(
     event: ChannelReplyEvent,
   ): Promise<{ text: string } | null> {
@@ -286,6 +297,7 @@ export class ConnectionManager {
     return result;
   }
 
+  /** Handles OpenClaw reply events by delivering a final agent reply through the event shape. */
   async handleEvent(event: ChannelReplyEvent): Promise<{
     counts: { block: number; final: number; tool: number };
     queuedFinal: boolean;
@@ -335,6 +347,7 @@ export class ConnectionManager {
     }
   }
 
+  /** Starts or restarts a binding connection, stopping it instead when the binding is disabled. */
   async restartConnection(binding: ChannelBinding): Promise<void> {
     if (!binding.enabled) {
       await this.stopConnection(binding.id);
@@ -344,10 +357,12 @@ export class ConnectionManager {
     await this.startConnection(binding);
   }
 
+  /** Reports whether a binding currently has a live connection record. */
   hasConnection(bindingId: string): boolean {
     return this.connections.has(bindingId);
   }
 
+  /** Aborts one binding connection and waits for the host task to settle. */
   async stopConnection(bindingId: string): Promise<void> {
     const connection = this.connections.get(bindingId);
     if (!connection) return;
@@ -359,12 +374,14 @@ export class ConnectionManager {
     this.connections.delete(bindingId);
   }
 
+  /** Stops every tracked binding connection serially for deterministic cleanup. */
   async stopAllConnections(): Promise<void> {
     for (const bindingId of Array.from(this.connections.keys())) {
       await this.stopConnection(bindingId);
     }
   }
 
+  /** Returns the configured plugin host or fails when initialize() was not called. */
   private requireHost(): OpenClawPluginHost {
     if (!this.host) {
       throw new Error("ConnectionManager has not been initialized");
@@ -373,6 +390,7 @@ export class ConnectionManager {
     return this.host;
   }
 
+  /** Returns the configured agent-client resolver or fails before connection work starts. */
   private requireAgentClientFactory(): NonNullable<
     ConnectionManager["getAgentClient"]
   > {

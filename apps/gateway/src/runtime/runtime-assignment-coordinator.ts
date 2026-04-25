@@ -19,6 +19,7 @@ import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
  */
 @injectable()
 export class RuntimeAssignmentCoordinator {
+  /** Receives desired-state repositories and the narrow assignment command boundary. */
   constructor(
     @inject(RuntimeAssignmentService)
     private readonly assignments: RuntimeAssignmentService,
@@ -28,6 +29,7 @@ export class RuntimeAssignmentCoordinator {
     private readonly agentRepo: AgentConfigRepository,
   ) {}
 
+  /** Scans durable desired state and aligns local ownership with runnable bindings. */
   async reconcile(): Promise<void> {
     const [bindings, agents] = await Promise.all([
       this.bindingRepo.findAll(),
