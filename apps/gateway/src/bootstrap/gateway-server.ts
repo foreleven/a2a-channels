@@ -1,8 +1,12 @@
 import { serve as honoServe, type ServerType } from "@hono/node-server";
-import { inject, injectable, unmanaged } from "inversify";
+import { inject, injectable, optional, unmanaged } from "inversify";
 
 import { GatewayConfigService } from "./config.js";
 import { GatewayApp } from "../http/app.js";
+import {
+  ClusterInfraLifecycle,
+  type ClusterInfraLifecyclePort,
+} from "../infra/cluster-infra-service.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 
@@ -53,6 +57,9 @@ export class GatewayServer {
     private readonly relayRuntime: Pick<RelayRuntime, "bootstrap" | "shutdown">,
     @unmanaged()
     private readonly defaultServe: typeof honoServe = honoServe,
+    @inject(ClusterInfraLifecycle)
+    @optional()
+    private readonly clusterInfra: ClusterInfraLifecyclePort | null = null,
   ) {}
 
   async start(options: GatewayServerStartOptions = {}): Promise<void> {
@@ -71,9 +78,11 @@ export class GatewayServer {
     );
 
     try {
+      await this.clusterInfra?.connect();
       await this.relayRuntime.bootstrap();
     } catch (error) {
       await this.outboxWorker.stop();
+      await this.clusterInfra?.disconnect();
       throw error;
     }
 
@@ -105,5 +114,6 @@ export class GatewayServer {
 
     await this.outboxWorker.stop();
     await this.relayRuntime.shutdown();
+    await this.clusterInfra?.disconnect();
   }
 }
