@@ -35,6 +35,7 @@ export class RelayRuntime {
   private bootstrapped = false;
   private schedulerStarted = false;
 
+  /** Builds the OpenClaw assembly and wires connection callbacks into runtime state. */
   constructor(
     @inject(GatewayConfigService)
     private readonly config: GatewayConfigService,
@@ -101,6 +102,7 @@ export class RelayRuntime {
     });
   }
 
+  /** Registers this runtime node and starts the relay scheduler/event bridge once. */
   async bootstrap(): Promise<void> {
     if (this.bootstrapped) {
       return;
@@ -123,6 +125,7 @@ export class RelayRuntime {
     }
   }
 
+  /** Stops scheduler/event subscriptions and drains relay-owned connections and clients. */
   async shutdown(): Promise<void> {
     const bootstrapPromise = this.bootstrapPromise;
     if (bootstrapPromise) {
@@ -146,6 +149,7 @@ export class RelayRuntime {
     await this.shutdownRelay();
   }
 
+  /** Performs the ordered bootstrap sequence and rolls back partial startup on failure. */
   private async performBootstrap(): Promise<void> {
     const now = new Date();
     let relayBootstrapped = false;
@@ -186,17 +190,20 @@ export class RelayRuntime {
     }
   }
 
+  /** Reserves the relay bootstrap hook for future relay-owned startup work. */
   private async bootstrapRelay(): Promise<void> {
     // Relay bootstrap is intentionally light; connection ownership is driven by
     // reconciliation and connection callbacks rather than by this method.
   }
 
+  /** Clears retry timers and stops all runtime-owned imperative resources. */
   private async shutdownRelay(): Promise<void> {
     this.assignments.clearReconnectsForOwnedBindings();
     await this.connectionManager.stopAllConnections();
     await this.agentRegistry.stopAllClients();
   }
 
+  /** Best-effort cleanup for resources that may have started before bootstrap failed. */
   private async cleanupFailedBootstrap(context: {
     relayBootstrapped: boolean;
     schedulerStarted: boolean;

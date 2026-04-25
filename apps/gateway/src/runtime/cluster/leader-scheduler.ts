@@ -20,6 +20,7 @@ export class LeaderScheduler implements RuntimeScheduler {
     () => void
   >();
 
+  /** Receives coordinator, domain event bus, and lease gate used for leader-only scans. */
   constructor(
     @inject(RuntimeAssignmentCoordinator)
     private readonly coordinator: RuntimeAssignmentCoordinator,
@@ -29,6 +30,7 @@ export class LeaderScheduler implements RuntimeScheduler {
     private readonly ownershipGate: OwnershipGate,
   ) {}
 
+  /** Subscribes to durable domain events and starts periodic leader reconciliation. */
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
@@ -44,6 +46,7 @@ export class LeaderScheduler implements RuntimeScheduler {
     void this.reconcile();
   }
 
+  /** Unsubscribes, waits for in-flight reconciliation, and releases the leader lease. */
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
@@ -68,12 +71,14 @@ export class LeaderScheduler implements RuntimeScheduler {
     }
   }
 
+  /** Debounces leader reconciliation requests from domain events or interval ticks. */
   private scheduleReconcile(): void {
     if (this.stopped) return;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => void this.reconcile(), 100);
   }
 
+  /** Runs desired-state reconciliation only while this node currently holds leadership. */
   private async reconcile(): Promise<void> {
     if (this.reconciling || this.stopped) return;
     this.reconciling = true;
@@ -88,6 +93,7 @@ export class LeaderScheduler implements RuntimeScheduler {
     }
   }
 
+  /** Renews the existing leader lease or tries to acquire it before a cluster scan. */
   private async ensureLeadership(): Promise<boolean> {
     if (this.leaderLease) {
       try {

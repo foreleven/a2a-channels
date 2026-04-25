@@ -9,11 +9,13 @@ import { AgentClientFactory } from "./agent-clients.js";
 export class AgentClientRegistry {
   private readonly clients = new Map<string, AgentClientHandle>();
 
+  /** Receives the factory used to create and stop protocol-specific clients. */
   constructor(
     @inject(AgentClientFactory)
     private readonly agentClientFactory: AgentClientFactory,
   ) {}
 
+  /** Ensures the cache has a started client for the current agent snapshot. */
   async upsert(
     agent: AgentConfigSnapshot,
     previous?: AgentConfigSnapshot,
@@ -45,6 +47,7 @@ export class AgentClientRegistry {
     await this.agentClientFactory.start(client);
   }
 
+  /** Stops and removes the client registered for an agent URL. */
   async remove(agent: AgentConfigSnapshot): Promise<void> {
     const client = this.clients.get(agent.url);
     if (!client) {
@@ -55,6 +58,7 @@ export class AgentClientRegistry {
     await this.agentClientFactory.stop(client);
   }
 
+  /** Returns the cached client for an agent or throws if it has not been registered. */
   require(agent: AgentConfigSnapshot): AgentClientHandle {
     const client = this.clients.get(agent.url);
     if (!client) {
@@ -64,6 +68,7 @@ export class AgentClientRegistry {
     return client;
   }
 
+  /** Stops all cached clients and clears the registry during runtime shutdown. */
   async stopAll(): Promise<void> {
     const clients = Array.from(this.clients.values());
     this.clients.clear();

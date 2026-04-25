@@ -7,6 +7,7 @@ import { RuntimeOwnershipState } from "./ownership-state.js";
 type ChannelBinding = ChannelBindingSnapshot;
 type FeishuConfig = NonNullable<OpenClawConfig["channels"]>["feishu"];
 
+/** Feishu channel credentials stored on a channel binding. */
 interface FeishuChannelConfig {
   appId: string;
   appSecret: string;
@@ -20,6 +21,7 @@ interface FeishuChannelConfig {
 export class RuntimeOpenClawConfigProjection {
   private openClawConfig: OpenClawConfig;
 
+  /** Builds the initial projection from currently owned binding state. */
   constructor(
     @inject(RuntimeOwnershipState)
     private readonly ownershipState: RuntimeOwnershipState,
@@ -27,14 +29,17 @@ export class RuntimeOpenClawConfigProjection {
     this.openClawConfig = this.buildConfig(this.listBindings());
   }
 
+  /** Returns the latest OpenClaw-compatible config snapshot. */
   getConfig(): OpenClawConfig {
     return this.openClawConfig;
   }
 
+  /** Rebuilds projected config after ownership, binding, or agent routing changes. */
   rebuild(): void {
     this.openClawConfig = this.buildConfig(this.listBindings());
   }
 
+  /** Lists owned bindings in stable creation order for deterministic config output. */
   private listBindings(): ChannelBinding[] {
     return this.ownershipState
       .listOwnedBindings()
@@ -42,6 +47,7 @@ export class RuntimeOpenClawConfigProjection {
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
+  /** Converts enabled Feishu bindings into the OpenClaw channel config shape. */
   private buildConfig(bindings: ChannelBinding[]): OpenClawConfig {
     const feishuAccounts: Record<string, FeishuConfig> = {};
     let defaultFeishuConfig: FeishuConfig | null = null;
@@ -73,6 +79,7 @@ export class RuntimeOpenClawConfigProjection {
     } as OpenClawConfig;
   }
 
+  /** Maps one gateway Feishu binding snapshot into one OpenClaw account config. */
   private buildFeishuAccountConfig(binding: ChannelBinding): FeishuConfig {
     const cfg = binding.channelConfig as unknown as FeishuChannelConfig;
     return {

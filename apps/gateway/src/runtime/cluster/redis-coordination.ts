@@ -1,5 +1,6 @@
 import type { RedisCoordinationKeys } from "./types.js";
 
+/** Builds the Redis keys used by older cluster coordination helpers. */
 export function buildRedisCoordinationKeys(input: {
   instanceId: string;
   bindingId: string;

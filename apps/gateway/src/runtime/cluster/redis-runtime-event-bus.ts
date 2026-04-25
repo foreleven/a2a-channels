@@ -11,6 +11,7 @@ import type {
 
 const BROADCAST_CHANNEL = "a2a:runtime:broadcast";
 
+/** Builds the Redis pub/sub channel dedicated to one runtime node. */
 function directedChannel(nodeId: string): string {
   return `a2a:runtime:node:${nodeId}`;
 }
@@ -32,6 +33,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
   private broadcastHandlers: Array<(e: RuntimeBroadcastEvent) => void> = [];
   private directedHandlers: Array<(c: RuntimeDirectedCommand) => void> = [];
 
+  /** Receives Redis access and node identity for pub/sub routing. */
   constructor(
     @inject(RedisClientService)
     private readonly redisService: RedisClientService,
@@ -39,6 +41,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
     private readonly config: GatewayConfigService,
   ) {}
 
+  /** Opens the subscriber connection and subscribes to broadcast and directed channels. */
   async connect(): Promise<void> {
     if (this.subscriber) {
       return;
@@ -67,6 +70,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
     this.subscriber = sub;
   }
 
+  /** Closes the subscriber connection used for runtime events. */
   async disconnect(): Promise<void> {
     if (this.subscriber) {
       await this.subscriber.quit();
@@ -74,6 +78,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
     }
   }
 
+  /** Publishes a cluster-wide runtime event without awaiting subscriber delivery. */
   broadcast(event: RuntimeBroadcastEvent): void {
     const payload = JSON.stringify({ kind: "broadcast", event });
     void this.redisService
@@ -84,6 +89,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
       });
   }
 
+  /** Publishes a command to one runtime node's directed Redis channel. */
   sendDirected(nodeId: string, command: RuntimeDirectedCommand): void {
     const payload = JSON.stringify({ kind: "directed", command });
     void this.redisService
@@ -94,6 +100,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
       });
   }
 
+  /** Registers a broadcast handler and returns its unsubscribe callback. */
   onBroadcast(handler: (event: RuntimeBroadcastEvent) => void): () => void {
     this.broadcastHandlers.push(handler);
     return () => {
@@ -103,6 +110,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
     };
   }
 
+  /** Registers a directed-command handler and returns its unsubscribe callback. */
   onDirectedCommand(
     handler: (command: RuntimeDirectedCommand) => void,
   ): () => void {
@@ -114,6 +122,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
     };
   }
 
+  /** Parses and validates Redis messages before dispatching them to local handlers. */
   private handleMessage(channel: string, message: string): void {
     let parsed: unknown;
     try {
@@ -145,10 +154,12 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
   }
 }
 
+/** Narrows unknown Redis payloads to plain records. */
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** Validates the small discriminated union of broadcast runtime events. */
 function isBroadcastEvent(v: unknown): v is RuntimeBroadcastEvent {
   if (!isObject(v)) return false;
   return (
@@ -159,6 +170,7 @@ function isBroadcastEvent(v: unknown): v is RuntimeBroadcastEvent {
   );
 }
 
+/** Validates the small discriminated union of directed runtime commands. */
 function isDirectedCommand(v: unknown): v is RuntimeDirectedCommand {
   if (!isObject(v)) return false;
   return (

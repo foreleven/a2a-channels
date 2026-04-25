@@ -9,12 +9,14 @@
  * Redis pub/sub and directed commands use per-instance Redis channels.
  */
 
+/** Events sent to all runtime nodes to announce desired-state or membership changes. */
 export type RuntimeBroadcastEvent =
   | { readonly type: "BindingChanged"; readonly bindingId: string }
   | { readonly type: "AgentChanged"; readonly agentId: string }
   | { readonly type: "NodeJoined"; readonly nodeId: string }
   | { readonly type: "NodeLeft"; readonly nodeId: string };
 
+/** Commands addressed to one runtime node to mutate or refresh binding ownership. */
 export type RuntimeDirectedCommand =
   | { readonly type: "AttachBinding"; readonly bindingId: string }
   | { readonly type: "DetachBinding"; readonly bindingId: string }
