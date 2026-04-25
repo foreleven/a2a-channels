@@ -4,7 +4,7 @@ import { inject, injectable, unmanaged } from "inversify";
 import { GatewayConfigService } from "./config.js";
 import { GatewayApp } from "../http/app.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
-import { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
+import { RelayRuntime } from "../runtime/relay-runtime.js";
 
 interface GatewayLogger {
   info(message: string): void;
@@ -13,7 +13,6 @@ interface GatewayLogger {
 
 export interface GatewayServerStartOptions {
   logger?: GatewayLogger;
-  runtimeBootstrapRetryDelayMs?: number;
   serve?: typeof honoServe;
 }
 
@@ -32,8 +31,7 @@ const defaultLogger: GatewayLogger = {
  * Responsibilities are intentionally narrow:
  * - start/stop the Hono HTTP server
  * - start/stop background workers that must follow process lifetime
- * - bootstrap runtime orchestration with retry so transient failures do not
- *   leave the HTTP API unavailable
+ * - bootstrap runtime orchestration before opening the HTTP listener
  *
  * Domain behavior stays outside this class; this is a system boundary, not an
  * application service.
@@ -42,10 +40,6 @@ const defaultLogger: GatewayLogger = {
 export class GatewayServer {
   private server: ServerType | null = null;
   private logger: GatewayLogger = defaultLogger;
-  private retryDelayMs = 5_000;
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private currentBootstrapAttempt: Promise<void> | null = null;
-  private runtimeBootstrapPromise: Promise<void> | null = null;
   private shuttingDown = false;
 
   constructor(
@@ -55,112 +49,61 @@ export class GatewayServer {
     private readonly app: GatewayApp,
     @inject(OutboxWorker)
     private readonly outboxWorker: Pick<OutboxWorker, "start" | "stop">,
-    @inject(RuntimeBootstrapper)
-    private readonly runtimeBootstrapper: Pick<
-      RuntimeBootstrapper,
-      "bootstrap" | "shutdown"
-    >,
+    @inject(RelayRuntime)
+    private readonly relayRuntime: Pick<RelayRuntime, "bootstrap" | "shutdown">,
     @unmanaged()
     private readonly defaultServe: typeof honoServe = honoServe,
   ) {}
 
-  get runtimeBootstrap(): Promise<void> {
-    if (!this.runtimeBootstrapPromise) {
-      return Promise.reject(new Error("GatewayServer has not been started"));
-    }
-
-    return this.runtimeBootstrapPromise;
-  }
-
-  start(options: GatewayServerStartOptions = {}): void {
+  async start(options: GatewayServerStartOptions = {}): Promise<void> {
     if (this.server) {
       throw new Error("GatewayServer is already started");
     }
 
     this.logger = options.logger ?? defaultLogger;
-    this.retryDelayMs = options.runtimeBootstrapRetryDelayMs ?? 5_000;
     this.shuttingDown = false;
 
     const serve = options.serve ?? this.defaultServe;
 
-    // The outbox worker can start immediately; it does not depend on runtime
-    // ownership being fully bootstrapped.
     this.outboxWorker.start();
     this.logger.info(
       `🚀 A2A Channels Gateway starting on http://localhost:${this.config.port}`,
     );
 
-    this.server = serve(
-      { fetch: this.app.fetch.bind(this.app), port: this.config.port },
-      () => {
-        this.logger.info(
-          `✅ Gateway listening on http://localhost:${this.config.port}`,
-        );
-        this.logger.info(`   Web UI: http://localhost:${this.config.port}/`);
-        this.logger.info(
-          `   API:    http://localhost:${this.config.port}/api/channels`,
-        );
-      },
-    );
+    try {
+      await this.relayRuntime.bootstrap();
+    } catch (error) {
+      await this.outboxWorker.stop();
+      throw error;
+    }
 
-    // Runtime bootstrap happens after the HTTP server starts so operators can
-    // still inspect health/status endpoints while background recovery retries.
-    this.runtimeBootstrapPromise = this.beginBootstrapAttempt();
-    void this.runtimeBootstrapPromise.catch((error) =>
-      this.handleBootstrapFailure(error),
-    );
+    try {
+      this.server = serve(
+        { fetch: this.app.fetch.bind(this.app), port: this.config.port },
+        () => {
+          this.logger.info(
+            `✅ Gateway listening on http://localhost:${this.config.port}`,
+          );
+          this.logger.info(`   Web UI: http://localhost:${this.config.port}/`);
+          this.logger.info(
+            `   API:    http://localhost:${this.config.port}/api/channels`,
+          );
+        },
+      );
+    } catch (error) {
+      await this.outboxWorker.stop();
+      await this.relayRuntime.shutdown();
+      throw error;
+    }
   }
 
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
 
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
-
     this.server?.close();
     this.server = null;
 
     await this.outboxWorker.stop();
-    await this.currentBootstrapAttempt?.catch(() => {});
-    await this.runtimeBootstrapper.shutdown();
-
-    this.currentBootstrapAttempt = null;
-    this.runtimeBootstrapPromise = null;
-  }
-
-  private beginBootstrapAttempt(): Promise<void> {
-    if (this.currentBootstrapAttempt) {
-      return this.currentBootstrapAttempt;
-    }
-
-    const attempt = Promise.resolve()
-      .then(() => this.runtimeBootstrapper.bootstrap())
-      .finally(() => {
-        if (this.currentBootstrapAttempt === attempt) {
-          this.currentBootstrapAttempt = null;
-        }
-      });
-
-    this.currentBootstrapAttempt = attempt;
-    return attempt;
-  }
-
-  private handleBootstrapFailure(error: unknown): void {
-    this.logger.error("[gateway] runtime bootstrap failed", error);
-
-    if (this.shuttingDown || this.retryTimer) {
-      return;
-    }
-
-    // Keep retries serialized: only one timer and one bootstrap attempt may be
-    // active at a time.
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = null;
-      void this.beginBootstrapAttempt().catch((bootstrapError) =>
-        this.handleBootstrapFailure(bootstrapError),
-      );
-    }, this.retryDelayMs);
+    await this.relayRuntime.shutdown();
   }
 }

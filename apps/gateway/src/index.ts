@@ -7,7 +7,7 @@
  * The entrypoint deliberately does very little work itself:
  * 1. Build the DI container.
  * 2. Resolve the GatewayServer application service.
- * 3. Start the HTTP server and background runtime processes.
+ * 3. Bootstrap runtime synchronously, then start the HTTP server.
  *
  * Keeping startup orchestration here makes the boot path easy to inspect
  * without spreading process lifecycle code across unrelated modules.
@@ -36,7 +36,7 @@ const container = buildGatewayContainer();
 // GatewayServer owns process-level lifetime. index.ts should not reach into
 // HTTP, outbox, scheduler, or runtime collaborators directly.
 const server = container.get(GatewayServer);
-server.start();
+await server.start();
 
 process.on("SIGINT", async () => {
   console.log("\n[gateway] shutting down…");

@@ -51,7 +51,6 @@ import {
   RuntimeEventBus,
 } from "../runtime/event-transport/index.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
-import { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
@@ -193,7 +192,6 @@ function bindRuntime(container: Container): void {
     )
     .inSingletonScope();
 
-  container.bind(RuntimeBootstrapper).toSelf().inSingletonScope();
 }
 
 function bindHttp(container: Container): void {

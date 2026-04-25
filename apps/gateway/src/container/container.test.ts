@@ -38,7 +38,6 @@ import { RuntimeScheduler } from "../runtime/scheduler.js";
 import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local/local-scheduler.js";
 import { RuntimeOwnershipGate } from "../runtime/ownership-gate.js";
-import { RuntimeBootstrapper } from "../runtime/runtime-bootstrapper.js";
 import { LocalRuntimeSnapshotStore } from "../runtime/local/local-runtime-snapshot-store.js";
 import {
   NodeRuntimeSnapshotReader,
@@ -177,10 +176,10 @@ describe("buildGatewayContainer", () => {
     assert.ok(worker);
   });
 
-  test("resolves runtime bootstrapper and runtime state reader", () => {
+  test("resolves relay runtime lifecycle and runtime state reader", () => {
     const container = buildGatewayContainer(buildGatewayConfig({ port: 7896 }));
 
-    assert.ok(container.get(RuntimeBootstrapper));
+    assert.ok(container.get(RelayRuntime));
     assert.ok(container.get(RuntimeStatusQueryService));
     assert.ok(container.get(GatewayServer));
     assert.ok(container.get(GatewayApp));

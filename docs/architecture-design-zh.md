@@ -229,7 +229,6 @@ error
 - `apps/gateway/src/bootstrap/config.ts`
 - `apps/gateway/src/bootstrap/container.ts`
 - `apps/gateway/src/bootstrap/gateway-server.ts`
-- `apps/gateway/src/runtime/runtime-bootstrapper.ts`
 
 执行链路：
 
@@ -239,7 +238,7 @@ index.ts
   -> GatewayServer.start()
   -> OutboxWorker.start()
   -> HTTP listen
-  -> RuntimeBootstrapper.bootstrap()
+  -> RelayRuntime.bootstrap()
 ```
 
 ### 4.2 Runtime Coordination
@@ -388,7 +387,7 @@ apps/gateway/src/index.ts
   -> GatewayServer.start()
   -> OutboxWorker.start()
   -> Hono server listen
-  -> RuntimeBootstrapper.bootstrap()
+  -> RelayRuntime.bootstrap()
   -> RuntimeNodeStateRepository.upsert(node metadata)
   -> RuntimeSnapshotPublisher.publishBootstrapping()
   -> RelayRuntime.bootstrap()
@@ -399,7 +398,7 @@ apps/gateway/src/index.ts
 
 关键点：
 
-- HTTP server 先启动，runtime bootstrap 后台执行。
+- runtime bootstrap 先同步完成，随后 HTTP server 开始监听。
 - bootstrap 失败时 `GatewayServer` 会延迟重试。
 - `RelayRuntime.bootstrap()` 当前很轻，只发布 bootstrapping / ready snapshot；binding 恢复靠 scheduler reconcile。
 
@@ -590,7 +589,7 @@ Runtime snapshot 用于 admin status 查询，不是 desired state。
 
 - **职责**：外层进程生命周期；启动 HTTP、outbox worker、runtime bootstrap retry。
 - **输入/输出**：依赖 config、app、outbox worker、runtime bootstrapper。
-- **位置**：HTTP 可用性与 runtime 后台恢复之间的边界。
+- **位置**：进程启动与 runtime lifecycle 编排之间的边界。
 
 #### `apps/gateway/src/register-plugins.ts`
 
@@ -604,17 +603,11 @@ Runtime snapshot 用于 admin status 查询，不是 desired state。
 - **输入/输出**：输入 `PluginRuntimeOptions`；输出 runtime/host assembly。
 - **位置**：Relay runtime 初始化 OpenClaw compatibility layer 的工厂。
 
-#### `apps/gateway/src/runtime/runtime-bootstrapper.ts`
-
-- **职责**：runtime bootstrap/shutdown 编排。
-- **输入/输出**：注册 runtime node metadata，发布 snapshots，启动 relay、domain event bridge、scheduler。
-- **位置**：HTTP 启动后的 runtime 恢复入口。
-
 #### `apps/gateway/src/runtime/relay-runtime.ts`
 
-- **职责**：runtime relay path 组合根；初始化 OpenClaw assembly 和 connection manager callbacks。
+- **职责**：runtime relay path 组合根；初始化 OpenClaw assembly 和 connection manager callbacks，并负责 runtime node 注册、domain event bridge、scheduler 的 lifecycle。
 - **输入/输出**：输入 assignment service、agent registry、config projection、runtime assembler、connection manager；输出已 wiring 的 runtime execution path。
-- **位置**：不是 desired-state 决策者，而是 OpenClaw / ConnectionManager 的 wiring 点。
+- **位置**：不是 desired-state 决策者，而是 runtime lifecycle 与 OpenClaw / ConnectionManager 的 wiring 点。
 
 ### 7.2 调度与事件
 
