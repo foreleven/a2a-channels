@@ -20,7 +20,12 @@ import type {
  */
 @injectable()
 export class RedisOwnershipGate implements OwnershipGate {
-  private readonly LEASE_TTL_MS = 30_000;
+  /**
+   * Lease TTL is intentionally 3× the scheduler renewal interval (30 s) so
+   * that transient renewal delays or a 100 ms debounce cannot expire the lease
+   * before the next successful renew call.
+   */
+  private readonly LEASE_TTL_MS = 90_000;
   private readonly KEY_PREFIX = "a2a:lease:";
 
   // Lua: refresh TTL only when value matches

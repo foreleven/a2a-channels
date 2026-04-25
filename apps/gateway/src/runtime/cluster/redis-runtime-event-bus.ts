@@ -45,16 +45,26 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
     }
 
     const sub = this.redisService.createSubscriber();
-    this.subscriber = sub;
 
     sub.on("message", (channel: string, message: string) => {
       this.handleMessage(channel, message);
     });
 
-    await sub.subscribe(
-      BROADCAST_CHANNEL,
-      directedChannel(this.config.nodeId),
-    );
+    try {
+      await sub.subscribe(
+        BROADCAST_CHANNEL,
+        directedChannel(this.config.nodeId),
+      );
+    } catch (err) {
+      try {
+        await sub.quit();
+      } catch {
+        sub.disconnect();
+      }
+      throw err;
+    }
+
+    this.subscriber = sub;
   }
 
   async disconnect(): Promise<void> {
