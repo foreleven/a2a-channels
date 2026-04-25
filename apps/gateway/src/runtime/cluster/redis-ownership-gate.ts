@@ -23,6 +23,24 @@ export class RedisOwnershipGate implements OwnershipGate {
   private readonly LEASE_TTL_MS = 30_000;
   private readonly KEY_PREFIX = "a2a:lease:";
 
+  // Lua: refresh TTL only when value matches
+  private static readonly RENEW_SCRIPT = `
+    if redis.call("GET", KEYS[1]) == ARGV[1] then
+      return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+    else
+      return 0
+    end
+  `;
+
+  // Lua: delete only when value matches
+  private static readonly RELEASE_SCRIPT = `
+    if redis.call("GET", KEYS[1]) == ARGV[1] then
+      return redis.call("DEL", KEYS[1])
+    else
+      return 0
+    end
+  `;
+
   constructor(
     @inject(RedisClientService)
     private readonly redis: RedisClientService,
@@ -42,31 +60,23 @@ export class RedisOwnershipGate implements OwnershipGate {
 
   async renew(lease: OwnershipLease): Promise<boolean> {
     const key = this.leaseKey(lease.bindingId);
-    // Lua: refresh TTL only when value matches
-    const script = `
-      if redis.call("GET", KEYS[1]) == ARGV[1] then
-        return redis.call("PEXPIRE", KEYS[1], ARGV[2])
-      else
-        return 0
-      end
-    `;
     const result = await this.redis
       .getClient()
-      .eval(script, 1, key, lease.token, String(this.LEASE_TTL_MS));
+      .eval(
+        RedisOwnershipGate.RENEW_SCRIPT,
+        1,
+        key,
+        lease.token,
+        String(this.LEASE_TTL_MS),
+      );
     return result === 1;
   }
 
   async release(lease: OwnershipLease): Promise<void> {
     const key = this.leaseKey(lease.bindingId);
-    // Lua: delete only when value matches
-    const script = `
-      if redis.call("GET", KEYS[1]) == ARGV[1] then
-        return redis.call("DEL", KEYS[1])
-      else
-        return 0
-      end
-    `;
-    await this.redis.getClient().eval(script, 1, key, lease.token);
+    await this.redis
+      .getClient()
+      .eval(RedisOwnershipGate.RELEASE_SCRIPT, 1, key, lease.token);
   }
 
   async isHeld(bindingId: string): Promise<boolean> {

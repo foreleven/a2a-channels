@@ -36,21 +36,33 @@ export class RedisRuntimeSnapshotStore
 
   async listNodeSnapshots(): Promise<LocalRuntimeSnapshot[]> {
     const client = this.redis.getClient();
-    const keys = await client.keys(`${SNAPSHOT_KEY_PREFIX}*`);
-    if (keys.length === 0) {
-      return [];
-    }
-    const values = await client.mget(...keys);
     const snapshots: LocalRuntimeSnapshot[] = [];
-    for (const raw of values) {
-      if (!raw) continue;
-      try {
-        const snapshot = JSON.parse(raw) as LocalRuntimeSnapshot;
-        snapshots.push(snapshot);
-      } catch {
-        // Skip corrupted entries
+    let cursor = "0";
+
+    do {
+      const [nextCursor, keys] = await client.scan(
+        cursor,
+        "MATCH",
+        `${SNAPSHOT_KEY_PREFIX}*`,
+        "COUNT",
+        100,
+      );
+      cursor = nextCursor;
+
+      if (keys.length > 0) {
+        const values = await client.mget(...keys);
+        for (const raw of values) {
+          if (!raw) continue;
+          try {
+            const snapshot = JSON.parse(raw) as LocalRuntimeSnapshot;
+            snapshots.push(snapshot);
+          } catch {
+            // Skip corrupted entries
+          }
+        }
       }
-    }
+    } while (cursor !== "0");
+
     return snapshots.sort((a, b) => a.nodeId.localeCompare(b.nodeId));
   }
 }

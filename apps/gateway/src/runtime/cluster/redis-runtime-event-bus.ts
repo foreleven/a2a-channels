@@ -118,14 +118,18 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
     }
 
     if (parsed["kind"] === "broadcast") {
-      const event = parsed["event"] as RuntimeBroadcastEvent;
-      for (const handler of this.broadcastHandlers) {
-        handler(event);
+      const event = parsed["event"];
+      if (isBroadcastEvent(event)) {
+        for (const handler of this.broadcastHandlers) {
+          handler(event);
+        }
       }
     } else if (parsed["kind"] === "directed" && channel !== BROADCAST_CHANNEL) {
-      const command = parsed["command"] as RuntimeDirectedCommand;
-      for (const handler of this.directedHandlers) {
-        handler(command);
+      const command = parsed["command"];
+      if (isDirectedCommand(command)) {
+        for (const handler of this.directedHandlers) {
+          handler(command);
+        }
       }
     }
   }
@@ -133,4 +137,23 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isBroadcastEvent(v: unknown): v is RuntimeBroadcastEvent {
+  if (!isObject(v)) return false;
+  return (
+    v["type"] === "BindingChanged" ||
+    v["type"] === "AgentChanged" ||
+    v["type"] === "NodeJoined" ||
+    v["type"] === "NodeLeft"
+  );
+}
+
+function isDirectedCommand(v: unknown): v is RuntimeDirectedCommand {
+  if (!isObject(v)) return false;
+  return (
+    v["type"] === "AttachBinding" ||
+    v["type"] === "DetachBinding" ||
+    v["type"] === "RefreshBinding"
+  );
 }
