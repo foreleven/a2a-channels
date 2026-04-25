@@ -89,7 +89,7 @@ ConnectionManager 只做 imperative side effects。
 当前代码中：
 
 - `CLUSTER_MODE=true` 会在 `buildGatewayContainer()` 阶段直接抛错。
-- 当前实际绑定的是 `LocalRuntimeEventBus`、`LocalScheduler`、`LocalOwnershipGate`、`LocalRuntimeSnapshotStore`。
+- 当前实际绑定的是 `LocalRuntimeEventBus`、`LocalScheduler`、`LocalOwnershipGate`。
 - `RedisOwnershipGate` 方法未接线，调用 acquire/renew/release 会抛错。
 - `LeaderScheduler` 和 Redis coordination key 文件只表示未来边界，不是当前生产路径。
 
@@ -118,21 +118,11 @@ ConnectionManager callback
 
 当前实现中，`RuntimeOpenClawConfigProjection` 从 `RuntimeOwnershipState.listOwnedBindings()` 生成 OpenClaw config。只有当前节点 owned 且 enabled 的 bindings 会进入 OpenClaw-compatible config。binding/account 到 agent URL 的路由由 runtime agent registry 和 connection manager 解析，不由 OpenClaw 原生 agent pipeline 处理。
 
-### 2.5 Runtime status 是 query service，而不是直接读 runtime executor
+### 2.5 HTTP API 只暴露数据库读写模型
 
-当前 `/api/runtime/nodes` 和 `/api/runtime/connections` 不直接查询 `RelayRuntime` 或 `ConnectionManager`。
+`/api/runtime/nodes` 和 `/api/runtime/connections` 已移除。它们依赖本节点内存或 Redis snapshot，HTTP 请求无法指定集群中的目标 gateway 节点，语义不稳定。
 
-实际路径是：
-
-```text
-RuntimeSnapshotPublisher
-  -> NodeRuntimeSnapshotWriter
-  -> LocalRuntimeSnapshotStore
-  -> RuntimeStatusQueryService
-  -> RuntimeRoutes
-```
-
-同时，节点元信息由 `RuntimeNodeStateRepository` 持久化。
+当前 HTTP API 应只暴露数据库里的 desired state，例如 channels 和 agents。runtime executor 的本地连接状态只用于进程内调度、重连和消息转发，不作为 gateway REST API 的 read model。
 
 ---
 
@@ -288,7 +278,6 @@ RuntimeCommandHandler
   -> RuntimeOwnershipState.upsertBinding(binding)
   -> RuntimeOpenClawConfigProjection.rebuild()
   -> ConnectionManager.restartConnection(binding)
-  -> RuntimeSnapshotPublisher.publishNodeSnapshot()
 ```
 
 ### 4.4 Relay / Connection Execution
@@ -352,28 +341,7 @@ ConnectionManager
 
 负责把 runtime operational state 暴露给 admin UI。
 
-关键文件：
-
-- `apps/gateway/src/runtime/runtime-node-state.ts`
-- `apps/gateway/src/runtime/runtime-snapshot-publisher.ts`
-- `apps/gateway/src/runtime/node-runtime-snapshot-store.ts`
-- `apps/gateway/src/runtime/local/local-runtime-snapshot-store.ts`
-- `apps/gateway/src/infra/runtime-node-repo.ts`
-- `apps/gateway/src/application/queries/runtime-status/runtime-status-query-service.ts`
-- `apps/gateway/src/application/queries/runtime-status/runtime-status-view.ts`
-- `apps/gateway/src/http/routes/runtime.ts`
-
-查询路径：
-
-```text
-RuntimeNodeState + RuntimeOwnershipState
-  -> RuntimeSnapshotPublisher
-  -> LocalRuntimeSnapshotStore
-  -> RuntimeStatusQueryService
-  -> RuntimeRoutes
-  -> /api/runtime/nodes
-  -> /api/runtime/connections
-```
+runtime 状态不再投影为 REST 查询 API。需要 HTTP 查询的资源必须来自数据库读模型。
 
 ---
 
@@ -389,7 +357,6 @@ apps/gateway/src/index.ts
   -> Hono server listen
   -> RelayRuntime.bootstrap()
   -> RuntimeNodeStateRepository.upsert(node metadata)
-  -> RuntimeSnapshotPublisher.publishBootstrapping()
   -> RelayRuntime.bootstrap()
   -> DomainEventBridge.start()
   -> RuntimeScheduler.start()
@@ -501,14 +468,9 @@ ConnectionManager detects disconnected/error
 - reconnect timer 由 assignment service 管理。
 - release binding 时必须清理 reconnect timer。
 
-### 5.7 Runtime 状态查询
+### 5.7 Runtime 状态不作为 REST 查询模型
 
-```text
-RuntimeSnapshotPublisher.publishNodeSnapshot()
-  -> LocalRuntimeSnapshotStore.publishNodeSnapshot()
-  -> RuntimeStatusQueryService.listNodes()/listConnections()
-  -> RuntimeRoutes
-```
+runtime 状态是节点本地执行事实，包含连接生命周期、重连 timer、owned binding 等进程内状态。gateway REST API 不暴露这些状态；需要 HTTP 查询的资源必须来自数据库读模型。
 
 关键点：
 
@@ -809,57 +771,13 @@ Runtime snapshot 用于 admin status 查询，不是 desired state。
 - **输入/输出**：导出 A2A/ACP transport 和 transport abstractions。
 - **位置**：gateway container 和 runtime factory 的 package 边界。
 
-### 7.6 Runtime Status
-
-#### `apps/gateway/src/runtime/runtime-node-state.ts`
-
-- **职责**：维护本节点 lifecycle snapshot。
-- **输入/输出**：输入 lifecycle transition；输出 `LocalRuntimeSnapshot`。
-- **位置**：snapshot publisher 的状态来源。
-
-#### `apps/gateway/src/runtime/runtime-snapshot-publisher.ts`
-
-- **职责**：发布 runtime node snapshot。
-- **输入/输出**：读取 node state 和 ownership state，写入 snapshot writer。
-- **位置**：runtime operational state 到 query side 的发布边界。
-
-#### `apps/gateway/src/runtime/node-runtime-snapshot-store.ts`
-
-- **职责**：定义 snapshot reader/writer 抽象和 DI tokens。
-- **输入/输出**：输出 `NodeRuntimeSnapshotWriter`、`NodeRuntimeSnapshotReader`。
-- **位置**：publisher 和 query service 的隔离层。
-
-#### `apps/gateway/src/runtime/local/local-runtime-snapshot-store.ts`
-
-- **职责**：local in-memory snapshot store。
-- **输入/输出**：保存 cloned snapshots 并返回 cloned list。
-- **位置**：当前 runtime status query 的 snapshot 来源。
+### 7.6 Runtime Node Metadata
 
 #### `apps/gateway/src/infra/runtime-node-repo.ts`
 
 - **职责**：持久化 runtime node metadata。
 - **输入/输出**：读写 Prisma `runtimeNode` 表。
-- **位置**：runtime status nodes query 的 metadata 来源。
-
-#### `apps/gateway/src/application/queries/runtime-status/runtime-status-view.ts`
-
-- **职责**：定义 runtime status view models。
-- **输入/输出**：输出 node list item 和 connection list item 类型。
-- **位置**：query service 与 HTTP route 的返回契约。
-
-#### `apps/gateway/src/application/queries/runtime-status/runtime-status-query-service.ts`
-
-- **职责**：组合 runtime node records 和 snapshots，生成 nodes/connections view。
-- **输入/输出**：依赖 runtime node repository 和 snapshot reader。
-- **位置**：admin runtime status API 的应用查询服务。
-
-#### `apps/gateway/src/http/routes/runtime.ts`
-
-- **职责**：注册 runtime status HTTP endpoints。
-- **输入/输出**：输出 `/api/runtime/nodes` 和 `/api/runtime/connections`。
-- **位置**：HTTP read-only boundary。
-
----
+- **位置**：runtime bootstrap 的节点注册记录；不再支撑 REST runtime status API。
 
 ## 8. 当前边界规则
 
@@ -884,7 +802,6 @@ Runtime snapshot 用于 admin status 查询，不是 desired state。
 - update owned binding state；
 - rebuild OpenClaw config projection；
 - start/stop/restart connection；
-- publish snapshot。
 
 ### 8.3 ConnectionManager 只做 side effects
 

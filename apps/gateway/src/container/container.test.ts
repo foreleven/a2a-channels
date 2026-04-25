@@ -10,7 +10,6 @@ import {
 } from "@a2a-channels/domain";
 
 import { AgentService } from "../application/agent-service.js";
-import { RuntimeStatusQueryService } from "../application/queries/runtime-status/runtime-status-query-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import {
   buildGatewayConfig,
@@ -38,14 +37,7 @@ import { RuntimeScheduler } from "../runtime/scheduler.js";
 import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local/local-scheduler.js";
 import { RuntimeOwnershipGate } from "../runtime/ownership-gate.js";
-import { LocalRuntimeSnapshotStore } from "../runtime/local/local-runtime-snapshot-store.js";
-import {
-  NodeRuntimeSnapshotReader,
-  NodeRuntimeSnapshotWriter,
-} from "../runtime/node-runtime-snapshot-store.js";
-import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
-import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
 import { AgentTransportToken } from "../runtime/transport-tokens.js";
 import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
 import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
@@ -179,11 +171,10 @@ describe("buildGatewayContainer", () => {
     assert.ok(worker);
   });
 
-  test("resolves relay runtime lifecycle and runtime state reader", () => {
+  test("resolves relay runtime lifecycle", () => {
     const container = buildGatewayContainer(buildGatewayConfig({ port: 7896 }));
 
     assert.ok(container.get(RelayRuntime));
-    assert.ok(container.get(RuntimeStatusQueryService));
     assert.ok(container.get(GatewayServer));
     assert.ok(container.get(GatewayApp));
   });
@@ -233,18 +224,6 @@ describe("buildGatewayContainer", () => {
       container.get(LocalScheduler),
     );
     assert.strictEqual(
-      container.get(LocalRuntimeSnapshotStore),
-      container.get(NodeRuntimeSnapshotWriter),
-    );
-    assert.strictEqual(
-      container.get(LocalRuntimeSnapshotStore),
-      container.get(NodeRuntimeSnapshotReader),
-    );
-    assert.strictEqual(
-      container.get(RuntimeNodeState),
-      container.get(RuntimeNodeState),
-    );
-    assert.strictEqual(
       container.get(RuntimeAgentRegistry),
       container.get(RuntimeAgentRegistry),
     );
@@ -259,10 +238,6 @@ describe("buildGatewayContainer", () => {
     assert.strictEqual(
       container.get(RuntimeAssignmentService),
       container.get(RuntimeAssignmentService),
-    );
-    assert.strictEqual(
-      container.get(RuntimeSnapshotPublisher),
-      container.get(RuntimeSnapshotPublisher),
     );
     assert.strictEqual(
       container.get(AgentClientRegistry),

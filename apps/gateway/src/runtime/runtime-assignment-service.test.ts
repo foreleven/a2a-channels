@@ -7,16 +7,13 @@ import type {
   ChannelBindingSnapshot,
 } from "@a2a-channels/domain";
 
-import { GatewayConfigService } from "../bootstrap/config.js";
 import { AgentClientRegistry } from "./agent-client-registry.js";
 import { AgentClientFactory } from "./agent-clients.js";
 import { ConnectionManager } from "./connection-manager.js";
 import { RuntimeOwnershipState } from "./ownership-state.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
-import { RuntimeNodeState } from "./runtime-node-state.js";
 import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
-import { RuntimeSnapshotPublisher } from "./runtime-snapshot-publisher.js";
 import { LocalOwnershipGate } from "./local/local-ownership-gate.js";
 
 const agent: AgentConfigSnapshot = {
@@ -51,11 +48,6 @@ function createService(): {
   const agentRegistry = new RuntimeAgentRegistry(
     new AgentClientRegistry(new AgentClientFactory([testTransport])),
   );
-  const snapshotPublisher = new RuntimeSnapshotPublisher(
-    new RuntimeNodeState(new GatewayConfigService({ port: 7890 })),
-    { publishNodeSnapshot: async () => {} },
-    ownershipState,
-  );
   const openClawConfigProjection = new RuntimeOpenClawConfigProjection(
     ownershipState,
   );
@@ -64,7 +56,6 @@ function createService(): {
     agentRegistry,
     openClawConfigProjection,
     ownershipState,
-    snapshotPublisher,
     new LocalOwnershipGate(),
     connectionManager,
   );

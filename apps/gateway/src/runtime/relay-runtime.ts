@@ -8,17 +8,11 @@ import { GatewayConfigService } from "../bootstrap/config.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { ConnectionManager } from "./connection-manager.js";
 import { DomainEventBridge } from "./domain-event-bridge.js";
-import {
-  NodeRuntimeSnapshotWriter,
-  type NodeRuntimeSnapshotWriter as NodeRuntimeSnapshotWriterPort,
-} from "./node-runtime-snapshot-store.js";
 import { OpenClawRuntimeAssembler } from "./openclaw-runtime-assembler.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
 import { RuntimeScheduler } from "./scheduler.js";
 import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
-import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
-import { RuntimeSnapshotPublisher } from "./runtime-snapshot-publisher.js";
 
 /**
  * Runtime-side composition root for the relay path.
@@ -27,7 +21,7 @@ import { RuntimeSnapshotPublisher } from "./runtime-snapshot-publisher.js";
  * - desired binding/agent assignment services
  * - the OpenClaw host/runtime assembly
  * - live connection execution
- * - node snapshot publication
+ * - scheduler and domain-event bridge lifecycle
  *
  * It is intentionally orchestration-heavy. Domain decisions should already be
  * made by the injected collaborators before they reach this class.
@@ -46,8 +40,6 @@ export class RelayRuntime {
     private readonly config: GatewayConfigService,
     @inject(RuntimeNodeStateRepository)
     private readonly runtimeNodeRepository: RuntimeNodeStateRepository,
-    @inject(NodeRuntimeSnapshotWriter)
-    private readonly snapshotWriter: NodeRuntimeSnapshotWriterPort,
     @inject(RuntimeAssignmentService)
     private readonly assignments: RuntimeAssignmentService,
     @inject(RuntimeAgentRegistry)
@@ -58,8 +50,6 @@ export class RelayRuntime {
     runtimeAssembler: OpenClawRuntimeAssembler,
     @inject(ConnectionManager)
     connectionManager: ConnectionManager,
-    @inject(RuntimeSnapshotPublisher)
-    private readonly snapshotPublisher: RuntimeSnapshotPublisher,
     @inject(RuntimeScheduler)
     private readonly scheduler: RuntimeScheduler,
     @inject(DomainEventBridge)
@@ -184,7 +174,6 @@ export class RelayRuntime {
         relayBootstrapped,
         schedulerStarted,
       });
-      await this.publishErrorSnapshot(error);
 
       if (cleanupErrors.length > 0) {
         throw new AggregateError(
@@ -200,40 +189,12 @@ export class RelayRuntime {
   private async bootstrapRelay(): Promise<void> {
     // Relay bootstrap is intentionally light; connection ownership is driven by
     // reconciliation and connection callbacks rather than by this method.
-    await this.snapshotPublisher.publishBootstrapping();
-    await this.snapshotPublisher.publishReady();
   }
 
   private async shutdownRelay(): Promise<void> {
-    await this.snapshotPublisher.publishStoppingSafely();
     this.assignments.clearReconnectsForOwnedBindings();
     await this.connectionManager.stopAllConnections();
     await this.agentRegistry.stopAllClients();
-    await this.snapshotPublisher.publishStoppedSafely();
-  }
-
-  private async publishErrorSnapshot(error: unknown): Promise<void> {
-    const snapshot: LocalRuntimeSnapshot = {
-      nodeId: this.config.nodeId,
-      displayName: this.config.nodeDisplayName,
-      mode: this.config.clusterMode ? "cluster" : "local",
-      schedulerRole: this.config.clusterMode ? "unknown" : "local",
-      lastKnownAddress: this.config.runtimeAddress,
-      lifecycle: "error",
-      lastHeartbeatAt: null,
-      lastError: String(error),
-      bindingStatuses: [],
-      updatedAt: new Date().toISOString(),
-    };
-
-    try {
-      await this.snapshotWriter.publishNodeSnapshot(snapshot);
-    } catch (publishError) {
-      console.error(
-        "[runtime] failed to publish bootstrap error snapshot:",
-        publishError,
-      );
-    }
   }
 
   private async cleanupFailedBootstrap(context: {

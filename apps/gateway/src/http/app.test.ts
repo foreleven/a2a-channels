@@ -11,7 +11,6 @@ import type { ChannelBindingSnapshot } from "../application/channel-binding-serv
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
 import { GatewayApp, GatewayWebDir, HonoGatewayApp } from "./app.js";
-import { RuntimeStatusSourceToken } from "./routes/runtime.js";
 
 function createHttpContainer(): Container {
   const container = buildGatewayContainer({
@@ -22,7 +21,7 @@ function createHttpContainer(): Container {
 }
 
 describe("GatewayApp", () => {
-  test("registers runtime nodes and connections routes against runtime reader", async () => {
+  test("does not expose runtime status APIs", async () => {
     const container = createHttpContainer();
     const channelService = {
       list: async () => [{ id: "binding-1", name: "Binding" }],
@@ -75,35 +74,6 @@ describe("GatewayApp", () => {
     container
       .rebindSync(AgentService)
       .toConstantValue(agentService as unknown as AgentService);
-    container.rebindSync(RuntimeStatusSourceToken).toConstantValue({
-      listNodes: async () => [
-        {
-          nodeId: "node-a",
-          displayName: "Gateway Node A",
-          mode: "local",
-          schedulerRole: "local",
-          lastKnownAddress: "http://127.0.0.1:7890",
-          lifecycle: "ready",
-          lastHeartbeatAt: "2026-04-21T00:00:00.000Z",
-          lastError: null,
-          bindingCount: 1,
-          updatedAt: "2026-04-21T00:00:00.000Z",
-        },
-      ],
-      listConnections: async () => [
-        {
-          bindingId: "binding-1",
-          bindingName: "Binding",
-          channelType: "feishu",
-          accountId: "default",
-          agentId: "agent-1",
-          ownerNodeId: "node-a",
-          status: "connected",
-          agentUrl: "http://localhost:3001",
-          updatedAt: "2026-04-21T00:00:00.000Z",
-        },
-      ],
-    });
 
     const app = container.get<HonoGatewayApp>(GatewayApp);
 
@@ -126,92 +96,12 @@ describe("GatewayApp", () => {
     ]);
 
     const runtimeNodesResponse = await app.request("/api/runtime/nodes");
-    assert.equal(runtimeNodesResponse.status, 200);
-    assert.deepEqual(await runtimeNodesResponse.json(), [
-      {
-        nodeId: "node-a",
-        displayName: "Gateway Node A",
-        mode: "local",
-        schedulerRole: "local",
-        lastKnownAddress: "http://127.0.0.1:7890",
-        lifecycle: "ready",
-        lastHeartbeatAt: "2026-04-21T00:00:00.000Z",
-        lastError: null,
-        bindingCount: 1,
-        updatedAt: "2026-04-21T00:00:00.000Z",
-      },
-    ]);
+    assert.equal(runtimeNodesResponse.status, 404);
 
     const runtimeConnectionsResponse = await app.request(
       "/api/runtime/connections",
     );
-    assert.equal(runtimeConnectionsResponse.status, 200);
-    assert.deepEqual(await runtimeConnectionsResponse.json(), [
-      {
-        bindingId: "binding-1",
-        bindingName: "Binding",
-        channelType: "feishu",
-        accountId: "default",
-        agentId: "agent-1",
-        ownerNodeId: "node-a",
-        status: "connected",
-        agentUrl: "http://localhost:3001",
-        updatedAt: "2026-04-21T00:00:00.000Z",
-      },
-    ]);
-  });
-
-  test("registers runtime nodes route without breaking relay-style runtime source", async () => {
-    const container = createHttpContainer();
-    container.rebindSync(ChannelBindingService).toConstantValue({
-      list: async (): Promise<ChannelBindingSnapshot[]> => [],
-      getById: async () => null,
-      create: async () => ({ id: "binding-2" }),
-      update: async () => null,
-      delete: async () => false,
-    } as unknown as ChannelBindingService);
-    container.rebindSync(AgentService).toConstantValue({
-      list: async (): Promise<AgentConfigSnapshot[]> => [],
-      getById: async () => null,
-      register: async (): Promise<AgentConfigSnapshot> => ({
-        id: "agent-1",
-        name: "Echo",
-        url: "http://localhost:3001",
-        protocol: "a2a",
-        createdAt: "2026-04-21T00:00:00.000Z",
-      }),
-      update: async () => null,
-      delete: async () => false,
-    } as unknown as AgentService);
-    container.rebindSync(RuntimeStatusSourceToken).toConstantValue({
-      listConnectionStatuses: () => [
-        {
-          bindingId: "binding-1",
-          status: "connected",
-          agentUrl: "http://localhost:3001",
-          updatedAt: "2026-04-21T00:00:00.000Z",
-        },
-      ],
-    });
-
-    const app = container.get<HonoGatewayApp>(GatewayApp);
-
-    const runtimeNodesResponse = await app.request("/api/runtime/nodes");
-    assert.equal(runtimeNodesResponse.status, 200);
-    assert.deepEqual(await runtimeNodesResponse.json(), []);
-
-    const runtimeConnectionsResponse = await app.request(
-      "/api/runtime/connections",
-    );
-    assert.equal(runtimeConnectionsResponse.status, 200);
-    assert.deepEqual(await runtimeConnectionsResponse.json(), [
-      {
-        bindingId: "binding-1",
-        status: "connected",
-        agentUrl: "http://localhost:3001",
-        updatedAt: "2026-04-21T00:00:00.000Z",
-      },
-    ]);
+    assert.equal(runtimeConnectionsResponse.status, 404);
   });
 
   test("preserves existing mutation error handling", async () => {
@@ -240,11 +130,6 @@ describe("GatewayApp", () => {
         throw new ReferencedAgentError("agent-1", ["binding-1"]);
       },
     } as unknown as AgentService);
-    container.rebindSync(RuntimeStatusSourceToken).toConstantValue({
-      listNodes: async () => [],
-      listConnections: async () => [],
-    });
-
     const app = container.get<HonoGatewayApp>(GatewayApp);
 
     const invalidChannelBody = await app.request("/api/channels", {

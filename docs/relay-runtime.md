@@ -42,8 +42,6 @@ GatewayServer.start()
   -> OutboxWorker.start()
   -> RelayRuntime.bootstrap()
        -> RuntimeNodeStateRepository.upsert(node metadata)
-       -> RuntimeSnapshotPublisher.publishBootstrapping()
-       -> RuntimeSnapshotPublisher.publishReady()
        -> DomainEventBridge.start(nodeId)
        -> RuntimeScheduler.start()
   -> Hono listen
@@ -104,11 +102,9 @@ GatewayServer.shutdown()
   -> RelayRuntime.shutdown()
        -> RuntimeScheduler.stop()
        -> DomainEventBridge.stop()
-       -> RuntimeSnapshotPublisher.publishStoppingSafely()
        -> RuntimeAssignmentService.clearReconnectsForOwnedBindings()
        -> ConnectionManager.stopAllConnections()
        -> RuntimeAgentRegistry.stopAllClients()
-       -> RuntimeSnapshotPublisher.publishStoppedSafely()
 ```
 
 ## Boundaries

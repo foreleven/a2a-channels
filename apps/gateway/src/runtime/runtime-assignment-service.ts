@@ -13,7 +13,6 @@ import {
 } from "./ownership-gate.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
-import { RuntimeSnapshotPublisher } from "./runtime-snapshot-publisher.js";
 import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
 
 type AgentConfig = AgentConfigSnapshot;
@@ -35,8 +34,6 @@ export class RuntimeAssignmentService {
     private readonly openClawConfigProjection: RuntimeOpenClawConfigProjection,
     @inject(RuntimeOwnershipState)
     private readonly ownershipState: RuntimeOwnershipState,
-    @inject(RuntimeSnapshotPublisher)
-    private readonly snapshotPublisher: RuntimeSnapshotPublisher,
     @inject(RuntimeOwnershipGate)
     private readonly ownershipGate: OwnershipGate,
     @inject(ConnectionManager)
@@ -81,7 +78,6 @@ export class RuntimeAssignmentService {
     }
 
     this.openClawConfigProjection.rebuild();
-    await this.publishSnapshotSafely(`binding delete for ${bindingId}`);
   }
 
   async applyAgentUpsert(
@@ -178,8 +174,6 @@ export class RuntimeAssignmentService {
         this.ownershipState.markIdle(bindingId);
         break;
     }
-
-    this.snapshotPublisher.publishNodeSnapshotInBackground();
   }
 
   private async applyBindingUpsert(
@@ -192,10 +186,6 @@ export class RuntimeAssignmentService {
     });
 
     this.openClawConfigProjection.rebuild();
-
-    if (ownershipUpdate.publishSnapshot) {
-      await this.publishSnapshotSafely(`binding upsert for ${binding.id}`);
-    }
 
     if (ownershipUpdate.shouldStop) {
       this.ownershipState.clearReconnect(binding.id);
@@ -276,14 +266,4 @@ export class RuntimeAssignmentService {
     });
   }
 
-  private async publishSnapshotSafely(reason: string): Promise<void> {
-    try {
-      await this.snapshotPublisher.publishNodeSnapshot();
-    } catch (error) {
-      console.error(
-        `[runtime] failed to publish node snapshot during ${reason}:`,
-        error,
-      );
-    }
-  }
 }

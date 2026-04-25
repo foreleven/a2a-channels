@@ -12,16 +12,11 @@ import {
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
 import { AgentService } from "../application/agent-service.js";
-import { RuntimeStatusQueryService } from "../application/queries/runtime-status/runtime-status-query-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { GatewayServer } from "./gateway-server.js";
 import { GatewayApp, GatewayWebDir, HonoGatewayApp } from "../http/app.js";
 import { AgentRoutes } from "../http/routes/agents.js";
 import { ChannelRoutes } from "../http/routes/channels.js";
-import {
-  RuntimeRoutes,
-  RuntimeStatusSourceToken,
-} from "../http/routes/runtime.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import {
@@ -39,14 +34,8 @@ import { ConnectionManager } from "../runtime/connection-manager.js";
 import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
 import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
 import { RedisRuntimeEventBus } from "../runtime/cluster/redis-runtime-event-bus.js";
-import { RedisRuntimeSnapshotStore } from "../runtime/cluster/redis-runtime-snapshot-store.js";
 import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
-import { LocalRuntimeSnapshotStore } from "../runtime/local/local-runtime-snapshot-store.js";
 import { LocalScheduler } from "../runtime/local/local-scheduler.js";
-import {
-  NodeRuntimeSnapshotReader,
-  NodeRuntimeSnapshotWriter,
-} from "../runtime/node-runtime-snapshot-store.js";
 import { OpenClawRuntimeAssembler } from "../runtime/openclaw-runtime-assembler.js";
 import { RuntimeOwnershipState } from "../runtime/ownership-state.js";
 import { RuntimeOwnershipGate } from "../runtime/ownership-gate.js";
@@ -60,9 +49,7 @@ import {
   RuntimeEventBus,
 } from "../runtime/event-transport/index.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
-import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
-import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
 import { AgentTransportToken } from "../runtime/transport-tokens.js";
 import type { GatewayConfigSnapshot } from "./config.js";
 import {
@@ -162,8 +149,6 @@ function bindRuntime(
     .toDynamicValue(() => new ACPTransport())
     .inSingletonScope();
   container.bind(AgentClientFactory).toSelf().inSingletonScope();
-  container.bind(RuntimeNodeState).toSelf().inSingletonScope();
-  container.bind(RuntimeSnapshotPublisher).toSelf().inSingletonScope();
 
   container.bind(AgentClientRegistry).toSelf().inSingletonScope();
   container.bind(RuntimeAgentRegistry).toSelf().inSingletonScope();
@@ -186,14 +171,6 @@ function bindRuntime(
 }
 
 function bindLocalRuntime(container: Container): void {
-  container.bind(LocalRuntimeSnapshotStore).toSelf().inSingletonScope();
-  container
-    .bind(NodeRuntimeSnapshotWriter)
-    .toService(LocalRuntimeSnapshotStore);
-  container
-    .bind(NodeRuntimeSnapshotReader)
-    .toService(LocalRuntimeSnapshotStore);
-
   container
     .bind(RuntimeOwnershipGate)
     .to(LocalOwnershipGate)
@@ -220,14 +197,6 @@ function bindLocalRuntime(container: Container): void {
 }
 
 function bindClusterRuntime(container: Container): void {
-  container.bind(RedisRuntimeSnapshotStore).toSelf().inSingletonScope();
-  container
-    .bind(NodeRuntimeSnapshotWriter)
-    .toService(RedisRuntimeSnapshotStore);
-  container
-    .bind(NodeRuntimeSnapshotReader)
-    .toService(RedisRuntimeSnapshotStore);
-
   container
     .bind(RuntimeOwnershipGate)
     .to(RedisOwnershipGate)
@@ -249,11 +218,8 @@ function bindHttp(container: Container): void {
   container.bind(GatewayWebDir).toConstantValue(DEFAULT_GATEWAY_WEB_DIR);
   container.bind(ChannelRoutes).toSelf().inSingletonScope();
   container.bind(AgentRoutes).toSelf().inSingletonScope();
-  container.bind(RuntimeRoutes).toSelf().inSingletonScope();
-  container.bind(RuntimeStatusQueryService).toSelf().inSingletonScope();
   container.bind(HonoGatewayApp).toSelf().inSingletonScope();
   container.bind(GatewayApp).toService(HonoGatewayApp);
-  container.bind(RuntimeStatusSourceToken).toService(RuntimeStatusQueryService);
 }
 
 function bindBootstrap(container: Container): void {
