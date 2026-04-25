@@ -24,13 +24,22 @@ import {
 } from "../http/routes/runtime.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
+import {
+  ClusterInfraLifecycle,
+  ClusterInfraService,
+} from "../infra/cluster-infra-service.js";
 import { DomainEventBus } from "../infra/domain-event-bus.js";
 import { OutboxWorker } from "../infra/outbox-worker.js";
+import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
 import { AgentClientFactory } from "../runtime/agent-clients.js";
 import { RuntimeScheduler } from "../runtime/scheduler.js";
 import { ConnectionManager } from "../runtime/connection-manager.js";
+import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
+import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
+import { RedisRuntimeEventBus } from "../runtime/cluster/redis-runtime-event-bus.js";
+import { RedisRuntimeSnapshotStore } from "../runtime/cluster/redis-runtime-snapshot-store.js";
 import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
 import { LocalRuntimeSnapshotStore } from "../runtime/local/local-runtime-snapshot-store.js";
 import { LocalScheduler } from "../runtime/local/local-scheduler.js";
@@ -79,21 +88,13 @@ export function buildGatewayContainer(
   overrides: Partial<GatewayConfigSnapshot> = {},
 ): Container {
   const config = buildGatewayConfig(overrides);
-  // Cluster mode is intentionally guarded at composition time. Keeping the
-  // unsupported mode out of the object graph is safer than wiring partial
-  // Redis/leader classes that would violate the runtime ownership boundary.
-  if (config.clusterMode) {
-    throw new Error(
-      "Cluster runtime mode is not implemented yet. Run with CLUSTER_MODE=false until Redis RuntimeEventBus, membership, binding leases, and directed scheduling are implemented.",
-    );
-  }
 
   const container = createGatewayContainer();
   container.bind(GatewayConfigOverrides).toConstantValue(config);
   container.bind(GatewayConfigService).toSelf().inSingletonScope();
-  bindInfrastructure(container);
+  bindInfrastructure(container, config);
   bindApplication(container);
-  bindRuntime(container);
+  bindRuntime(container, config);
   bindHttp(container);
   bindBootstrap(container);
   return container;
@@ -108,7 +109,10 @@ export function createGatewayContainer(): Container {
   return new Container({ defaultScope: "Singleton" });
 }
 
-function bindInfrastructure(container: Container): void {
+function bindInfrastructure(
+  container: Container,
+  config: GatewayConfigSnapshot,
+): void {
   // Infrastructure adapters are the only concrete implementations of domain
   // repository ports. Application services consume the ports below, not Prisma.
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
@@ -116,6 +120,15 @@ function bindInfrastructure(container: Container): void {
   container.bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();
   container.bind(DomainEventBus).toSelf().inSingletonScope();
   container.bind(OutboxWorker).toSelf().inSingletonScope();
+
+  if (config.clusterMode) {
+    container.bind(RedisClientService).toSelf().inSingletonScope();
+    container.bind(RedisRuntimeEventBus).toSelf().inSingletonScope();
+    container.bind(ClusterInfraService).toSelf().inSingletonScope();
+    container
+      .bind(ClusterInfraLifecycle)
+      .toService(ClusterInfraService);
+  }
 }
 
 function bindApplication(container: Container): void {
@@ -127,23 +140,15 @@ function bindApplication(container: Container): void {
   container.bind(AgentService).toSelf().inSingletonScope();
 }
 
-function bindRuntime(container: Container): void {
+function bindRuntime(
+  container: Container,
+  config: GatewayConfigSnapshot,
+): void {
   // Runtime services are split by responsibility:
   // - Scheduler/Coordinator decide what this node should own.
   // - CommandHandler reloads one binding and delegates local side effects.
   // - AssignmentService mutates the local runtime aggregate.
   // - ConnectionManager performs the imperative plugin/transport work.
-  container
-    .bind(LocalScheduler)
-    .toDynamicValue(() => new LocalScheduler())
-    .inSingletonScope();
-  container.bind(LocalRuntimeSnapshotStore).toSelf().inSingletonScope();
-  container
-    .bind(NodeRuntimeSnapshotWriter)
-    .toService(LocalRuntimeSnapshotStore);
-  container
-    .bind(NodeRuntimeSnapshotReader)
-    .toService(LocalRuntimeSnapshotStore);
 
   container.bind(OpenClawRuntimeAssembler).toSelf().inSingletonScope();
   container.bind(ConnectionManager).toSelf().inSingletonScope();
@@ -173,11 +178,32 @@ function bindRuntime(container: Container): void {
   container.bind(RuntimeCommandHandler).toSelf().inSingletonScope();
   container.bind(DomainEventBridge).toSelf().inSingletonScope();
 
+  if (config.clusterMode) {
+    bindClusterRuntime(container);
+  } else {
+    bindLocalRuntime(container);
+  }
+}
+
+function bindLocalRuntime(container: Container): void {
+  container.bind(LocalRuntimeSnapshotStore).toSelf().inSingletonScope();
+  container
+    .bind(NodeRuntimeSnapshotWriter)
+    .toService(LocalRuntimeSnapshotStore);
+  container
+    .bind(NodeRuntimeSnapshotReader)
+    .toService(LocalRuntimeSnapshotStore);
+
   container
     .bind(RuntimeOwnershipGate)
     .to(LocalOwnershipGate)
     .inSingletonScope();
   container.bind(RuntimeEventBus).to(LocalRuntimeEventBus).inSingletonScope();
+
+  container
+    .bind(LocalScheduler)
+    .toDynamicValue(() => new LocalScheduler())
+    .inSingletonScope();
   container
     .bind(RuntimeScheduler)
     .toDynamicValue(() =>
@@ -191,7 +217,30 @@ function bindRuntime(container: Container): void {
         ),
     )
     .inSingletonScope();
+}
 
+function bindClusterRuntime(container: Container): void {
+  container.bind(RedisRuntimeSnapshotStore).toSelf().inSingletonScope();
+  container
+    .bind(NodeRuntimeSnapshotWriter)
+    .toService(RedisRuntimeSnapshotStore);
+  container
+    .bind(NodeRuntimeSnapshotReader)
+    .toService(RedisRuntimeSnapshotStore);
+
+  container
+    .bind(RuntimeOwnershipGate)
+    .to(RedisOwnershipGate)
+    .inSingletonScope();
+  // RedisRuntimeEventBus is already bound in bindInfrastructure (cluster path).
+  container
+    .bind(RuntimeEventBus)
+    .toService(RedisRuntimeEventBus);
+
+  container.bind(LeaderScheduler).toSelf().inSingletonScope();
+  container
+    .bind(RuntimeScheduler)
+    .toService(LeaderScheduler);
 }
 
 function bindHttp(container: Container): void {

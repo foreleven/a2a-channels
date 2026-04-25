@@ -47,6 +47,9 @@ import { RuntimeNodeState } from "../runtime/runtime-node-state.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
 import { RuntimeSnapshotPublisher } from "../runtime/runtime-snapshot-publisher.js";
 import { AgentTransportToken } from "../runtime/transport-tokens.js";
+import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
+import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
+import { RedisRuntimeEventBus } from "../runtime/cluster/redis-runtime-event-bus.js";
 
 describe("buildGatewayContainer", () => {
   test("resolves typed config", async () => {
@@ -206,18 +209,20 @@ describe("buildGatewayContainer", () => {
     );
   });
 
-  test("rejects cluster runtime mode until cluster scheduling is implemented", () => {
-    assert.throws(
-      () =>
-        buildGatewayContainer(
-          buildGatewayConfig({
-            port: 7896,
-            clusterMode: true,
-            redisUrl: "redis://localhost:6379",
-          }),
-        ),
-      /Cluster runtime mode is not implemented yet/,
+  test("binds cluster runtime components when clusterMode is true", () => {
+    const container = buildGatewayContainer(
+      buildGatewayConfig({
+        port: 7896,
+        clusterMode: true,
+        redisUrl: "redis://localhost:6379",
+      }),
     );
+
+    assert.ok(container.get(RuntimeScheduler) instanceof LeaderScheduler);
+    assert.ok(
+      container.get(RuntimeOwnershipGate) instanceof RedisOwnershipGate,
+    );
+    assert.ok(container.get(RuntimeEventBus) instanceof RedisRuntimeEventBus);
   });
 
   test("resolves runtime singleton collaborators through direct singleton bindings", () => {

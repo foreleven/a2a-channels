@@ -1,26 +1,96 @@
-import { injectable } from "inversify";
+import { randomUUID } from "node:crypto";
+import { injectable, inject } from "inversify";
 
+import { RedisClientService } from "../../infra/redis-client.js";
 import type {
   OwnershipGate,
   OwnershipLease,
 } from "../ownership-gate.js";
 
-/** Redis-backed ownership gate placeholder for phase-two binding leases. */
+/**
+ * Distributed binding/leader lease gate backed by Redis NX+PX SET.
+ *
+ * Each lease is a Redis key whose value is an opaque token. Acquire uses
+ * SET NX PX to create the key atomically. Renew uses a Lua script to re-set
+ * the TTL only when the current token matches (compare-and-refresh). Release
+ * uses a Lua script to delete only when the token matches.
+ *
+ * Lease TTL is fixed at LEASE_TTL_MS. Callers are expected to renew
+ * periodically (e.g. every 10 s) to prevent expiry.
+ */
 @injectable()
 export class RedisOwnershipGate implements OwnershipGate {
-  async acquire(_bindingId: string): Promise<OwnershipLease | null> {
-    throw new Error("Redis ownership gate not wired yet");
+  /**
+   * Lease TTL is intentionally 3× the scheduler renewal interval (30 s) so
+   * that transient renewal delays or a 100 ms debounce cannot expire the lease
+   * before the next successful renew call.
+   */
+  private readonly LEASE_TTL_MS = 90_000;
+  private readonly KEY_PREFIX = "a2a:lease:";
+
+  // Lua: refresh TTL only when value matches
+  private static readonly RENEW_SCRIPT = `
+    if redis.call("GET", KEYS[1]) == ARGV[1] then
+      return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+    else
+      return 0
+    end
+  `;
+
+  // Lua: delete only when value matches
+  private static readonly RELEASE_SCRIPT = `
+    if redis.call("GET", KEYS[1]) == ARGV[1] then
+      return redis.call("DEL", KEYS[1])
+    else
+      return 0
+    end
+  `;
+
+  constructor(
+    @inject(RedisClientService)
+    private readonly redis: RedisClientService,
+  ) {}
+
+  async acquire(bindingId: string): Promise<OwnershipLease | null> {
+    const token = randomUUID();
+    const key = this.leaseKey(bindingId);
+    const result = await this.redis
+      .getClient()
+      .set(key, token, "PX", this.LEASE_TTL_MS, "NX");
+    if (result !== "OK") {
+      return null;
+    }
+    return { bindingId, token };
   }
 
-  async renew(): Promise<boolean> {
-    throw new Error("Redis ownership gate not wired yet");
+  async renew(lease: OwnershipLease): Promise<boolean> {
+    const key = this.leaseKey(lease.bindingId);
+    const result = await this.redis
+      .getClient()
+      .eval(
+        RedisOwnershipGate.RENEW_SCRIPT,
+        1,
+        key,
+        lease.token,
+        String(this.LEASE_TTL_MS),
+      );
+    return result === 1;
   }
 
-  async release(): Promise<void> {
-    throw new Error("Redis ownership gate not wired yet");
+  async release(lease: OwnershipLease): Promise<void> {
+    const key = this.leaseKey(lease.bindingId);
+    await this.redis
+      .getClient()
+      .eval(RedisOwnershipGate.RELEASE_SCRIPT, 1, key, lease.token);
   }
 
-  async isHeld(): Promise<boolean> {
-    return false;
+  async isHeld(bindingId: string): Promise<boolean> {
+    const key = this.leaseKey(bindingId);
+    const value = await this.redis.getClient().exists(key);
+    return value === 1;
+  }
+
+  private leaseKey(bindingId: string): string {
+    return `${this.KEY_PREFIX}${bindingId}`;
   }
 }
