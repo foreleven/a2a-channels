@@ -224,7 +224,7 @@ export class RuntimeAssignmentService {
 
       this.leases.delete(bindingId);
       if (this.ownershipState.getOwnedBinding(bindingId)) {
-        await this.releaseBinding(bindingId);
+        await this.dropBindingAfterLeaseLoss(bindingId);
       }
       return false;
     }
@@ -260,6 +260,16 @@ export class RuntimeAssignmentService {
     }
   }
 
+  /** Removes local runtime state after ownership was already lost elsewhere. */
+  private async dropBindingAfterLeaseLoss(bindingId: string): Promise<void> {
+    this.ownershipState.clearReconnect(bindingId);
+    await this.connectionManager.stopConnection(bindingId);
+
+    if (this.ownershipState.releaseBinding(bindingId)) {
+      this.openClawConfigProjection.rebuild();
+    }
+  }
+
   /** Registers a delayed restart that rechecks latest ownership and enabled state before firing. */
   private scheduleReconnect(
     bindingId: string,
@@ -280,5 +290,4 @@ export class RuntimeAssignmentService {
       await restartConnection(latestBinding);
     });
   }
-
 }

@@ -58,7 +58,11 @@ export class DomainEventBridge {
     // Signal that this node is online. In local mode the scheduler also runs
     // its own startup reconcile, so this broadcast is a wake-up hint rather
     // than the sole correctness mechanism.
-    this.runtimeBus.broadcast({ type: "NodeJoined", nodeId });
+    void this.runtimeBus
+      .broadcast({ type: "NodeJoined", nodeId })
+      .catch((error) => {
+        console.error("[runtime] failed to broadcast node join:", error);
+      });
   }
 
   /** Removes all domain event listeners installed by start(). */
@@ -81,11 +85,19 @@ export class DomainEventBridge {
 
   /** Broadcasts that one binding's desired runtime state may have changed. */
   private broadcastBindingChanged(bindingId: string): void {
-    this.runtimeBus.broadcast({ type: "BindingChanged", bindingId });
+    void this.runtimeBus
+      .broadcast({ type: "BindingChanged", bindingId })
+      .catch((error) => {
+        console.error("[runtime] failed to broadcast binding change:", error);
+      });
   }
 
   /** Broadcasts that bindings referencing one agent may need refresh. */
   private broadcastAgentChanged(agentId: string): void {
-    this.runtimeBus.broadcast({ type: "AgentChanged", agentId });
+    void this.runtimeBus
+      .broadcast({ type: "AgentChanged", agentId })
+      .catch((error) => {
+        console.error("[runtime] failed to broadcast agent change:", error);
+      });
   }
 }

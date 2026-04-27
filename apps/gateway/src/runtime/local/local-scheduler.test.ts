@@ -73,4 +73,27 @@ describe("LocalScheduler", () => {
 
     assert.deepEqual(reconcileCalls, ["reconcile"]);
   });
+
+  test("does not let explicit reconcile debounce cancel a pending full scan", async () => {
+    const reconcileCalls: string[] = [];
+    const runtimeBus = new LocalRuntimeEventBus();
+    const scheduler = new LocalScheduler(null, null, null, null, {
+      debounceMs: 15,
+      reconcileIntervalMs: 1000,
+    });
+    scheduler.configure(
+      createAssignments(),
+      createCommandHandler([]),
+      runtimeBus,
+      createCoordinator(reconcileCalls),
+    );
+
+    scheduler.start();
+    await runtimeBus.broadcast({ type: "NodeJoined", nodeId: "peer" });
+    scheduler.scheduleReconcile();
+    await waitForTimers();
+    await scheduler.stop();
+
+    assert.ok(reconcileCalls.length >= 1);
+  });
 });

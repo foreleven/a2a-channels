@@ -66,10 +66,83 @@ export interface ConnectionManagerOptions {
   callbacks?: ConnectionManagerCallbacks;
 }
 
+type ReplyDeliveryResult = {
+  counts: { block: number; final: number; tool: number };
+  queuedFinal: boolean;
+};
+
+/** Adapts agent reply text to the two OpenClaw reply event delivery shapes. */
+class ChannelReplyDelivery {
+  /** Delivers a nullable final reply and returns OpenClaw-compatible counters. */
+  async deliver(
+    event: ChannelReplyEvent,
+    response: { text: string } | null,
+  ): Promise<ReplyDeliveryResult> {
+    if (event.type === "channel.reply.dispatch") {
+      return this.deliverDispatchEvent(event, response);
+    }
+
+    return this.deliverBufferedEvent(event, response);
+  }
+
+  /** Completes dispatcher-based reply events after optionally sending final text. */
+  private async deliverDispatchEvent(
+    event: Extract<ChannelReplyEvent, { type: "channel.reply.dispatch" }>,
+    response: { text: string } | null,
+  ): Promise<ReplyDeliveryResult> {
+    if (!response) {
+      event.dispatcher.markComplete();
+      return {
+        queuedFinal: false,
+        counts: { tool: 0, block: 0, final: 0 },
+      };
+    }
+
+    event.dispatcher.sendFinalReply({ text: response.text });
+    await event.dispatcher.waitForIdle();
+    event.dispatcher.markComplete();
+    return {
+      queuedFinal: false,
+      counts: { tool: 0, block: 0, final: 1 },
+    };
+  }
+
+  /** Delivers buffered reply events through their dispatcher options callback. */
+  private async deliverBufferedEvent(
+    event: Exclude<ChannelReplyEvent, { type: "channel.reply.dispatch" }>,
+    response: { text: string } | null,
+  ): Promise<ReplyDeliveryResult> {
+    if (!response) {
+      return {
+        queuedFinal: false,
+        counts: { tool: 0, block: 0, final: 0 },
+      };
+    }
+
+    try {
+      await event.dispatcherOptions.deliver(
+        { text: response.text },
+        { kind: "final" },
+      );
+      return {
+        queuedFinal: false,
+        counts: { tool: 0, block: 0, final: 1 },
+      };
+    } catch (error) {
+      event.dispatcherOptions.onError?.(error, { kind: "final" });
+      return {
+        queuedFinal: false,
+        counts: { tool: 0, block: 0, final: 0 },
+      };
+    }
+  }
+}
+
 /** Orchestrates channel plugin connections and forwards inbound messages to agents. */
 @injectable()
 export class ConnectionManager {
   private readonly connections = new Map<string, Connection>();
+  private readonly replyDelivery = new ChannelReplyDelivery();
   private host: OpenClawPluginHost | null = null;
   private getAgentClient:
     | ConnectionManagerOptions["getAgentClient"]
@@ -298,53 +371,9 @@ export class ConnectionManager {
   }
 
   /** Handles OpenClaw reply events by delivering a final agent reply through the event shape. */
-  async handleEvent(event: ChannelReplyEvent): Promise<{
-    counts: { block: number; final: number; tool: number };
-    queuedFinal: boolean;
-  }> {
+  async handleEvent(event: ChannelReplyEvent): Promise<ReplyDeliveryResult> {
     const response = await this.dispatchReply(event);
-
-    if (event.type === "channel.reply.dispatch") {
-      if (!response) {
-        event.dispatcher.markComplete();
-        return {
-          queuedFinal: false,
-          counts: { tool: 0, block: 0, final: 0 },
-        };
-      }
-
-      event.dispatcher.sendFinalReply({ text: response.text });
-      await event.dispatcher.waitForIdle();
-      event.dispatcher.markComplete();
-      return {
-        queuedFinal: false,
-        counts: { tool: 0, block: 0, final: 1 },
-      };
-    }
-
-    if (!response) {
-      return {
-        queuedFinal: false,
-        counts: { tool: 0, block: 0, final: 0 },
-      };
-    }
-
-    try {
-      await event.dispatcherOptions.deliver(
-        { text: response.text },
-        { kind: "final" },
-      );
-      return {
-        queuedFinal: false,
-        counts: { tool: 0, block: 0, final: 1 },
-      };
-    } catch (error) {
-      event.dispatcherOptions.onError?.(error, { kind: "final" });
-      return {
-        queuedFinal: false,
-        counts: { tool: 0, block: 0, final: 0 },
-      };
-    }
+    return this.replyDelivery.deliver(event, response);
   }
 
   /** Starts or restarts a binding connection, stopping it instead when the binding is disabled. */

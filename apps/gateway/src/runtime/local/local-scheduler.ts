@@ -19,7 +19,8 @@ export interface LocalSchedulerOptions {
 /** Converts local runtime bus events into debounced assignment reconciliation. */
 @injectable()
 export class LocalScheduler implements RuntimeScheduler {
-  private debounceTimer: NodeJS.Timeout | null = null;
+  private nodeJoinedDebounceTimer: NodeJS.Timeout | null = null;
+  private fullScanDebounceTimer: NodeJS.Timeout | null = null;
   private intervalTimer: NodeJS.Timeout | null = null;
   private stopped = true;
   private unsubscribeBroadcast: (() => void) | null = null;
@@ -89,9 +90,15 @@ export class LocalScheduler implements RuntimeScheduler {
   /** Cancels timers and unsubscribes from local runtime bus events. */
   async stop(): Promise<void> {
     this.stopped = true;
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    if (this.nodeJoinedDebounceTimer) {
+      clearTimeout(this.nodeJoinedDebounceTimer);
+    }
+    if (this.fullScanDebounceTimer) {
+      clearTimeout(this.fullScanDebounceTimer);
+    }
     if (this.intervalTimer) clearInterval(this.intervalTimer);
-    this.debounceTimer = null;
+    this.nodeJoinedDebounceTimer = null;
+    this.fullScanDebounceTimer = null;
     this.intervalTimer = null;
     this.unsubscribeBroadcast?.();
     this.unsubscribeDirected?.();
@@ -118,20 +125,28 @@ export class LocalScheduler implements RuntimeScheduler {
         // for bindings that this process does not yet own.
         const owned = this.assignments?.listOwnedBindingIds() ?? [];
         for (const bindingId of owned) {
-          bus.sendDirected(LOCAL_NODE_ID, {
-            type: "RefreshBinding",
-            bindingId,
-          });
+          void bus
+            .sendDirected(LOCAL_NODE_ID, {
+              type: "RefreshBinding",
+              bindingId,
+            })
+            .catch((error) => {
+              console.error("[runtime] failed to send refresh command:", error);
+            });
         }
         this.debounceFullScan();
         break;
       }
 
       case "BindingChanged": {
-        bus.sendDirected(LOCAL_NODE_ID, {
-          type: "AttachBinding",
-          bindingId: event.bindingId,
-        });
+        void bus
+          .sendDirected(LOCAL_NODE_ID, {
+            type: "AttachBinding",
+            bindingId: event.bindingId,
+          })
+          .catch((error) => {
+            console.error("[runtime] failed to send attach command:", error);
+          });
         break;
       }
 
@@ -142,10 +157,14 @@ export class LocalScheduler implements RuntimeScheduler {
           .filter((b) => b.agentId === event.agentId)
           .map((b) => b.id);
         for (const bindingId of affectedIds) {
-          bus.sendDirected(LOCAL_NODE_ID, {
-            type: "RefreshBinding",
-            bindingId,
-          });
+          void bus
+            .sendDirected(LOCAL_NODE_ID, {
+              type: "RefreshBinding",
+              bindingId,
+            })
+            .catch((error) => {
+              console.error("[runtime] failed to send refresh command:", error);
+            });
         }
         break;
       }
@@ -159,9 +178,16 @@ export class LocalScheduler implements RuntimeScheduler {
   /** Debounces a synthetic NodeJoined broadcast to refresh local desired state. */
   private scheduleNodeJoined(): void {
     if (this.stopped) return;
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
-      this.runtimeBus?.broadcast({ type: "NodeJoined", nodeId: LOCAL_NODE_ID });
+    if (this.nodeJoinedDebounceTimer) {
+      clearTimeout(this.nodeJoinedDebounceTimer);
+    }
+    this.nodeJoinedDebounceTimer = setTimeout(() => {
+      this.nodeJoinedDebounceTimer = null;
+      void this.runtimeBus
+        ?.broadcast({ type: "NodeJoined", nodeId: LOCAL_NODE_ID })
+        .catch((error) => {
+          console.error("[runtime] failed to broadcast local node join:", error);
+        });
     }, this.options.debounceMs ?? 100);
   }
 
@@ -173,8 +199,11 @@ export class LocalScheduler implements RuntimeScheduler {
    */
   private debounceFullScan(): void {
     if (this.stopped) return;
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
+    if (this.fullScanDebounceTimer) {
+      clearTimeout(this.fullScanDebounceTimer);
+    }
+    this.fullScanDebounceTimer = setTimeout(() => {
+      this.fullScanDebounceTimer = null;
       void this.fullScan();
     }, this.options.debounceMs ?? 100);
   }
