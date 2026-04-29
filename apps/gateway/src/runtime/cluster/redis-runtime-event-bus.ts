@@ -79,25 +79,18 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
   }
 
   /** Publishes a cluster-wide runtime event without awaiting subscriber delivery. */
-  broadcast(event: RuntimeBroadcastEvent): void {
+  async broadcast(event: RuntimeBroadcastEvent): Promise<void> {
     const payload = JSON.stringify({ kind: "broadcast", event });
-    void this.redisService
-      .getClient()
-      .publish(BROADCAST_CHANNEL, payload)
-      .catch((err) => {
-        console.error("[redis-event-bus] failed to publish broadcast:", err);
-      });
+    await this.redisService.getClient().publish(BROADCAST_CHANNEL, payload);
   }
 
   /** Publishes a command to one runtime node's directed Redis channel. */
-  sendDirected(nodeId: string, command: RuntimeDirectedCommand): void {
+  async sendDirected(
+    nodeId: string,
+    command: RuntimeDirectedCommand,
+  ): Promise<void> {
     const payload = JSON.stringify({ kind: "directed", command });
-    void this.redisService
-      .getClient()
-      .publish(directedChannel(nodeId), payload)
-      .catch((err) => {
-        console.error("[redis-event-bus] failed to publish directed command:", err);
-      });
+    await this.redisService.getClient().publish(directedChannel(nodeId), payload);
   }
 
   /** Registers a broadcast handler and returns its unsubscribe callback. */

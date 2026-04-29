@@ -21,12 +21,15 @@ export class LocalRuntimeEventBus implements RuntimeEventBus {
   }
 
   /** Emits a broadcast event synchronously within this process. */
-  broadcast(event: RuntimeBroadcastEvent): void {
+  async broadcast(event: RuntimeBroadcastEvent): Promise<void> {
     this.emitter.emit("broadcast", event);
   }
 
   /** Emits a directed command locally; node id is ignored in single-instance mode. */
-  sendDirected(_nodeId: string, command: RuntimeDirectedCommand): void {
+  async sendDirected(
+    _nodeId: string,
+    command: RuntimeDirectedCommand,
+  ): Promise<void> {
     this.emitter.emit("directed", command);
   }
 

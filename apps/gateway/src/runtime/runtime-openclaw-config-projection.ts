@@ -2,23 +2,22 @@ import { inject, injectable } from "inversify";
 import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
+import {
+  FeishuChannelConfigProjector,
+  type ChannelConfigProjector,
+  type ProjectedChannelConfig,
+} from "./channel-config-projector.js";
 import { RuntimeOwnershipState } from "./ownership-state.js";
 
 type ChannelBinding = ChannelBindingSnapshot;
-type FeishuConfig = NonNullable<OpenClawConfig["channels"]>["feishu"];
-
-/** Feishu channel credentials stored on a channel binding. */
-interface FeishuChannelConfig {
-  appId: string;
-  appSecret: string;
-  verificationToken?: string;
-  encryptKey?: string;
-  allowFrom?: string[];
-}
+type OpenClawChannels = NonNullable<OpenClawConfig["channels"]>;
 
 /** Projects currently owned channel bindings into OpenClaw plugin config. */
 @injectable()
 export class RuntimeOpenClawConfigProjection {
+  private readonly channelConfigProjectors: ChannelConfigProjector[] = [
+    new FeishuChannelConfigProjector(),
+  ];
   private openClawConfig: OpenClawConfig;
 
   /** Builds the initial projection from currently owned binding state. */
@@ -47,52 +46,54 @@ export class RuntimeOpenClawConfigProjection {
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
-  /** Converts enabled Feishu bindings into the OpenClaw channel config shape. */
+  /** Converts enabled bindings into the OpenClaw channel config shape. */
   private buildConfig(bindings: ChannelBinding[]): OpenClawConfig {
-    const feishuAccounts: Record<string, FeishuConfig> = {};
-    let defaultFeishuConfig: FeishuConfig | null = null;
+    const channels: Partial<OpenClawChannels> = {
+      feishu_doc: {},
+    };
 
     for (const binding of bindings) {
-      if (!binding.enabled || binding.channelType !== "feishu") {
-        continue;
-      }
+      for (const projector of this.channelConfigProjectors) {
+        const projected = projector.project(binding);
+        if (!projected) {
+          continue;
+        }
 
-      const accountConfig = this.buildFeishuAccountConfig(binding);
-      if (binding.accountId === "default") {
-        defaultFeishuConfig = accountConfig;
-      } else {
-        feishuAccounts[binding.accountId] = accountConfig;
+        this.mergeChannelConfig(channels, projected);
       }
     }
 
     return {
-      channels: {
-        feishu: {
-          ...(defaultFeishuConfig ?? {}),
-          ...(Object.keys(feishuAccounts).length > 0
-            ? { accounts: feishuAccounts }
-            : {}),
-        },
-        feishu_doc: {},
-      },
+      channels,
       agents: {},
     } as OpenClawConfig;
   }
 
-  /** Maps one gateway Feishu binding snapshot into one OpenClaw account config. */
-  private buildFeishuAccountConfig(binding: ChannelBinding): FeishuConfig {
-    const cfg = binding.channelConfig as unknown as FeishuChannelConfig;
-    return {
-      bindingId: binding.id,
-      appId: cfg.appId,
-      appSecret: cfg.appSecret,
-      encryptKey: cfg.encryptKey,
-      verificationToken: cfg.verificationToken,
-      enabled: true,
-      allowFrom: cfg.allowFrom ?? ["*"],
-      replyMode: "static",
-      dmPolicy: "open",
-      groupPolicy: "open",
+  /** Merges one projected account config into the proper OpenClaw channel entry. */
+  private mergeChannelConfig(
+    channels: Partial<OpenClawChannels>,
+    projected: ProjectedChannelConfig,
+  ): void {
+    const existing = (channels[projected.channelKey] ?? {}) as Record<
+      string,
+      unknown
+    >;
+
+    if (projected.accountId === "default") {
+      channels[projected.channelKey] = {
+        ...existing,
+        ...projected.config,
+      };
+      return;
+    }
+
+    const accounts = {
+      ...((existing["accounts"] as Record<string, unknown> | undefined) ?? {}),
+      [projected.accountId]: projected.config,
+    };
+    channels[projected.channelKey] = {
+      ...existing,
+      accounts,
     };
   }
 }
