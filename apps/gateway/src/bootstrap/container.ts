@@ -23,8 +23,6 @@ import {
   ClusterInfraLifecycle,
   ClusterInfraService,
 } from "../infra/cluster-infra-service.js";
-import { DomainEventBus } from "../infra/domain-event-bus.js";
-import { OutboxWorker } from "../infra/outbox-worker.js";
 import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
@@ -43,7 +41,6 @@ import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import { RuntimeCommandHandler } from "../runtime/runtime-command-handler.js";
-import { DomainEventBridge } from "../runtime/domain-event-bridge.js";
 import {
   LocalRuntimeEventBus,
   RuntimeEventBus,
@@ -105,8 +102,6 @@ function bindInfrastructure(
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelBindingStateRepository).toSelf().inSingletonScope();
   container.bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();
-  container.bind(DomainEventBus).toSelf().inSingletonScope();
-  container.bind(OutboxWorker).toSelf().inSingletonScope();
 
   if (config.clusterMode) {
     container.bind(RedisClientService).toSelf().inSingletonScope();
@@ -161,7 +156,6 @@ function bindRuntime(
 
   container.bind(RuntimeAssignmentCoordinator).toSelf().inSingletonScope();
   container.bind(RuntimeCommandHandler).toSelf().inSingletonScope();
-  container.bind(DomainEventBridge).toSelf().inSingletonScope();
 
   if (config.clusterMode) {
     bindClusterRuntime(container);

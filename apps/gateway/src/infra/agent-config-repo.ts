@@ -1,6 +1,5 @@
 import type { AgentConfigRepository, AgentConfigSnapshot } from "@a2a-channels/domain";
 import { AgentConfigAggregate } from "@a2a-channels/domain";
-import type { AgentEvent } from "@a2a-channels/domain";
 import { injectable } from "inversify";
 
 import { prisma } from "../store/prisma.js";
@@ -21,10 +20,6 @@ function mapPrismaRowToSnapshot(row: {
     description: row.description ?? undefined,
     createdAt: row.createdAt.toISOString(),
   };
-}
-
-function shouldWriteOutbox(event: AgentEvent): boolean {
-  return event.eventType !== "AgentRegistered.v1";
 }
 
 /** Prisma-backed current-state repository for AgentConfig aggregates. */
@@ -79,18 +74,6 @@ export class AgentConfigStateRepository implements AgentConfigRepository {
         });
       }
 
-      const outboxEvents = pending.filter(shouldWriteOutbox);
-      if (outboxEvents.length > 0) {
-        await tx.outboxEvent.createMany({
-          data: outboxEvents.map((event) => ({
-            aggregateType: "AgentConfig",
-            aggregateId: event.agentId,
-            eventType: event.eventType,
-            payload: JSON.stringify(event),
-            occurredAt: new Date(event.occurredAt),
-          })),
-        });
-      }
     });
 
     aggregate.clearPendingEvents();

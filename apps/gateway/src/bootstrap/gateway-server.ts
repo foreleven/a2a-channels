@@ -7,7 +7,6 @@ import {
   ClusterInfraLifecycle,
   type ClusterInfraLifecyclePort,
 } from "../infra/cluster-infra-service.js";
-import { OutboxWorker } from "../infra/outbox-worker.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 
 interface GatewayLogger {
@@ -51,8 +50,6 @@ export class GatewayServer {
     private readonly config: GatewayConfigService,
     @inject(GatewayApp)
     private readonly app: GatewayApp,
-    @inject(OutboxWorker)
-    private readonly outboxWorker: Pick<OutboxWorker, "start" | "stop">,
     @inject(RelayRuntime)
     private readonly relayRuntime: Pick<RelayRuntime, "bootstrap" | "shutdown">,
     @unmanaged()
@@ -72,7 +69,6 @@ export class GatewayServer {
 
     const serve = options.serve ?? this.defaultServe;
 
-    this.outboxWorker.start();
     this.logger.info(
       `🚀 A2A Channels Gateway starting on http://localhost:${this.config.port}`,
     );
@@ -81,7 +77,6 @@ export class GatewayServer {
       await this.clusterInfra?.connect();
       await this.relayRuntime.bootstrap();
     } catch (error) {
-      await this.outboxWorker.stop();
       await this.clusterInfra?.disconnect();
       throw error;
     }
@@ -100,7 +95,6 @@ export class GatewayServer {
         },
       );
     } catch (error) {
-      await this.outboxWorker.stop();
       await this.relayRuntime.shutdown();
       throw error;
     }
@@ -112,7 +106,6 @@ export class GatewayServer {
     this.server?.close();
     this.server = null;
 
-    await this.outboxWorker.stop();
     await this.relayRuntime.shutdown();
     await this.clusterInfra?.disconnect();
   }

@@ -1,7 +1,5 @@
-import type { DomainEvent } from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
 
-import { DomainEventBus } from "../../infra/domain-event-bus.js";
 import { RuntimeScheduler } from "../scheduler.js";
 import { RuntimeOwnershipGate, type OwnershipGate } from "../ownership-gate.js";
 import { RuntimeAssignmentCoordinator } from "../runtime-assignment-coordinator.js";
@@ -15,32 +13,19 @@ export class LeaderScheduler implements RuntimeScheduler {
   private stopped = true;
   private reconciling = false;
   private leaderLease: { bindingId: string; token: string } | null = null;
-  private readonly eventHandlers = new Map<
-    DomainEvent["eventType"],
-    () => void
-  >();
 
-  /** Receives coordinator, domain event bus, and lease gate used for leader-only scans. */
+  /** Receives coordinator and lease gate used for leader-only scans. */
   constructor(
     @inject(RuntimeAssignmentCoordinator)
     private readonly coordinator: RuntimeAssignmentCoordinator,
-    @inject(DomainEventBus)
-    private readonly eventBus: DomainEventBus,
     @inject(RuntimeOwnershipGate)
     private readonly ownershipGate: OwnershipGate,
   ) {}
 
-  /** Subscribes to durable domain events and starts periodic leader reconciliation. */
+  /** Starts periodic leader reconciliation. */
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
-
-    const scheduleReconcile = () => this.scheduleReconcile();
-    for (const eventType of RUNTIME_EVENT_TYPES) {
-      const handler = scheduleReconcile;
-      this.eventHandlers.set(eventType, handler);
-      this.eventBus.on(eventType, handler);
-    }
 
     this.intervalTimer = setInterval(() => this.scheduleReconcile(), 30_000);
     void this.reconcile();
@@ -53,11 +38,6 @@ export class LeaderScheduler implements RuntimeScheduler {
     if (this.intervalTimer) clearInterval(this.intervalTimer);
     this.debounceTimer = null;
     this.intervalTimer = null;
-
-    for (const [eventType, handler] of this.eventHandlers) {
-      this.eventBus.off(eventType, handler);
-    }
-    this.eventHandlers.clear();
 
     while (this.reconciling) {
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -126,13 +106,5 @@ export class LeaderScheduler implements RuntimeScheduler {
     }
   }
 }
-
-const RUNTIME_EVENT_TYPES: DomainEvent["eventType"][] = [
-  "ChannelBindingCreated.v1",
-  "ChannelBindingUpdated.v1",
-  "ChannelBindingDeleted.v1",
-  "AgentUpdated.v1",
-  "AgentDeleted.v1",
-] as const;
 
 const LEADER_LEASE_KEY = "runtime-assignment-coordinator";

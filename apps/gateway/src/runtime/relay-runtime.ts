@@ -7,7 +7,6 @@ import type {
 import { GatewayConfigService } from "../bootstrap/config.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { ConnectionManager } from "./connection-manager.js";
-import { DomainEventBridge } from "./domain-event-bridge.js";
 import { OpenClawRuntimeAssembler } from "./openclaw-runtime-assembler.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
@@ -53,8 +52,6 @@ export class RelayRuntime {
     connectionManager: ConnectionManager,
     @inject(RuntimeScheduler)
     private readonly scheduler: RuntimeScheduler,
-    @inject(DomainEventBridge)
-    private readonly domainEventBridge: DomainEventBridge,
   ) {
     this.connectionManager = connectionManager;
 
@@ -139,8 +136,6 @@ export class RelayRuntime {
       await this.scheduler.stop();
     }
 
-    this.domainEventBridge.stop();
-
     if (!this.bootstrapped) {
       return;
     }
@@ -167,8 +162,6 @@ export class RelayRuntime {
 
       await this.bootstrapRelay();
       relayBootstrapped = true;
-
-      this.domainEventBridge.start(this.config.nodeId);
 
       this.scheduler.start();
       schedulerStarted = true;
@@ -217,8 +210,6 @@ export class RelayRuntime {
         cleanupErrors.push(cleanupError);
       }
     }
-
-    this.domainEventBridge.stop();
 
     if (context.relayBootstrapped) {
       try {

@@ -34,7 +34,7 @@ import { GatewayServer } from "./bootstrap/gateway-server.js";
 const container = buildGatewayContainer();
 
 // GatewayServer owns process-level lifetime. index.ts should not reach into
-// HTTP, outbox, scheduler, or runtime collaborators directly.
+// HTTP, scheduler, or runtime collaborators directly.
 const server = container.get(GatewayServer);
 await server.start();
 
