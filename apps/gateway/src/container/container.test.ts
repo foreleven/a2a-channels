@@ -18,11 +18,13 @@ import {
 import type { GatewayConfigSnapshot } from "../bootstrap/config.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
 import { GatewayServer } from "../bootstrap/gateway-server.js";
+import {
+  type ServiceContribution,
+  ServiceContributionToken,
+} from "../bootstrap/service-contribution.js";
 import { GatewayApp } from "../http/app.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
-import { DomainEventBus } from "../infra/domain-event-bus.js";
-import { OutboxWorker } from "../infra/outbox-worker.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
 import { RuntimeOwnershipState } from "../runtime/ownership-state.js";
 import { ConnectionManager } from "../runtime/connection-manager.js";
@@ -31,7 +33,6 @@ import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import { RuntimeCommandHandler } from "../runtime/runtime-command-handler.js";
-import { DomainEventBridge } from "../runtime/domain-event-bridge.js";
 import { RuntimeEventBus } from "../runtime/event-transport/index.js";
 import { RuntimeScheduler } from "../runtime/scheduler.js";
 import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
@@ -42,6 +43,7 @@ import { AgentTransportToken } from "../runtime/transport-tokens.js";
 import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
 import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
 import { RedisRuntimeEventBus } from "../runtime/cluster/redis-runtime-event-bus.js";
+import { RedisClientService } from "../infra/redis-client.js";
 
 describe("buildGatewayContainer", () => {
   test("resolves typed config", async () => {
@@ -119,14 +121,6 @@ describe("buildGatewayContainer", () => {
       container.get(ChannelBindingStateRepository),
     );
     assert.strictEqual(
-      container.get(DomainEventBus),
-      container.get(DomainEventBus),
-    );
-    assert.strictEqual(
-      container.get(OutboxWorker),
-      container.get(OutboxWorker),
-    );
-    assert.strictEqual(
       container.get<AgentConfigRepository>(AgentConfigRepository),
       container.get<AgentConfigRepository>(AgentConfigRepository),
     );
@@ -159,16 +153,6 @@ describe("buildGatewayContainer", () => {
     const missingId = randomUUID();
     assert.equal(await channelBindingService.getById(missingId), null);
     assert.equal(await agentService.getById(missingId), null);
-  });
-
-  test("container builds once and can start the outbox worker", async () => {
-    const container = buildGatewayContainer(buildGatewayConfig({ port: 7895 }));
-    const worker = container.get(OutboxWorker);
-
-    worker.start();
-    await worker.stop();
-
-    assert.ok(worker);
   });
 
   test("resolves relay runtime lifecycle", () => {
@@ -216,6 +200,25 @@ describe("buildGatewayContainer", () => {
     assert.ok(container.get(RuntimeEventBus) instanceof RedisRuntimeEventBus);
   });
 
+  test("binds Redis infrastructure as service contributions in cluster mode", () => {
+    const container = buildGatewayContainer(
+      buildGatewayConfig({
+        port: 7896,
+        clusterMode: true,
+        redisUrl: "redis://localhost:6379",
+      }),
+    );
+
+    const services = container.getAll<ServiceContribution>(
+      ServiceContributionToken,
+    );
+
+    assert.deepEqual(
+      services.map((service) => service.constructor),
+      [RedisClientService, RedisRuntimeEventBus],
+    );
+  });
+
   test("resolves runtime singleton collaborators through direct singleton bindings", () => {
     const container = buildGatewayContainer(buildGatewayConfig({ port: 7898 }));
 
@@ -250,10 +253,6 @@ describe("buildGatewayContainer", () => {
     assert.strictEqual(
       container.get(RuntimeCommandHandler),
       container.get(RuntimeCommandHandler),
-    );
-    assert.strictEqual(
-      container.get(DomainEventBridge),
-      container.get(DomainEventBridge),
     );
     assert.strictEqual(
       container.get(RuntimeEventBus),

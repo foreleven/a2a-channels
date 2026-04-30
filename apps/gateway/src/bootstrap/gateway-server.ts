@@ -1,13 +1,12 @@
 import { serve as honoServe, type ServerType } from "@hono/node-server";
-import { inject, injectable, optional, unmanaged } from "inversify";
+import { inject, injectable, multiInject, optional, unmanaged } from "inversify";
 
 import { GatewayConfigService } from "./config.js";
-import { GatewayApp } from "../http/app.js";
 import {
-  ClusterInfraLifecycle,
-  type ClusterInfraLifecyclePort,
-} from "../infra/cluster-infra-service.js";
-import { OutboxWorker } from "../infra/outbox-worker.js";
+  ServiceContributionToken,
+  type ServiceContribution,
+} from "./service-contribution.js";
+import { GatewayApp } from "../http/app.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 
 interface GatewayLogger {
@@ -45,21 +44,20 @@ export class GatewayServer {
   private server: ServerType | null = null;
   private logger: GatewayLogger = defaultLogger;
   private shuttingDown = false;
+  private startedServices: ServiceContribution[] = [];
 
   constructor(
     @inject(GatewayConfigService)
     private readonly config: GatewayConfigService,
     @inject(GatewayApp)
     private readonly app: GatewayApp,
-    @inject(OutboxWorker)
-    private readonly outboxWorker: Pick<OutboxWorker, "start" | "stop">,
     @inject(RelayRuntime)
     private readonly relayRuntime: Pick<RelayRuntime, "bootstrap" | "shutdown">,
     @unmanaged()
     private readonly defaultServe: typeof honoServe = honoServe,
-    @inject(ClusterInfraLifecycle)
+    @multiInject(ServiceContributionToken)
     @optional()
-    private readonly clusterInfra: ClusterInfraLifecyclePort | null = null,
+    private readonly serviceContributions: ServiceContribution[] = [],
   ) {}
 
   async start(options: GatewayServerStartOptions = {}): Promise<void> {
@@ -72,17 +70,15 @@ export class GatewayServer {
 
     const serve = options.serve ?? this.defaultServe;
 
-    this.outboxWorker.start();
     this.logger.info(
       `🚀 A2A Channels Gateway starting on http://localhost:${this.config.port}`,
     );
 
     try {
-      await this.clusterInfra?.connect();
+      await this.startServiceContributions();
       await this.relayRuntime.bootstrap();
     } catch (error) {
-      await this.outboxWorker.stop();
-      await this.clusterInfra?.disconnect();
+      await this.stopStartedServicesAfterFailedStart();
       throw error;
     }
 
@@ -100,8 +96,8 @@ export class GatewayServer {
         },
       );
     } catch (error) {
-      await this.outboxWorker.stop();
       await this.relayRuntime.shutdown();
+      await this.stopStartedServicesAfterFailedStart();
       throw error;
     }
   }
@@ -112,8 +108,31 @@ export class GatewayServer {
     this.server?.close();
     this.server = null;
 
-    await this.outboxWorker.stop();
     await this.relayRuntime.shutdown();
-    await this.clusterInfra?.disconnect();
+    await this.stopStartedServices();
+  }
+
+  private async startServiceContributions(): Promise<void> {
+    this.startedServices = [];
+    for (const service of this.serviceContributions) {
+      await service.start();
+      this.startedServices.push(service);
+    }
+  }
+
+  private async stopStartedServices(): Promise<void> {
+    const services = [...this.startedServices].reverse();
+    this.startedServices = [];
+    for (const service of services) {
+      await service.stop();
+    }
+  }
+
+  private async stopStartedServicesAfterFailedStart(): Promise<void> {
+    try {
+      await this.stopStartedServices();
+    } catch (error) {
+      this.logger.error("[gateway] failed to stop service contribution", error);
+    }
   }
 }

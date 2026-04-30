@@ -19,12 +19,6 @@ import { AgentRoutes } from "../http/routes/agents.js";
 import { ChannelRoutes } from "../http/routes/channels.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
-import {
-  ClusterInfraLifecycle,
-  ClusterInfraService,
-} from "../infra/cluster-infra-service.js";
-import { DomainEventBus } from "../infra/domain-event-bus.js";
-import { OutboxWorker } from "../infra/outbox-worker.js";
 import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
@@ -43,7 +37,6 @@ import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import { RuntimeCommandHandler } from "../runtime/runtime-command-handler.js";
-import { DomainEventBridge } from "../runtime/domain-event-bridge.js";
 import {
   LocalRuntimeEventBus,
   RuntimeEventBus,
@@ -57,6 +50,10 @@ import {
   GatewayConfigOverrides,
   GatewayConfigService,
 } from "./config.js";
+import {
+  type ServiceContribution,
+  ServiceContributionToken,
+} from "./service-contribution.js";
 
 const DEFAULT_GATEWAY_WEB_DIR = fileURLToPath(
   new URL("../../web", import.meta.url),
@@ -105,16 +102,16 @@ function bindInfrastructure(
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelBindingStateRepository).toSelf().inSingletonScope();
   container.bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();
-  container.bind(DomainEventBus).toSelf().inSingletonScope();
-  container.bind(OutboxWorker).toSelf().inSingletonScope();
 
   if (config.clusterMode) {
     container.bind(RedisClientService).toSelf().inSingletonScope();
     container.bind(RedisRuntimeEventBus).toSelf().inSingletonScope();
-    container.bind(ClusterInfraService).toSelf().inSingletonScope();
     container
-      .bind(ClusterInfraLifecycle)
-      .toService(ClusterInfraService);
+      .bind<ServiceContribution>(ServiceContributionToken)
+      .toService(RedisClientService);
+    container
+      .bind<ServiceContribution>(ServiceContributionToken)
+      .toService(RedisRuntimeEventBus);
   }
 }
 
@@ -161,7 +158,6 @@ function bindRuntime(
 
   container.bind(RuntimeAssignmentCoordinator).toSelf().inSingletonScope();
   container.bind(RuntimeCommandHandler).toSelf().inSingletonScope();
-  container.bind(DomainEventBridge).toSelf().inSingletonScope();
 
   if (config.clusterMode) {
     bindClusterRuntime(container);

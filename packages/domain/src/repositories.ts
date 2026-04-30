@@ -2,7 +2,7 @@
  * Repository interfaces for the domain layer.
  *
  * These are pure interfaces – the concrete implementations live in
- * apps/gateway/src/infra/ and depend on Prisma state tables plus outbox writes.
+ * apps/gateway/src/infra/ and depend on Prisma state tables.
  */
 
 import type {
@@ -46,8 +46,7 @@ export interface ChannelBindingRepository {
   ): Promise<ChannelBindingSnapshot | null>;
 
   /**
-   * Persist current aggregate state and write runtime-relevant events to outbox
-   * atomically, then clear pending events.
+   * Persist current aggregate state, then clear pending events.
    */
   save(aggregate: ChannelBindingAggregate): Promise<void>;
 }

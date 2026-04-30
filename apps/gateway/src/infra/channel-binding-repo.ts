@@ -122,15 +122,6 @@ export class ChannelBindingStateRepository implements ChannelBindingRepository {
         });
       }
 
-      await tx.outboxEvent.createMany({
-        data: pending.map((event) => ({
-          aggregateType: "ChannelBinding",
-          aggregateId: event.bindingId,
-          eventType: event.eventType,
-          payload: JSON.stringify(event),
-          occurredAt: new Date(event.occurredAt),
-        })),
-      });
     });
 
     aggregate.clearPendingEvents();
