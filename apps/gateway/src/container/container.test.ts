@@ -18,6 +18,10 @@ import {
 import type { GatewayConfigSnapshot } from "../bootstrap/config.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
 import { GatewayServer } from "../bootstrap/gateway-server.js";
+import {
+  type ServiceContribution,
+  ServiceContributionToken,
+} from "../bootstrap/service-contribution.js";
 import { GatewayApp } from "../http/app.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
@@ -39,6 +43,7 @@ import { AgentTransportToken } from "../runtime/transport-tokens.js";
 import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
 import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
 import { RedisRuntimeEventBus } from "../runtime/cluster/redis-runtime-event-bus.js";
+import { RedisClientService } from "../infra/redis-client.js";
 
 describe("buildGatewayContainer", () => {
   test("resolves typed config", async () => {
@@ -193,6 +198,25 @@ describe("buildGatewayContainer", () => {
       container.get(RuntimeOwnershipGate) instanceof RedisOwnershipGate,
     );
     assert.ok(container.get(RuntimeEventBus) instanceof RedisRuntimeEventBus);
+  });
+
+  test("binds Redis infrastructure as service contributions in cluster mode", () => {
+    const container = buildGatewayContainer(
+      buildGatewayConfig({
+        port: 7896,
+        clusterMode: true,
+        redisUrl: "redis://localhost:6379",
+      }),
+    );
+
+    const services = container.getAll<ServiceContribution>(
+      ServiceContributionToken,
+    );
+
+    assert.deepEqual(
+      services.map((service) => service.constructor),
+      [RedisClientService, RedisRuntimeEventBus],
+    );
   });
 
   test("resolves runtime singleton collaborators through direct singleton bindings", () => {

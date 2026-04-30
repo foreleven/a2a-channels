@@ -2,16 +2,17 @@ import { Redis } from "ioredis";
 import { inject, injectable } from "inversify";
 
 import { GatewayConfigService } from "../bootstrap/config.js";
+import type { ServiceContribution } from "../bootstrap/service-contribution.js";
 
 /**
  * Redis client lifecycle wrapper.
  *
  * Created once at process start and shared across all Redis-backed infra
- * services. Callers must call connect() before the first use and disconnect()
- * on graceful shutdown.
+ * services. GatewayServer starts it before runtime bootstrap and stops it
+ * during graceful shutdown.
  */
 @injectable()
-export class RedisClientService {
+export class RedisClientService implements ServiceContribution {
   private client: Redis | null = null;
 
   constructor(
@@ -21,7 +22,7 @@ export class RedisClientService {
 
   /**
    * Returns the shared Redis client, creating it lazily on first access.
-   * Prefer connect() during bootstrap to surface connection errors early.
+   * Prefer start() during bootstrap to surface connection errors early.
    */
   getClient(): Redis {
     if (!this.client) {
@@ -31,13 +32,13 @@ export class RedisClientService {
   }
 
   /** Opens the connection eagerly so boot-time failures are surfaced early. */
-  async connect(): Promise<void> {
+  async start(): Promise<void> {
     const client = this.getClient();
     // ioredis connects lazily; ping forces an actual round-trip.
     await client.ping();
   }
 
-  async disconnect(): Promise<void> {
+  async stop(): Promise<void> {
     if (this.client) {
       await this.client.quit();
       this.client = null;

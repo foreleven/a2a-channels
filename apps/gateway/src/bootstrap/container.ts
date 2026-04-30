@@ -19,10 +19,6 @@ import { AgentRoutes } from "../http/routes/agents.js";
 import { ChannelRoutes } from "../http/routes/channels.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
-import {
-  ClusterInfraLifecycle,
-  ClusterInfraService,
-} from "../infra/cluster-infra-service.js";
 import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
@@ -54,6 +50,10 @@ import {
   GatewayConfigOverrides,
   GatewayConfigService,
 } from "./config.js";
+import {
+  type ServiceContribution,
+  ServiceContributionToken,
+} from "./service-contribution.js";
 
 const DEFAULT_GATEWAY_WEB_DIR = fileURLToPath(
   new URL("../../web", import.meta.url),
@@ -106,10 +106,12 @@ function bindInfrastructure(
   if (config.clusterMode) {
     container.bind(RedisClientService).toSelf().inSingletonScope();
     container.bind(RedisRuntimeEventBus).toSelf().inSingletonScope();
-    container.bind(ClusterInfraService).toSelf().inSingletonScope();
     container
-      .bind(ClusterInfraLifecycle)
-      .toService(ClusterInfraService);
+      .bind<ServiceContribution>(ServiceContributionToken)
+      .toService(RedisClientService);
+    container
+      .bind<ServiceContribution>(ServiceContributionToken)
+      .toService(RedisRuntimeEventBus);
   }
 }
 
