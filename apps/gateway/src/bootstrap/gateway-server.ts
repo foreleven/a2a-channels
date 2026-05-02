@@ -1,5 +1,11 @@
 import { serve as honoServe, type ServerType } from "@hono/node-server";
-import { inject, injectable, multiInject, optional, unmanaged } from "inversify";
+import {
+  inject,
+  injectable,
+  multiInject,
+  optional,
+  unmanaged,
+} from "inversify";
 
 import { GatewayConfigService } from "./config.js";
 import {
@@ -43,7 +49,6 @@ const defaultLogger: GatewayLogger = {
 export class GatewayServer {
   private server: ServerType | null = null;
   private logger: GatewayLogger = defaultLogger;
-  private shuttingDown = false;
   private startedServices: ServiceContribution[] = [];
 
   constructor(
@@ -66,7 +71,6 @@ export class GatewayServer {
     }
 
     this.logger = options.logger ?? defaultLogger;
-    this.shuttingDown = false;
 
     const serve = options.serve ?? this.defaultServe;
 
@@ -103,8 +107,6 @@ export class GatewayServer {
   }
 
   async shutdown(): Promise<void> {
-    this.shuttingDown = true;
-
     this.server?.close();
     this.server = null;
 

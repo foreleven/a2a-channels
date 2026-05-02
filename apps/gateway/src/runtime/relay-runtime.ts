@@ -29,7 +29,6 @@ import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-proje
 export class RelayRuntime {
   readonly runtime: OpenClawPluginRuntime;
   readonly pluginHost: OpenClawPluginHost;
-  readonly connectionManager: ConnectionManager;
   private bootstrapPromise: Promise<void> | null = null;
   private bootstrapped = false;
   private schedulerStarted = false;
@@ -46,15 +45,13 @@ export class RelayRuntime {
     private readonly agentRegistry: RuntimeAgentRegistry,
     @inject(RuntimeOpenClawConfigProjection)
     private readonly openClawConfigProjection: RuntimeOpenClawConfigProjection,
+    @inject(ConnectionManager)
+    private readonly connectionManager: ConnectionManager,
     @inject(OpenClawRuntimeAssembler)
     runtimeAssembler: OpenClawRuntimeAssembler,
-    @inject(ConnectionManager)
-    connectionManager: ConnectionManager,
     @inject(RuntimeScheduler)
     private readonly scheduler: RuntimeScheduler,
   ) {
-    this.connectionManager = connectionManager;
-
     // The OpenClaw runtime reads projected config on demand instead of owning
     // its own durable config file in this gateway.
     const assembly = runtimeAssembler.assemble({
@@ -76,7 +73,8 @@ export class RelayRuntime {
     this.connectionManager.initialize({
       host: this.pluginHost,
       getAgentClient: (agentId) => this.agentRegistry.getAgentClient(agentId),
-      emitMessageInbound: (event) => this.runtime.emit("message:inbound", event),
+      emitMessageInbound: (event) =>
+        this.runtime.emit("message:inbound", event),
       emitMessageOutbound: (event) =>
         this.runtime.emit("message:outbound", event),
       callbacks: {
