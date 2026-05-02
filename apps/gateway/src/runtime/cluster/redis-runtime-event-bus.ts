@@ -2,6 +2,7 @@ import type { Redis } from "ioredis";
 import { inject, injectable } from "inversify";
 
 import { GatewayConfigService } from "../../bootstrap/config.js";
+import type { ServiceContribution } from "../../bootstrap/service-contribution.js";
 import { RedisClientService } from "../../infra/redis-client.js";
 import type { RuntimeEventBus } from "../event-transport/runtime-event-bus.js";
 import type {
@@ -25,10 +26,10 @@ function directedChannel(nodeId: string): string {
  * Directed commands are published to a per-node channel so only the target
  * node receives them.
  *
- * Call connect() before first use and disconnect() on shutdown.
+ * GatewayServer starts it before runtime bootstrap and stops it on shutdown.
  */
 @injectable()
-export class RedisRuntimeEventBus implements RuntimeEventBus {
+export class RedisRuntimeEventBus implements RuntimeEventBus, ServiceContribution {
   private subscriber: Redis | null = null;
   private broadcastHandlers: Array<(e: RuntimeBroadcastEvent) => void> = [];
   private directedHandlers: Array<(c: RuntimeDirectedCommand) => void> = [];
@@ -42,7 +43,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
   ) {}
 
   /** Opens the subscriber connection and subscribes to broadcast and directed channels. */
-  async connect(): Promise<void> {
+  async start(): Promise<void> {
     if (this.subscriber) {
       return;
     }
@@ -71,7 +72,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus {
   }
 
   /** Closes the subscriber connection used for runtime events. */
-  async disconnect(): Promise<void> {
+  async stop(): Promise<void> {
     if (this.subscriber) {
       await this.subscriber.quit();
       this.subscriber = null;

@@ -1,9 +1,8 @@
 import { injectable, multiInject } from "inversify";
 import type {
-  AgentClientHandle,
   AgentTransport,
 } from "@a2a-channels/agent-transport";
-import { TransportRegistry } from "@a2a-channels/agent-transport";
+import { AgentClient, TransportRegistry } from "@a2a-channels/agent-transport";
 import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentTransportToken } from "./transport-tokens.js";
@@ -23,31 +22,31 @@ export class AgentClientFactory {
     }
   }
 
-  /** Creates a lightweight agent client handle for the configured agent transport. */
-  create(agent: AgentConfigSnapshot): AgentClientHandle {
+  /** Creates an agent client for the configured agent transport. */
+  create(agent: AgentConfigSnapshot): AgentClient {
     const transport = this.transportRegistry.resolve(
       agent.protocol ?? "a2a",
     );
 
-    return {
+    return new AgentClient({
       agentUrl: agent.url,
       protocol: agent.protocol ?? transport.protocol,
-      send: (request) => transport.send(agent.url, request),
-    };
+      transport,
+    });
   }
 
   /** Starts a client when its transport exposes startup work. */
-  async start(client: AgentClientHandle): Promise<void> {
-    await client.start?.();
+  async start(client: AgentClient): Promise<void> {
+    await client.start();
   }
 
   /** Stops a client when its transport exposes cleanup work. */
-  async stop(client: AgentClientHandle): Promise<void> {
-    await client.stop?.();
+  async stop(client: AgentClient): Promise<void> {
+    await client.stop();
   }
 
   /** Stops a set of clients concurrently during registry cleanup. */
-  async stopAll(clients: Iterable<AgentClientHandle>): Promise<void> {
+  async stopAll(clients: Iterable<AgentClient>): Promise<void> {
     await Promise.all(Array.from(clients, (client) => this.stop(client)));
   }
 }

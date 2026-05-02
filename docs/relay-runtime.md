@@ -23,7 +23,6 @@ RuntimeScheduler
 - publish bootstrapping / ready / stopping / stopped snapshots
 - assemble `OpenClawPluginRuntime` and `OpenClawPluginHost`
 - initialize `ConnectionManager` with plugin host, agent client resolver, and callbacks
-- start/stop `DomainEventBridge`
 - start/stop `RuntimeScheduler`
 - clean up partially-started runtime pieces if bootstrap fails
 - publish an error snapshot when bootstrap fails
@@ -39,10 +38,8 @@ for `RelayRuntime.bootstrap()` before opening the HTTP listener.
 
 ```text
 GatewayServer.start()
-  -> OutboxWorker.start()
   -> RelayRuntime.bootstrap()
        -> RuntimeNodeStateRepository.upsert(node metadata)
-       -> DomainEventBridge.start(nodeId)
        -> RuntimeScheduler.start()
   -> Hono listen
 ```
@@ -55,8 +52,7 @@ connections. Binding recovery is driven by the scheduler's reconciliation path.
 Bindings are attached, refreshed, or detached through the assignment boundary:
 
 ```text
-Domain event / startup wakeup
-  -> RuntimeEventBus
+Startup / periodic scheduler wakeup
   -> LocalScheduler
   -> RuntimeAssignmentCoordinator.reconcile()
   -> RuntimeCommandHandler.handle(command)
@@ -98,10 +94,8 @@ connected -> error -> reconnect backoff -> connecting
 
 ```text
 GatewayServer.shutdown()
-  -> OutboxWorker.stop()
   -> RelayRuntime.shutdown()
        -> RuntimeScheduler.stop()
-       -> DomainEventBridge.stop()
        -> RuntimeAssignmentService.clearReconnectsForOwnedBindings()
        -> ConnectionManager.stopAllConnections()
        -> RuntimeAgentRegistry.stopAllClients()

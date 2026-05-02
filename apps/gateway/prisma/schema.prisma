@@ -51,17 +51,3 @@ model RuntimeNode {
 
   @@map("runtime_nodes")
 }
-
-model OutboxEvent {
-  id            String    @id @default(uuid())
-  aggregateType String    @map("aggregate_type")
-  aggregateId   String    @map("aggregate_id")
-  eventType     String    @map("event_type")
-  payload       String
-  occurredAt    DateTime  @map("occurred_at")
-  processedAt   DateTime? @map("processed_at")
-
-  @@index([processedAt, occurredAt])
-  @@index([aggregateType, aggregateId])
-  @@map("outbox_events")
-}

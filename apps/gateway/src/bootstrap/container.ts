@@ -8,6 +8,10 @@ import {
   type AgentTransport,
 } from "@a2a-channels/agent-transport";
 import {
+  OpenClawPluginHost,
+  OpenClawPluginRuntime,
+} from "@a2a-channels/openclaw-compat";
+import {
   AgentConfigRepository,
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
@@ -19,14 +23,9 @@ import { AgentRoutes } from "../http/routes/agents.js";
 import { ChannelRoutes } from "../http/routes/channels.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
-import {
-  ClusterInfraLifecycle,
-  ClusterInfraService,
-} from "../infra/cluster-infra-service.js";
-import { DomainEventBus } from "../infra/domain-event-bus.js";
-import { OutboxWorker } from "../infra/outbox-worker.js";
 import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
+import { registerAllPlugins } from "../register-plugins.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
 import { AgentClientFactory } from "../runtime/agent-clients.js";
 import { RuntimeScheduler } from "../runtime/scheduler.js";
@@ -36,14 +35,12 @@ import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
 import { RedisRuntimeEventBus } from "../runtime/cluster/redis-runtime-event-bus.js";
 import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
 import { LocalScheduler } from "../runtime/local/local-scheduler.js";
-import { OpenClawRuntimeAssembler } from "../runtime/openclaw-runtime-assembler.js";
 import { RuntimeOwnershipState } from "../runtime/ownership-state.js";
 import { RuntimeOwnershipGate } from "../runtime/ownership-gate.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import { RuntimeCommandHandler } from "../runtime/runtime-command-handler.js";
-import { DomainEventBridge } from "../runtime/domain-event-bridge.js";
 import {
   LocalRuntimeEventBus,
   RuntimeEventBus,
@@ -57,6 +54,10 @@ import {
   GatewayConfigOverrides,
   GatewayConfigService,
 } from "./config.js";
+import {
+  type ServiceContribution,
+  ServiceContributionToken,
+} from "./service-contribution.js";
 
 const DEFAULT_GATEWAY_WEB_DIR = fileURLToPath(
   new URL("../../web", import.meta.url),
@@ -105,16 +106,16 @@ function bindInfrastructure(
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelBindingStateRepository).toSelf().inSingletonScope();
   container.bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();
-  container.bind(DomainEventBus).toSelf().inSingletonScope();
-  container.bind(OutboxWorker).toSelf().inSingletonScope();
 
   if (config.clusterMode) {
     container.bind(RedisClientService).toSelf().inSingletonScope();
     container.bind(RedisRuntimeEventBus).toSelf().inSingletonScope();
-    container.bind(ClusterInfraService).toSelf().inSingletonScope();
     container
-      .bind(ClusterInfraLifecycle)
-      .toService(ClusterInfraService);
+      .bind<ServiceContribution>(ServiceContributionToken)
+      .toService(RedisClientService);
+    container
+      .bind<ServiceContribution>(ServiceContributionToken)
+      .toService(RedisRuntimeEventBus);
   }
 }
 
@@ -137,7 +138,6 @@ function bindRuntime(
   // - AssignmentService mutates the local runtime aggregate.
   // - ConnectionManager performs the imperative plugin/transport work.
 
-  container.bind(OpenClawRuntimeAssembler).toSelf().inSingletonScope();
   container.bind(ConnectionManager).toSelf().inSingletonScope();
 
   container
@@ -153,6 +153,30 @@ function bindRuntime(
   container.bind(AgentClientRegistry).toSelf().inSingletonScope();
   container.bind(RuntimeAgentRegistry).toSelf().inSingletonScope();
   container.bind(RuntimeOpenClawConfigProjection).toSelf().inSingletonScope();
+  container
+    .bind(OpenClawPluginRuntime)
+    .toDynamicValue(() =>
+      new OpenClawPluginRuntime({
+        config: {
+          loadConfig: () =>
+            container.get(RuntimeOpenClawConfigProjection).getConfig(),
+          writeConfigFile: async () => {
+            throw new Error("Not implemented");
+          },
+        },
+      }),
+    )
+    .inSingletonScope();
+  container
+    .bind(OpenClawPluginHost)
+    .toDynamicValue(() => {
+      const host = new OpenClawPluginHost(
+        container.get(OpenClawPluginRuntime),
+      );
+      registerAllPlugins(host);
+      return host;
+    })
+    .inSingletonScope();
 
   container.bind(RuntimeOwnershipState).toSelf().inSingletonScope();
 
@@ -161,7 +185,6 @@ function bindRuntime(
 
   container.bind(RuntimeAssignmentCoordinator).toSelf().inSingletonScope();
   container.bind(RuntimeCommandHandler).toSelf().inSingletonScope();
-  container.bind(DomainEventBridge).toSelf().inSingletonScope();
 
   if (config.clusterMode) {
     bindClusterRuntime(container);
@@ -177,23 +200,8 @@ function bindLocalRuntime(container: Container): void {
     .inSingletonScope();
   container.bind(RuntimeEventBus).to(LocalRuntimeEventBus).inSingletonScope();
 
-  container
-    .bind(LocalScheduler)
-    .toDynamicValue(() => new LocalScheduler())
-    .inSingletonScope();
-  container
-    .bind(RuntimeScheduler)
-    .toDynamicValue(() =>
-      container
-        .get(LocalScheduler)
-        .configure(
-          container.get(RuntimeAssignmentService),
-          container.get(RuntimeCommandHandler),
-          container.get(RuntimeEventBus),
-          container.get(RuntimeAssignmentCoordinator),
-        ),
-    )
-    .inSingletonScope();
+  container.bind(LocalScheduler).toSelf().inSingletonScope();
+  container.bind(RuntimeScheduler).toService(LocalScheduler);
 }
 
 function bindClusterRuntime(container: Container): void {

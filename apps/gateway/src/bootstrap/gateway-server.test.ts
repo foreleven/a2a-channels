@@ -6,6 +6,7 @@ import {
   GatewayServer,
   type GatewayServerStartOptions,
 } from "./gateway-server.js";
+import type { ServiceContribution } from "./service-contribution.js";
 import type { GatewayApp } from "../http/app.js";
 
 function createApp(): GatewayApp {
@@ -14,22 +15,27 @@ function createApp(): GatewayApp {
   };
 }
 
-function createOutboxWorker(
-  events: string[],
-): Pick<{ start(): void; stop(): Promise<void> }, "start" | "stop"> {
-  return {
-    start: () => {
-      events.push("outbox:start");
-    },
-    stop: async () => {
-      events.push("outbox:stop");
-    },
-  };
-}
-
 describe("GatewayServer", () => {
-  test("starts runtime lifecycle before opening the HTTP listener", async () => {
+  test("starts service contributions and runtime before opening the HTTP listener", async () => {
     const events: string[] = [];
+    const services: ServiceContribution[] = [
+      {
+        start: async () => {
+          events.push("service:redis:start");
+        },
+        stop: async () => {
+          events.push("service:redis:stop");
+        },
+      },
+      {
+        start: async () => {
+          events.push("service:events:start");
+        },
+        stop: async () => {
+          events.push("service:events:stop");
+        },
+      },
+    ];
     const runtime = {
       bootstrap: async () => {
         events.push("runtime:bootstrap:start");
@@ -47,22 +53,78 @@ describe("GatewayServer", () => {
     const server = new GatewayServer(
       new GatewayConfigService({ port: 9991 }),
       createApp(),
-      createOutboxWorker(events),
       runtime,
       serve,
+      services,
     );
 
     await server.start({ logger: { info: () => {}, error: () => {} } });
     await server.shutdown();
 
     assert.deepEqual(events, [
-      "outbox:start",
+      "service:redis:start",
+      "service:events:start",
       "runtime:bootstrap:start",
       "runtime:bootstrap:done",
       "http:listen",
       "http:close",
-      "outbox:stop",
       "runtime:shutdown",
+      "service:events:stop",
+      "service:redis:stop",
+    ]);
+  });
+
+  test("stops started service contributions when a later service fails", async () => {
+    const events: string[] = [];
+    const failure = new Error("events failed");
+    const services: ServiceContribution[] = [
+      {
+        start: async () => {
+          events.push("service:redis:start");
+        },
+        stop: async () => {
+          events.push("service:redis:stop");
+        },
+      },
+      {
+        start: async () => {
+          events.push("service:events:start");
+          throw failure;
+        },
+        stop: async () => {
+          events.push("service:events:stop");
+        },
+      },
+    ];
+    const runtime = {
+      bootstrap: async () => {
+        events.push("runtime:bootstrap");
+      },
+      shutdown: async () => {
+        events.push("runtime:shutdown");
+      },
+    };
+    const serve = (() => {
+      events.push("http:listen");
+      return { close: () => events.push("http:close") };
+    }) as unknown as NonNullable<GatewayServerStartOptions["serve"]>;
+    const server = new GatewayServer(
+      new GatewayConfigService({ port: 9991 }),
+      createApp(),
+      runtime,
+      serve,
+      services,
+    );
+
+    await assert.rejects(
+      server.start({ logger: { info: () => {}, error: () => {} } }),
+      failure,
+    );
+
+    assert.deepEqual(events, [
+      "service:redis:start",
+      "service:events:start",
+      "service:redis:stop",
     ]);
   });
 });

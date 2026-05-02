@@ -8,12 +8,28 @@ export interface AgentResponse {
   text: string;
 }
 
-export interface AgentClientHandle {
+export interface AgentClientOptions {
+  agentUrl: string;
+  protocol: string;
+  transport: AgentTransport;
+}
+
+export class AgentClient {
   readonly agentUrl: string;
   readonly protocol: string;
-  send(request: AgentRequest): Promise<AgentResponse>;
-  start?(): Promise<void>;
-  stop?(): Promise<void>;
+
+  constructor(private readonly options: AgentClientOptions) {
+    this.agentUrl = options.agentUrl;
+    this.protocol = options.protocol;
+  }
+
+  send(request: AgentRequest): Promise<AgentResponse> {
+    return this.options.transport.send(this.agentUrl, request);
+  }
+
+  async start(): Promise<void> {}
+
+  async stop(): Promise<void> {}
 }
 
 export interface AgentTransport {

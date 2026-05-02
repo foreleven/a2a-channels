@@ -1,5 +1,5 @@
 import { inject, injectable } from "inversify";
-import type { AgentClientHandle } from "@a2a-channels/agent-transport";
+import type { AgentClient } from "@a2a-channels/agent-transport";
 import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentClientRegistry } from "./agent-client-registry.js";
@@ -53,7 +53,7 @@ export class RuntimeAgentRegistry {
   /** Resolves the active client and target URL for a binding's agent id. */
   async getAgentClient(
     agentId: string,
-  ): Promise<{ client: AgentClientHandle; url: string }> {
+  ): Promise<{ client: AgentClient; url: string }> {
     const agent = this.agentsById.get(agentId);
     if (!agent) {
       throw new Error(`Agent ${agentId} not found`);

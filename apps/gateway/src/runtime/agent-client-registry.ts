@@ -1,5 +1,5 @@
 import { inject, injectable } from "inversify";
-import type { AgentClientHandle } from "@a2a-channels/agent-transport";
+import type { AgentClient } from "@a2a-channels/agent-transport";
 import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentClientFactory } from "./agent-clients.js";
@@ -7,7 +7,7 @@ import { AgentClientFactory } from "./agent-clients.js";
 /** Caches transport clients by agent URL and owns their lifecycle. */
 @injectable()
 export class AgentClientRegistry {
-  private readonly clients = new Map<string, AgentClientHandle>();
+  private readonly clients = new Map<string, AgentClient>();
 
   /** Receives the factory used to create and stop protocol-specific clients. */
   constructor(
@@ -59,7 +59,7 @@ export class AgentClientRegistry {
   }
 
   /** Returns the cached client for an agent or throws if it has not been registered. */
-  require(agent: AgentConfigSnapshot): AgentClientHandle {
+  require(agent: AgentConfigSnapshot): AgentClient {
     const client = this.clients.get(agent.url);
     if (!client) {
       throw new Error(`Agent client for ${agent.url} is not registered`);

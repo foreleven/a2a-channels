@@ -37,14 +37,14 @@ async function waitForTimers(): Promise<void> {
 describe("LocalScheduler", () => {
   test("runs a desired-state reconcile when NodeJoined is broadcast", async () => {
     const reconcileCalls: string[] = [];
-    const scheduler = new LocalScheduler(null, null, null, null, {
-      debounceMs: 1,
-    });
-    scheduler.configure(
+    const scheduler = new LocalScheduler(
       createAssignments(),
       createCommandHandler([]),
       new LocalRuntimeEventBus(),
       createCoordinator(reconcileCalls),
+      {
+        debounceMs: 1,
+      },
     );
 
     scheduler.start();
@@ -57,14 +57,14 @@ describe("LocalScheduler", () => {
 
   test("runs an initial reconcile after start", async () => {
     const reconcileCalls: string[] = [];
-    const scheduler = new LocalScheduler(null, null, null, null, {
-      debounceMs: 1,
-    });
-    scheduler.configure(
+    const scheduler = new LocalScheduler(
       createAssignments(),
       createCommandHandler([]),
       new LocalRuntimeEventBus(),
       createCoordinator(reconcileCalls),
+      {
+        debounceMs: 1,
+      },
     );
 
     scheduler.start();
@@ -77,15 +77,15 @@ describe("LocalScheduler", () => {
   test("does not let explicit reconcile debounce cancel a pending full scan", async () => {
     const reconcileCalls: string[] = [];
     const runtimeBus = new LocalRuntimeEventBus();
-    const scheduler = new LocalScheduler(null, null, null, null, {
-      debounceMs: 15,
-      reconcileIntervalMs: 1000,
-    });
-    scheduler.configure(
+    const scheduler = new LocalScheduler(
       createAssignments(),
       createCommandHandler([]),
       runtimeBus,
       createCoordinator(reconcileCalls),
+      {
+        debounceMs: 15,
+        reconcileIntervalMs: 1000,
+      },
     );
 
     scheduler.start();

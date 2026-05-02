@@ -14,10 +14,9 @@ The gateway currently has these main pieces:
   - repository interfaces
 - Gateway application wiring in `apps/gateway/src/index.ts`
 - Application services in `apps/gateway/src/application/`
-- Event-sourced repositories and in-process event bus in `apps/gateway/src/infra/`
-- Read-model projections in `apps/gateway/src/projections/`
+- Current-state repositories in `apps/gateway/src/infra/`
 - Runtime orchestration in `apps/gateway/src/runtime/relay-runtime.ts`
-- SQLite persistence via Prisma tables: `events`, `channel_bindings`, `agents`, `projection_checkpoints`
+- SQLite persistence via Prisma tables: `channel_bindings`, `agents`, `runtime_nodes`
 
 The architecture is close to CQRS/event sourcing, but several boundaries are currently blurred. The most important boundary is between persisted desired state and runtime ownership: the database says which Channel Bindings should exist, while single-instance local ownership or cluster Redis leases decide which gateway instance runs each connection.
 
@@ -43,51 +42,32 @@ apps/gateway/src/
     channel-binding-service.ts
     agent-service.ts
   infra/
-    domain-event-bus.ts
     channel-binding-repo.ts
     agent-config-repo.ts
-    prisma-event-store.ts
-  projections/
   runtime/
 ```
 
 The pure domain should remain in `packages/domain/src/`: aggregates, events, value objects, repository ports, and domain invariants.
 
-### 2. The current event bus gives weak delivery guarantees
+### 2. Runtime changes are observed by periodic reconciliation
 
-`DomainEventBus` wraps `EventEmitter` and publishes events synchronously by event type. Repositories append events to the database and then publish them in process.
+The outbox / `DomainEventBus` fast-path has been removed. Repositories write current state, and `LocalScheduler` reconciles from repository state on startup and interval ticks.
 
 This has two consequences:
 
-1. A command can successfully append events even if projection handlers later fail.
-2. `RelayRuntime` side effects can fail after the HTTP request has already succeeded.
-
-The projections catch up from the event store on restart, but `RelayRuntime` side effects are not checkpointed. If a runtime event handler fails, the process only logs the error and may keep running with stale in-memory state or stale connections.
+1. A command can succeed before runtime connections reflect the new desired state.
+2. Runtime recovery is independent of missed in-process events.
 
 Recommended next step:
 
-- Treat the current bus as a best-effort in-process notification bus.
-- Make persisted `events` the source of truth.
-- Add an explicit subscription/reconciliation mechanism for runtime side effects.
-- Prefer a durable outbox/subscription worker if the runtime side effects become critical.
+- Make the scheduler interval explicit in config if change latency matters.
+- Add an explicit notification/outbox mechanism only if runtime side effect latency becomes critical.
 
-### 3. Projection checkpointing is not transactional per event
-
-`ChannelBindingProjection.catchUp()` and `AgentConfigProjection.catchUp()` replay events and update the checkpoint after a batch. If the process crashes midway, already-applied events may be replayed.
-
-The current handlers are mostly idempotent because they use `upsert`, `updateMany`, and `deleteMany`, but this is an implementation detail. The projection contract should make idempotency explicit.
-
-Recommended options:
-
-- Apply one event and update the projection checkpoint in the same DB transaction.
-- Keep handlers idempotent and document that replay is at-least-once.
-- Add tests that replay each event twice and assert the read model remains correct.
-
-### 4. Cross-aggregate constraints read from projection tables
+### 3. Cross-aggregate constraints read from state tables
 
 `ChannelBindingService.assertNoDuplicateEnabled()` checks duplicate enabled bindings through `repo.findEnabled()`, which reads the `channel_bindings` projection table.
 
-That can be acceptable in a single-process local gateway, but it is not a strong event-sourcing invariant. If the projection lags, the command side can make decisions from stale state.
+That can be acceptable in a single-process local gateway. For stronger multi-writer safety, it should be backed by database constraints or a dedicated consistency model.
 
 Recommended options:
 
@@ -95,24 +75,16 @@ Recommended options:
 - Model the uniqueness constraint as a separate aggregate if this becomes a distributed/multi-writer system.
 - Keep the current approach only if the architecture explicitly accepts single-process eventual consistency.
 
-### 5. Query projections are being treated like snapshots
-
-The `channel_bindings` and `agents` tables are read models. They are not aggregate snapshots.
-
-Repositories still rebuild aggregates by replaying all events for a stream. That is correct for small streams but becomes expensive as streams grow.
-
-A separate aggregate snapshot mechanism is needed. See `snapshot-strategy.md`.
-
-### 6. Runtime ownership is not yet separated from runtime execution
+### 4. Runtime ownership is not yet separated from runtime execution
 
 A Channel Binding is durable desired state. A running channel connection is a local side effect. In cluster mode, the system needs a separate ownership layer so exactly one healthy gateway instance runs each enabled binding.
 
-The current `RelayRuntime` directly reacts to domain events and starts/stops local resources. That is acceptable as a single-instance fast path, but it should not be the correctness mechanism for cluster mode.
+The current `RelayRuntime` delegates ownership decisions to scheduler/coordinator boundaries. Cluster mode still needs a complete ownership layer so exactly one healthy gateway instance runs each enabled binding.
 
 Recommended target:
 
 ```text
-events/read models
+state tables
   -> desired Channel Binding state
   -> assignment/sharding component
   -> Redis ownership lease in cluster mode

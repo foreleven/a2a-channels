@@ -52,7 +52,11 @@ function createService(): {
   const openClawConfigProjection = new RuntimeOpenClawConfigProjection(
     ownershipState,
   );
-  const connectionManager = new ConnectionManager();
+  const connectionManager = new ConnectionManager(
+    null as never,
+    null as never,
+    null as never,
+  );
   const service = new RuntimeAssignmentService(
     agentRegistry,
     openClawConfigProjection,
@@ -75,7 +79,11 @@ function createServiceWithGate(ownershipGate: OwnershipGate): {
   const openClawConfigProjection = new RuntimeOpenClawConfigProjection(
     ownershipState,
   );
-  const connectionManager = new ConnectionManager();
+  const connectionManager = new ConnectionManager(
+    null as never,
+    null as never,
+    null as never,
+  );
   const service = new RuntimeAssignmentService(
     agentRegistry,
     openClawConfigProjection,
@@ -138,5 +146,26 @@ describe("RuntimeAssignmentService", () => {
     assert.equal(stopCalls, 1);
     assert.equal(releaseCalls, 0);
     assert.deepEqual(service.listConnectionStatuses(), []);
+  });
+
+  test("subscribes to connection status changes for owned bindings", async () => {
+    const { connectionManager, service } = createService();
+
+    connectionManager.hasConnection = () => false;
+    connectionManager.restartConnection = async () => {};
+    connectionManager.stopConnection = async () => {};
+
+    await service.assignBinding(binding, agent);
+
+    Reflect.get(connectionManager, "emitConnectionStatus").call(connectionManager, {
+      binding,
+      status: "connected",
+      agentUrl: agent.url,
+    });
+
+    const [status] = service.listConnectionStatuses();
+    assert.equal(status?.bindingId, binding.id);
+    assert.equal(status?.status, "connected");
+    assert.equal(status?.agentUrl, agent.url);
   });
 });

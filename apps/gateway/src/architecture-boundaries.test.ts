@@ -53,4 +53,42 @@ describe("architecture boundaries", () => {
 
     assert.deepEqual(adminReadModelFiles, []);
   });
+
+  test("OpenClaw runtime composition stays inside RelayRuntime", async () => {
+    const runtimeFiles = await readdir(resolve(repoRoot, "apps/gateway/src/runtime"));
+    assert.equal(runtimeFiles.includes("openclaw-runtime-assembler.ts"), false);
+
+    const relayRuntime = await readFile(
+      resolve(repoRoot, "apps/gateway/src/runtime/relay-runtime.ts"),
+      "utf8",
+    );
+    const container = await readFile(
+      resolve(repoRoot, "apps/gateway/src/bootstrap/container.ts"),
+      "utf8",
+    );
+
+    assert.equal(relayRuntime.includes("OpenClawRuntimeAssembler"), false);
+    assert.equal(container.includes("OpenClawRuntimeAssembler"), false);
+  });
+
+  test("RelayRuntime does not wire ConnectionManager event callbacks", async () => {
+    const relayRuntime = await readFile(
+      resolve(repoRoot, "apps/gateway/src/runtime/relay-runtime.ts"),
+      "utf8",
+    );
+
+    assert.equal(relayRuntime.includes("onConnectionStatus"), false);
+    assert.equal(relayRuntime.includes("onAgentCallFailed"), false);
+    assert.equal(relayRuntime.includes("handleOwnedConnectionStatus"), false);
+  });
+
+  test("RuntimeAssignmentService keeps connection status handling internal", async () => {
+    const assignmentService = await readFile(
+      resolve(repoRoot, "apps/gateway/src/runtime/runtime-assignment-service.ts"),
+      "utf8",
+    );
+
+    assert.equal(assignmentService.includes("handleOwnedConnectionStatus"), false);
+    assert.equal(assignmentService.includes("restartConnection:"), false);
+  });
 });
