@@ -11,6 +11,10 @@ import {
 import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
 
+import {
+  RuntimeEventBus,
+  type RuntimeEventBus as RuntimeEventBusType,
+} from "../runtime/event-transport/runtime-event-bus.js";
 import { AgentNotFoundError, DuplicateEnabledBindingError } from "./errors.js";
 
 export { AgentNotFoundError, DuplicateEnabledBindingError };
@@ -36,6 +40,8 @@ export class ChannelBindingService {
     private readonly repo: ChannelBindingRepository,
     @inject(AgentConfigRepository)
     private readonly agentRepo: AgentConfigRepository,
+    @inject(RuntimeEventBus)
+    private readonly eventBus: RuntimeEventBusType,
   ) {}
 
   async list(): Promise<ChannelBindingSnapshot[]> {
@@ -60,6 +66,11 @@ export class ChannelBindingService {
       ...data,
     });
     await this.repo.save(aggregate);
+    void this.eventBus
+      .broadcast({ type: "BindingChanged", bindingId: aggregate.snapshot().id })
+      .catch((err) =>
+        console.error("[binding-service] failed to broadcast BindingChanged:", err),
+      );
     return aggregate.snapshot();
   }
 
@@ -87,6 +98,11 @@ export class ChannelBindingService {
 
     aggregate.update(changes);
     await this.repo.save(aggregate);
+    void this.eventBus
+      .broadcast({ type: "BindingChanged", bindingId: id })
+      .catch((err) =>
+        console.error("[binding-service] failed to broadcast BindingChanged:", err),
+      );
     return aggregate.snapshot();
   }
 
@@ -98,6 +114,11 @@ export class ChannelBindingService {
 
     aggregate.delete();
     await this.repo.save(aggregate);
+    void this.eventBus
+      .broadcast({ type: "BindingChanged", bindingId: id })
+      .catch((err) =>
+        console.error("[binding-service] failed to broadcast BindingChanged:", err),
+      );
     return true;
   }
 

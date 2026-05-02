@@ -11,6 +11,11 @@ import {
 import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
 
+import {
+  RuntimeEventBus,
+  type RuntimeEventBus as RuntimeEventBusType,
+} from "../runtime/event-transport/runtime-event-bus.js";
+
 export type { AgentConfigSnapshot };
 export type RegisterAgentData = Omit<AgentConfigSnapshot, "id" | "createdAt">;
 export type UpdateAgentData = Partial<
@@ -40,6 +45,8 @@ export class AgentService {
     private readonly repo: AgentConfigRepository,
     @inject(ChannelBindingRepository)
     private readonly bindingRepo: ChannelBindingRepository,
+    @inject(RuntimeEventBus)
+    private readonly eventBus: RuntimeEventBusType,
   ) {}
 
   async list(): Promise<AgentConfigSnapshot[]> {
@@ -71,6 +78,11 @@ export class AgentService {
 
     aggregate.update(changes);
     await this.repo.save(aggregate);
+    void this.eventBus
+      .broadcast({ type: "AgentChanged", agentId: id })
+      .catch((err) =>
+        console.error("[agent-service] failed to broadcast AgentChanged:", err),
+      );
     return aggregate.snapshot();
   }
 

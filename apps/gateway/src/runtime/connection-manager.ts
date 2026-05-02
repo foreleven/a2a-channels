@@ -211,7 +211,7 @@ export class Connection {
         agentUrl: this.agentUrl,
         error,
       });
-      throw error;
+      result = { text: "(agent temporarily unavailable)" };
     }
 
     if (result) {
