@@ -154,9 +154,18 @@ export class OpenClawPluginRuntime extends EventEmitter {
       }
     }
 
-    throw new Error(
-      `No active connection found for channelType=${message.channelType} accountId=${message.accountId}`,
+    console.warn(
+      `[runtime] no active connection for channelType=${message.channelType} accountId=${message.accountId}; message dropped`,
     );
+    if (event.type === "channel.reply.dispatch") {
+      event.dispatcher.markComplete();
+      try {
+        await event.dispatcher.waitForIdle();
+      } catch {
+        // Ignore draining errors when no connection handled the message.
+      }
+    }
+    return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
   }
 
   asPluginRuntime(): PluginRuntime {

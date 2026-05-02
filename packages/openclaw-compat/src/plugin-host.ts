@@ -158,12 +158,6 @@ export class OpenClawPluginHost {
       log: logger,
     });
 
-    emitStatus({
-      accountId,
-      running: true,
-      connected: true,
-    });
-
     await startPromise;
   }
 

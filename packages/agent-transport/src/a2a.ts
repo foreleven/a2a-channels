@@ -70,7 +70,21 @@ export class A2ATransport implements AgentTransport {
   >();
 
   async send(agentUrl: string, request: AgentRequest): Promise<AgentResponse> {
-    try {
+    const timeoutMs = 30_000;
+    const abortController = new AbortController();
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        const err = new Error(`A2A request timed out after ${timeoutMs}ms`);
+        abortController.abort(err);
+        reject(err);
+      }, timeoutMs);
+    });
+
+    const requestPromise = (async () => {
+      // createFromUrl is included in the timeout race via Promise.race below,
+      // so a hang in client discovery will be cancelled by the timeout winning.
       let client = this.clientCache.get(agentUrl);
       if (!client) {
         client = await this.factory.createFromUrl(agentUrl);
@@ -85,17 +99,19 @@ export class A2ATransport implements AgentTransport {
           ...(request.contextId ? { contextId: request.contextId } : {}),
         },
       };
-      const result = await client.sendMessage(payload);
+      const result = await client.sendMessage(payload, {
+        signal: abortController.signal,
+      });
       const text = extractText(result);
       return { text: text || "(no response from agent)" };
-    } catch (error) {
-      console.error(
-        "[a2a] failed to reach agent at",
-        agentUrl,
-        ":",
-        String(error),
-      );
-      return { text: `(agent unavailable: ${String(error)})` };
+    })();
+
+    try {
+      return await Promise.race([requestPromise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
     }
   }
 }
