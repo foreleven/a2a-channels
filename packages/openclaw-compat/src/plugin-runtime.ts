@@ -2,8 +2,8 @@
  * OpenClaw-compatible runtime surface for community channel plugins.
  *
  * Only the subset used by @larksuite/openclaw-lark is implemented.
- * Channel reply events are constructed here and delegated to an injected
- * handler so dispatch ownership can live outside the runtime itself.
+ * Channel reply events are constructed here and emitted as runtime inbound
+ * messages so live connections can decide whether they own the message.
  */
 
 import { EventEmitter } from "node:events";
@@ -42,9 +42,6 @@ export type ChannelReplyDispatchResult = Awaited<
 
 export interface PluginRuntimeOptions {
   config: ConfigProvider;
-  handleChannelReplyEvent: (
-    event: ChannelReplyEvent,
-  ) => ChannelReplyDispatchResult | Promise<ChannelReplyDispatchResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +53,7 @@ export interface MessageInboundEvent {
   accountId: string | undefined;
   sessionKey: string | undefined;
   userMessage: string;
-  agentUrl: string;
+  replyEvent: ChannelReplyEvent;
 }
 
 export interface MessageOutboundEvent {
@@ -86,7 +83,12 @@ export type ChannelReplyEvent =
   | ChannelReplyBufferedDispatchEvent;
 
 export interface RuntimeEventMap {
-  "message:inbound": (event: MessageInboundEvent) => void;
+  "message:inbound": (
+    event: MessageInboundEvent,
+  ) =>
+    | ChannelReplyDispatchResult
+    | undefined
+    | Promise<ChannelReplyDispatchResult | undefined>;
   "message:outbound": (event: MessageOutboundEvent) => void;
 }
 
@@ -95,8 +97,8 @@ export interface RuntimeEventMap {
 // ---------------------------------------------------------------------------
 
 /**
- * Class-based OpenClaw plugin runtime that emits lifecycle events and forwards
- * channel reply events to the injected handler.
+ * Class-based OpenClaw plugin runtime that emits lifecycle events and inbound
+ * channel messages.
  */
 export class OpenClawPluginRuntime extends EventEmitter {
   constructor(private readonly options: PluginRuntimeOptions) {
@@ -142,7 +144,19 @@ export class OpenClawPluginRuntime extends EventEmitter {
   async handleChannelReplyEvent(
     event: ChannelReplyEvent,
   ): Promise<ChannelReplyDispatchResult> {
-    return this.options.handleChannelReplyEvent(event);
+    const message = this.buildMessageInboundEvent(event);
+    for (const listener of this.listeners("message:inbound")) {
+      const result = await (
+        listener as RuntimeEventMap["message:inbound"]
+      )(message);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
+    throw new Error(
+      `No active connection found for channelType=${message.channelType} accountId=${message.accountId}`,
+    );
   }
 
   asPluginRuntime(): PluginRuntime {
@@ -224,5 +238,28 @@ export class OpenClawPluginRuntime extends EventEmitter {
       },
       channel: buildChannelCompat((event) => this.handleChannelReplyEvent(event)),
     } as PluginRuntime;
+  }
+
+  private buildMessageInboundEvent(event: ChannelReplyEvent): MessageInboundEvent {
+    const ctx = event.ctx as Record<string, unknown>;
+    const userMessage =
+      (ctx["BodyForAgent"] as string | undefined) ??
+      (ctx["Body"] as string | undefined) ??
+      (ctx["RawBody"] as string | undefined) ??
+      "";
+    const channelType =
+      (ctx["ChannelType"] as string | undefined) ??
+      (ctx["Channel"] as string | undefined) ??
+      (ctx["Provider"] as string | undefined);
+    const accountId = ctx["AccountId"] as string | undefined;
+    const sessionKey = ctx["SessionKey"] as string | undefined;
+
+    return {
+      accountId,
+      channelType,
+      replyEvent: event,
+      sessionKey,
+      userMessage,
+    };
   }
 }

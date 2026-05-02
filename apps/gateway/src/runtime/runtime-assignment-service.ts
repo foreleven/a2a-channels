@@ -4,7 +4,10 @@ import type {
   ChannelBindingSnapshot,
 } from "@a2a-channels/domain";
 
-import { ConnectionManager } from "./connection-manager.js";
+import {
+  ConnectionManager,
+  type ConnectionLifecycleEvent,
+} from "./connection-manager.js";
 import { RuntimeOwnershipState } from "./ownership-state.js";
 import {
   RuntimeOwnershipGate,
@@ -18,17 +21,24 @@ import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
 type AgentConfig = AgentConfigSnapshot;
 type ChannelBinding = ChannelBindingSnapshot;
 
-/** Options that prevent duplicate restarts while an agent-triggered assignment is in progress. */
+/** Suppresses restarts already covered by the current assignment command. */
 interface ApplyAgentUpsertOptions {
-  skipRestartBindingIds?: string[];
+  skipRestartBindingId?: string;
 }
 
-/** Applies runtime assignment commands to local ownership and connections. */
+/**
+ * Applies locally owned assignment commands.
+ *
+ * This service is the write boundary for this node's runtime ownership. It
+ * acquires leases, updates owned binding/agent state, rebuilds OpenClaw config
+ * projections, starts or stops channel connections, and reacts to connection
+ * lifecycle edges by updating status and scheduling reconnects.
+ */
 @injectable()
 export class RuntimeAssignmentService {
   private readonly leases = new Map<string, OwnershipLease>();
 
-  /** Receives ownership, state, connection, and projection collaborators from the container. */
+  /** Subscribes connection lifecycle facts into the local ownership model. */
   constructor(
     @inject(RuntimeAgentRegistry)
     private readonly agentRegistry: RuntimeAgentRegistry,
@@ -40,9 +50,13 @@ export class RuntimeAssignmentService {
     private readonly ownershipGate: OwnershipGate,
     @inject(ConnectionManager)
     private readonly connectionManager: ConnectionManager,
-  ) {}
+  ) {
+    this.connectionManager.onConnectionStatus((event) =>
+      this.handleConnectionStatus(event),
+    );
+  }
 
-  /** Acquires ownership for a binding, updates its agent if needed, and reconciles connection state. */
+  /** Claims a binding for this node, ensures its agent client exists, and reconciles the connection. */
   async assignBinding(
     binding: ChannelBinding,
     agent: AgentConfig,
@@ -51,22 +65,18 @@ export class RuntimeAssignmentService {
       return;
     }
 
-    const previousAgent = this.agentRegistry.getAgent(agent.id);
-    const agentChanged =
-      !previousAgent ||
-      previousAgent.url !== agent.url ||
-      previousAgent.protocol !== agent.protocol;
+    const agentChanged = this.hasAgentTargetChanged(agent);
 
     if (agentChanged) {
       await this.applyAgentUpsert(agent, {
-        skipRestartBindingIds: [binding.id],
+        skipRestartBindingId: binding.id,
       });
     }
 
-    await this.applyBindingUpsert(binding, { forceRestart: agentChanged });
+    await this.applyBindingUpsert(binding, agentChanged);
   }
 
-  /** Releases local ownership, stops the connection, and removes the binding from projections. */
+  /** Drops local ownership and removes every local side effect for the binding. */
   async releaseBinding(bindingId: string): Promise<void> {
     if (!this.ownershipState.getOwnedBinding(bindingId)) {
       await this.releaseBindingLease(bindingId);
@@ -84,7 +94,7 @@ export class RuntimeAssignmentService {
     this.openClawConfigProjection.rebuild();
   }
 
-  /** Stores an agent snapshot and restarts owned bindings that route through it. */
+  /** Stores an agent snapshot and restarts owned bindings whose target changed. */
   async applyAgentUpsert(
     agent: AgentConfig,
     options: ApplyAgentUpsertOptions = {},
@@ -95,15 +105,15 @@ export class RuntimeAssignmentService {
     const affectedBindings = this.listBindings().filter(
       (binding) =>
         binding.agentId === agent.id &&
-        !options.skipRestartBindingIds?.includes(binding.id),
+        binding.id !== options.skipRestartBindingId,
     );
 
     for (const binding of affectedBindings) {
-      await this.applyBindingUpsert(binding, { forceRestart: true });
+      await this.applyBindingUpsert(binding, true);
     }
   }
 
-  /** Lists owned bindings in creation order for stable projection and API output. */
+  /** Lists locally owned binding snapshots in stable creation order. */
   listBindings(): ChannelBinding[] {
     return this.ownershipState
       .listOwnedBindings()
@@ -111,89 +121,78 @@ export class RuntimeAssignmentService {
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
-  /** Lists owned bindings that should currently be represented as active channel config. */
+  /** Lists locally owned bindings that should appear in OpenClaw runtime config. */
   listEnabledBindings(): ChannelBinding[] {
     return this.listBindings().filter((binding) => binding.enabled);
   }
 
-  /** Lists binding ids currently owned by this runtime node. */
+  /** Lists binding ids currently leased or retained by this runtime node. */
   listOwnedBindingIds(): string[] {
     return this.ownershipState
       .listOwnedBindings()
       .map(({ binding }) => binding.id);
   }
 
-  /** Returns cloned connection status snapshots for all owned bindings. */
+  /** Returns connection status snapshots for locally owned bindings. */
   listConnectionStatuses(): RuntimeConnectionStatus[] {
     return this.ownershipState.listConnectionStatuses();
   }
 
-  /** Cancels pending reconnect timers before relay shutdown or ownership cleanup. */
+  /** Cancels reconnect timers before shutdown drains active connections. */
   clearReconnectsForOwnedBindings(): void {
     for (const bindingId of this.listOwnedBindingIds()) {
       this.ownershipState.clearReconnect(bindingId);
     }
   }
 
-  /** Applies connection callbacks to ownership state and schedules retries when needed. */
-  handleOwnedConnectionStatus(
-    bindingId: string,
-    status: RuntimeConnectionStatus["status"],
-    options: {
-      agentUrl?: string;
-      error?: unknown;
-      restartConnection: (binding: ChannelBinding) => Promise<void>;
-    },
-  ): void {
-    if (!this.ownershipState.getOwnedBinding(bindingId)) {
+  /** Converts connection lifecycle facts into status state and reconnect work. */
+  private handleConnectionStatus({
+    binding,
+    status,
+    agentUrl,
+    error,
+  }: ConnectionLifecycleEvent): void {
+    if (!this.ownershipState.getOwnedBinding(binding.id)) {
       return;
     }
 
     switch (status) {
       case "connecting":
-        this.ownershipState.markConnecting(bindingId, options.agentUrl);
+        this.ownershipState.markConnecting(binding.id, agentUrl);
         break;
       case "connected":
-        this.ownershipState.markConnected(bindingId, options.agentUrl);
+        this.ownershipState.markConnected(binding.id, agentUrl);
         break;
       case "disconnected": {
         const decision = this.ownershipState.markDisconnected(
-          bindingId,
-          options.agentUrl,
+          binding.id,
+          agentUrl,
         );
-        this.scheduleReconnect(
-          bindingId,
-          decision.delayMs,
-          options.restartConnection,
-        );
+        this.scheduleReconnect(binding.id, decision.delayMs);
         break;
       }
       case "error": {
         const decision = this.ownershipState.markError(
-          bindingId,
-          options.error ?? new Error("Unknown connection error"),
-          options.agentUrl,
+          binding.id,
+          error ?? new Error("Unknown connection error"),
+          agentUrl,
         );
-        this.scheduleReconnect(
-          bindingId,
-          decision.delayMs,
-          options.restartConnection,
-        );
+        this.scheduleReconnect(binding.id, decision.delayMs);
         break;
       }
       case "idle":
-        this.ownershipState.markIdle(bindingId);
+        this.ownershipState.markIdle(binding.id);
         break;
     }
   }
 
-  /** Updates owned binding state, rebuilds projected config, and starts/stops as required. */
+  /** Applies one binding snapshot and executes the resulting connection action. */
   private async applyBindingUpsert(
     binding: ChannelBinding,
-    options: { forceRestart?: boolean } = {},
+    forceRestart = false,
   ): Promise<void> {
     const ownershipUpdate = this.ownershipState.upsertBinding(binding, {
-      forceRestart: options.forceRestart ?? false,
+      forceRestart,
       hasActiveConnection: this.connectionManager.hasConnection(binding.id),
     });
 
@@ -213,7 +212,17 @@ export class RuntimeAssignmentService {
     await this.connectionManager.restartConnection(binding);
   }
 
-  /** Acquires or renews the distributed/local lease before this node mutates binding state. */
+  /** Reports whether storing this agent changes connection routing. */
+  private hasAgentTargetChanged(agent: AgentConfig): boolean {
+    const previousAgent = this.agentRegistry.getAgent(agent.id);
+    return (
+      !previousAgent ||
+      previousAgent.url !== agent.url ||
+      previousAgent.protocol !== agent.protocol
+    );
+  }
+
+  /** Acquires or renews the ownership lease before mutating local runtime state. */
   private async acquireBindingLease(bindingId: string): Promise<boolean> {
     const existingLease = this.leases.get(bindingId);
     if (existingLease) {
@@ -242,7 +251,7 @@ export class RuntimeAssignmentService {
     return true;
   }
 
-  /** Releases the stored ownership lease and logs release failures without masking cleanup. */
+  /** Releases the stored lease without masking local cleanup failures. */
   private async releaseBindingLease(bindingId: string): Promise<void> {
     const lease = this.leases.get(bindingId);
     if (!lease) {
@@ -260,7 +269,7 @@ export class RuntimeAssignmentService {
     }
   }
 
-  /** Removes local runtime state after ownership was already lost elsewhere. */
+  /** Cleans local state after a lease renewal proves this node no longer owns the binding. */
   private async dropBindingAfterLeaseLoss(bindingId: string): Promise<void> {
     this.ownershipState.clearReconnect(bindingId);
     await this.connectionManager.stopConnection(bindingId);
@@ -270,12 +279,8 @@ export class RuntimeAssignmentService {
     }
   }
 
-  /** Registers a delayed restart that rechecks latest ownership and enabled state before firing. */
-  private scheduleReconnect(
-    bindingId: string,
-    delayMs: number,
-    restartConnection: (binding: ChannelBinding) => Promise<void>,
-  ): void {
+  /** Schedules a reconnect that revalidates ownership and enabled state before restarting. */
+  private scheduleReconnect(bindingId: string, delayMs: number): void {
     this.ownershipState.scheduleReconnect(bindingId, delayMs, async () => {
       const latestOwnedBinding = this.ownershipState.getOwnedBinding(bindingId);
       if (!latestOwnedBinding) {
@@ -287,7 +292,7 @@ export class RuntimeAssignmentService {
         return;
       }
 
-      await restartConnection(latestBinding);
+      await this.connectionManager.restartConnection(latestBinding);
     });
   }
 }

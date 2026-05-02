@@ -1,7 +1,10 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { AgentTransport } from "@a2a-channels/agent-transport";
+import {
+  AgentClient,
+  type AgentTransport,
+} from "@a2a-channels/agent-transport";
 import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
 import { AgentClientRegistry } from "./agent-client-registry.js";
@@ -39,6 +42,8 @@ describe("AgentClientRegistry", () => {
 
     await registry.upsert(agent);
     const firstClient = registry.require(agent);
+
+    assert.ok(firstClient instanceof AgentClient);
 
     await registry.upsert(agent, agent);
     const secondClient = registry.require(agent);

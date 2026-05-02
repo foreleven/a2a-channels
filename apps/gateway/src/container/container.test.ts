@@ -184,6 +184,16 @@ describe("buildGatewayContainer", () => {
     );
   });
 
+  test("resolves LocalScheduler with constructor-injected collaborators", async () => {
+    const container = buildGatewayContainer(
+      buildGatewayConfig({ port: 7896, clusterMode: false }),
+    );
+    const scheduler = container.get(LocalScheduler);
+
+    scheduler.start();
+    await scheduler.stop();
+  });
+
   test("binds cluster runtime components when clusterMode is true", () => {
     const container = buildGatewayContainer(
       buildGatewayConfig({

@@ -1,5 +1,5 @@
 import { inject, injectable } from "inversify";
-import type {
+import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
 } from "@a2a-channels/openclaw-compat";
@@ -7,23 +7,21 @@ import type {
 import { GatewayConfigService } from "../bootstrap/config.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { ConnectionManager } from "./connection-manager.js";
-import { OpenClawRuntimeAssembler } from "./openclaw-runtime-assembler.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
 import { RuntimeScheduler } from "./scheduler.js";
-import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
 
 /**
- * Runtime-side composition root for the relay path.
+ * Process-local lifecycle boundary for the gateway runtime.
  *
- * This class wires together:
- * - desired binding/agent assignment services
- * - the OpenClaw host/runtime assembly
- * - live connection execution
- * - scheduler and domain-event bridge lifecycle
+ * RelayRuntime does not decide binding ownership, route channel messages, or
+ * mutate connection status. Those responsibilities live in scheduler,
+ * assignment, and connection collaborators. This class only sequences process
+ * startup/shutdown and exposes the already-composed OpenClaw runtime objects
+ * needed by bootstrap surfaces.
  *
- * It is intentionally orchestration-heavy. Domain decisions should already be
- * made by the injected collaborators before they reach this class.
+ * Keep this class thin: if logic needs to inspect bindings, agents, or
+ * connection status, it belongs below this boundary.
  */
 @injectable()
 export class RelayRuntime {
@@ -33,7 +31,7 @@ export class RelayRuntime {
   private bootstrapped = false;
   private schedulerStarted = false;
 
-  /** Builds the OpenClaw assembly and wires connection callbacks into runtime state. */
+  /** Receives the runtime collaborators already composed by DI. */
   constructor(
     @inject(GatewayConfigService)
     private readonly config: GatewayConfigService,
@@ -43,61 +41,20 @@ export class RelayRuntime {
     private readonly assignments: RuntimeAssignmentService,
     @inject(RuntimeAgentRegistry)
     private readonly agentRegistry: RuntimeAgentRegistry,
-    @inject(RuntimeOpenClawConfigProjection)
-    private readonly openClawConfigProjection: RuntimeOpenClawConfigProjection,
     @inject(ConnectionManager)
     private readonly connectionManager: ConnectionManager,
-    @inject(OpenClawRuntimeAssembler)
-    runtimeAssembler: OpenClawRuntimeAssembler,
     @inject(RuntimeScheduler)
     private readonly scheduler: RuntimeScheduler,
+    @inject(OpenClawPluginRuntime)
+    runtime: OpenClawPluginRuntime,
+    @inject(OpenClawPluginHost)
+    pluginHost: OpenClawPluginHost,
   ) {
-    // The OpenClaw runtime reads projected config on demand instead of owning
-    // its own durable config file in this gateway.
-    const assembly = runtimeAssembler.assemble({
-      config: {
-        loadConfig: () => this.openClawConfigProjection.getConfig(),
-        writeConfigFile: async () => {
-          throw new Error("Not implemented");
-        },
-      },
-      handleChannelReplyEvent: (event) =>
-        this.connectionManager.handleEvent(event),
-    });
-    this.runtime = assembly.runtime;
-    this.pluginHost = assembly.pluginHost;
-
-    // ConnectionManager handles the imperative edge of long-lived channel
-    // bindings; RelayRuntime only translates its callbacks into runtime-state
-    // updates and telemetry.
-    this.connectionManager.initialize({
-      host: this.pluginHost,
-      getAgentClient: (agentId) => this.agentRegistry.getAgentClient(agentId),
-      emitMessageInbound: (event) =>
-        this.runtime.emit("message:inbound", event),
-      emitMessageOutbound: (event) =>
-        this.runtime.emit("message:outbound", event),
-      callbacks: {
-        onConnectionStatus: ({ binding, status, agentUrl, error }) => {
-          this.assignments.handleOwnedConnectionStatus(binding.id, status, {
-            agentUrl,
-            error,
-            restartConnection: async (nextBinding) => {
-              await this.connectionManager.restartConnection(nextBinding);
-            },
-          });
-        },
-        onAgentCallFailed: ({ binding, error }) => {
-          console.error(
-            `[runtime] agent call failed for binding ${binding.id}:`,
-            String(error),
-          );
-        },
-      },
-    });
+    this.runtime = runtime;
+    this.pluginHost = pluginHost;
   }
 
-  /** Registers this runtime node and starts the relay scheduler/event bridge once. */
+  /** Registers this node and starts the scheduler once. */
   async bootstrap(): Promise<void> {
     if (this.bootstrapped) {
       return;
@@ -120,7 +77,7 @@ export class RelayRuntime {
     }
   }
 
-  /** Stops scheduler/event subscriptions and drains relay-owned connections and clients. */
+  /** Stops scheduling first, then drains this node's runtime resources. */
   async shutdown(): Promise<void> {
     const bootstrapPromise = this.bootstrapPromise;
     if (bootstrapPromise) {
@@ -142,7 +99,7 @@ export class RelayRuntime {
     await this.shutdownRelay();
   }
 
-  /** Performs the ordered bootstrap sequence and rolls back partial startup on failure. */
+  /** Runs startup in dependency order and rolls back work that already began. */
   private async performBootstrap(): Promise<void> {
     const now = new Date();
     let relayBootstrapped = false;
@@ -181,20 +138,19 @@ export class RelayRuntime {
     }
   }
 
-  /** Reserves the relay bootstrap hook for future relay-owned startup work. */
+  /** Placeholder for future resources that are owned directly by this shell. */
   private async bootstrapRelay(): Promise<void> {
-    // Relay bootstrap is intentionally light; connection ownership is driven by
-    // reconciliation and connection callbacks rather than by this method.
+    // Binding ownership and connection startup are scheduler-driven.
   }
 
-  /** Clears retry timers and stops all runtime-owned imperative resources. */
+  /** Cancels reconnect work, stops owned channel connections, and closes agent clients. */
   private async shutdownRelay(): Promise<void> {
     this.assignments.clearReconnectsForOwnedBindings();
     await this.connectionManager.stopAllConnections();
     await this.agentRegistry.stopAllClients();
   }
 
-  /** Best-effort cleanup for resources that may have started before bootstrap failed. */
+  /** Best-effort rollback for resources started before bootstrap failed. */
   private async cleanupFailedBootstrap(context: {
     relayBootstrapped: boolean;
     schedulerStarted: boolean;

@@ -1,36 +1,27 @@
 /**
  * ConnectionManager – lifecycle and dispatch manager for channel bindings.
  *
- * Owns per-binding connections (binding + agent client + AbortController +
- * running Promise), starts/stops them through the plugin host, and handles
- * channel reply dispatch events by routing inbound messages through the bound
- * agent client and returning replies to the channel dispatcher.
+ * Owns per-binding Connection instances and starts/stops them through the
+ * plugin host. Each Connection handles the chat message path for its binding.
  */
 
-import type { AgentClientHandle } from "@a2a-channels/agent-transport";
+import type { AgentClient } from "@a2a-channels/agent-transport";
 import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
+import {
+  OpenClawPluginHost,
+  OpenClawPluginRuntime,
+} from "@a2a-channels/openclaw-compat";
 import type {
-  ChannelReplyEvent,
   ChannelBindingStatusUpdate,
+  ChannelReplyEvent,
   MessageInboundEvent,
   MessageOutboundEvent,
-  OpenClawPluginHost,
 } from "@a2a-channels/openclaw-compat";
-import { injectable } from "inversify";
+import { inject, injectable } from "inversify";
 import type { ConnectionStatus } from "./runtime-connection-status.js";
+import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 
 type ChannelBinding = ChannelBindingSnapshot;
-
-/** Live connection record for one owned channel binding. */
-export interface Connection {
-  abortController: AbortController;
-  agentClient: AgentClientHandle;
-  agentUrl: string;
-  binding: ChannelBinding;
-  hasReportedConnected: boolean;
-  promise: Promise<void>;
-  suppressDisconnectStatus: boolean;
-}
 
 /** Connection status event emitted when a binding lifecycle edge changes. */
 export interface ConnectionLifecycleEvent {
@@ -53,23 +44,206 @@ export interface ConnectionManagerCallbacks {
   onAgentCallFailed?: (event: AgentCallFailureEvent) => void;
 }
 
-/** Runtime collaborators needed before the manager can start bindings. */
-export interface ConnectionManagerOptions {
-  host: OpenClawPluginHost;
-  getAgentClient: (
-    agentId: string,
-  ) =>
-    | { client: AgentClientHandle; url: string }
-    | Promise<{ client: AgentClientHandle; url: string }>;
-  emitMessageInbound?: (event: MessageInboundEvent) => void;
+/** Optional observers used by a single live binding connection. */
+export interface ConnectionCallbacks extends ConnectionManagerCallbacks {
   emitMessageOutbound?: (event: MessageOutboundEvent) => void;
-  callbacks?: ConnectionManagerCallbacks;
 }
 
 type ReplyDeliveryResult = {
   counts: { block: number; final: number; tool: number };
   queuedFinal: boolean;
 };
+
+export interface ConnectionOptions {
+  agentClient: AgentClient;
+  binding: ChannelBinding;
+  runtime: OpenClawPluginRuntime;
+  callbacks?: ConnectionCallbacks;
+}
+
+/** Live plugin and agent connection for one owned channel binding. */
+export class Connection {
+  readonly abortController = new AbortController();
+  hasReportedConnected = false;
+  promise: Promise<void> = Promise.resolve();
+  suppressDisconnectStatus = false;
+  private readonly replyDelivery = new ChannelReplyDelivery();
+  private readonly handleRuntimeMessage = (
+    event: MessageInboundEvent,
+  ): Promise<ReplyDeliveryResult | undefined> => this.handleInbound(event);
+  private listening = false;
+
+  constructor(private readonly options: ConnectionOptions) {}
+
+  get agentUrl(): string {
+    return this.options.agentClient.agentUrl;
+  }
+
+  get binding(): ChannelBinding {
+    return this.options.binding;
+  }
+
+  start(host: OpenClawPluginHost): void {
+    console.log(
+      `[connection] starting binding ${this.binding.id} for ${this.binding.channelType}:${this.binding.accountId}`,
+      this.binding,
+    );
+
+    this.options.callbacks?.onConnectionStatus?.({
+      binding: this.binding,
+      status: "connecting",
+      agentUrl: this.agentUrl,
+    });
+    this.listen();
+
+    this.promise = Promise.resolve()
+      .then(() =>
+        host.startChannelBinding(this.binding, this.abortController.signal, {
+          onStatus: (status) => this.maybeReportConnected(status),
+        }),
+      )
+      .then(() => {
+        if (this.suppressDisconnectStatus) {
+          return;
+        }
+
+        this.options.callbacks?.onConnectionStatus?.({
+          binding: this.binding,
+          status: "disconnected",
+          agentUrl: this.agentUrl,
+        });
+      })
+      .catch((err: unknown) => {
+        if ((err as { name?: string })?.name === "AbortError") {
+          if (this.suppressDisconnectStatus) {
+            return;
+          }
+
+          this.options.callbacks?.onConnectionStatus?.({
+            binding: this.binding,
+            status: "disconnected",
+            agentUrl: this.agentUrl,
+          });
+          return;
+        }
+
+        this.options.callbacks?.onConnectionStatus?.({
+          binding: this.binding,
+          status: "error",
+          agentUrl: this.agentUrl,
+          error: err,
+        });
+        console.error(
+          `[connection] binding ${this.binding.id} error:`,
+          String(err),
+        );
+      });
+  }
+
+  async stop(): Promise<void> {
+    this.suppressDisconnectStatus = true;
+    this.unlisten();
+    this.abortController.abort();
+    await this.promise.catch(() => {});
+  }
+
+  listen(): void {
+    if (this.listening) {
+      return;
+    }
+
+    this.listening = true;
+    this.options.runtime.on("message:inbound", this.handleRuntimeMessage);
+  }
+
+  unlisten(): void {
+    if (!this.listening) {
+      return;
+    }
+
+    this.listening = false;
+    this.options.runtime.off("message:inbound", this.handleRuntimeMessage);
+  }
+
+  matchesChannelAccount(
+    channelType: string | undefined,
+    accountId: string | undefined,
+  ): boolean {
+    return (
+      this.binding.enabled &&
+      this.binding.channelType === (channelType ?? "feishu") &&
+      this.binding.accountId === (accountId ?? "default")
+    );
+  }
+
+  /** Handles a full inbound runtime message for this connection when it owns the binding. */
+  async handleInbound(
+    event: MessageInboundEvent,
+  ): Promise<ReplyDeliveryResult | undefined> {
+    if (!this.matchesChannelAccount(event.channelType, event.accountId)) {
+      return undefined;
+    }
+
+    const response = await this.handleMessage(event);
+    return this.replyDelivery.deliver(event.replyEvent, response);
+  }
+
+  /** Sends inbound channel text to the bound agent and emits outbound telemetry. */
+  async handleMessage(
+    event: MessageInboundEvent,
+  ): Promise<{ text: string } | null> {
+    const { accountId, channelType, sessionKey, userMessage } = event;
+
+    if (!userMessage.trim()) {
+      return null;
+    }
+
+    let result: { text: string } | null;
+    try {
+      result = await this.options.agentClient.send({
+        userMessage,
+        contextId: sessionKey,
+        accountId,
+      });
+    } catch (error) {
+      this.options.callbacks?.onAgentCallFailed?.({
+        binding: this.binding,
+        agentUrl: this.agentUrl,
+        error,
+      });
+      throw error;
+    }
+
+    if (result) {
+      this.options.callbacks?.emitMessageOutbound?.({
+        accountId,
+        agentUrl: this.agentUrl,
+        channelType,
+        sessionKey,
+        replyText: result.text,
+      });
+    }
+
+    return result;
+  }
+
+  private maybeReportConnected(status: ChannelBindingStatusUpdate): void {
+    if (this.hasReportedConnected) {
+      return;
+    }
+
+    if (status.connected !== true && status.running !== true) {
+      return;
+    }
+
+    this.hasReportedConnected = true;
+    this.options.callbacks?.onConnectionStatus?.({
+      binding: this.binding,
+      status: "connected",
+      agentUrl: this.agentUrl,
+    });
+  }
+}
 
 /** Adapts agent reply text to the two OpenClaw reply event delivery shapes. */
 class ChannelReplyDelivery {
@@ -138,118 +312,35 @@ class ChannelReplyDelivery {
   }
 }
 
-/** Orchestrates channel plugin connections and forwards inbound messages to agents. */
+/** Orchestrates channel plugin connection lifecycle and routes reply events. */
 @injectable()
 export class ConnectionManager {
   private readonly connections = new Map<string, Connection>();
-  private readonly replyDelivery = new ChannelReplyDelivery();
-  private host: OpenClawPluginHost | null = null;
-  private getAgentClient:
-    | ConnectionManagerOptions["getAgentClient"]
-    | null = null;
-  private emitMessageInbound?: (event: MessageInboundEvent) => void;
-  private emitMessageOutbound?: (event: MessageOutboundEvent) => void;
-  private callbacks: ConnectionManagerCallbacks = {};
 
-  /** Supplies runtime collaborators after DI construction and returns the manager for chaining. */
-  initialize(options: ConnectionManagerOptions): this {
-    this.host = options.host;
-    this.getAgentClient = options.getAgentClient;
-    this.emitMessageInbound = options.emitMessageInbound;
-    this.emitMessageOutbound = options.emitMessageOutbound;
-    this.callbacks = options.callbacks ?? {};
-    return this;
-  }
+  constructor(
+    @inject(OpenClawPluginHost)
+    private readonly host: OpenClawPluginHost,
+    @inject(OpenClawPluginRuntime)
+    private readonly runtime: OpenClawPluginRuntime,
+    @inject(RuntimeAgentRegistry)
+    private readonly agentRegistry: RuntimeAgentRegistry,
+  ) {}
 
-  /** Creates a plugin-host connection record and reports status transitions from the host. */
+  /** Creates a plugin-host connection and reports status transitions from the host. */
   private async createConnection(binding: ChannelBinding): Promise<Connection> {
-    const abortController = new AbortController();
-    const target = await this.requireAgentClientFactory()(binding.agentId);
-    const agentClient = target.client;
-
-    console.log(
-      `[connection] starting binding ${binding.id} for ${binding.channelType}:${binding.accountId}`,
+    const target = await this.agentRegistry.getAgentClient(binding.agentId);
+    const connection = new Connection({
+      agentClient: target.client,
       binding,
-    );
-
-    this.callbacks.onConnectionStatus?.({
-      binding,
-      status: "connecting",
-      agentUrl: target.url,
+      runtime: this.runtime,
+      callbacks: {
+        emitMessageOutbound: (event) =>
+          this.runtime.emit("message:outbound", event),
+        onAgentCallFailed: (event) => this.logAgentCallFailed(event),
+        onConnectionStatus: (event) => this.emitConnectionStatus(event),
+      },
     });
-
-    let connection!: Connection;
-    const maybeReportConnected = (
-      status: ChannelBindingStatusUpdate,
-    ): void => {
-      if (connection.hasReportedConnected) {
-        return;
-      }
-
-      if (status.connected !== true && status.running !== true) {
-        return;
-      }
-
-      connection.hasReportedConnected = true;
-      this.callbacks.onConnectionStatus?.({
-        binding,
-        status: "connected",
-        agentUrl: target.url,
-      });
-    };
-
-    const promise = Promise.resolve()
-      .then(() =>
-        this.requireHost().startChannelBinding(binding, abortController.signal, {
-          onStatus: maybeReportConnected,
-        }),
-      )
-      .then(() => {
-        if (connection.suppressDisconnectStatus) {
-          return;
-        }
-
-        this.callbacks.onConnectionStatus?.({
-          binding,
-          status: "disconnected",
-          agentUrl: target.url,
-        });
-      })
-      .catch((err: unknown) => {
-        if ((err as { name?: string })?.name === "AbortError") {
-          if (connection.suppressDisconnectStatus) {
-            return;
-          }
-
-          this.callbacks.onConnectionStatus?.({
-            binding,
-            status: "disconnected",
-            agentUrl: target.url,
-          });
-          return;
-        }
-
-        this.callbacks.onConnectionStatus?.({
-          binding,
-          status: "error",
-          agentUrl: target.url,
-          error: err,
-        });
-        console.error(
-          `[connection] binding ${binding.id} error:`,
-          String(err),
-        );
-      });
-
-    connection = {
-      abortController,
-      agentClient,
-      agentUrl: target.url,
-      binding,
-      hasReportedConnected: false,
-      promise,
-      suppressDisconnectStatus: false,
-    };
+    connection.start(this.host);
 
     return connection;
   }
@@ -261,119 +352,12 @@ export class ConnectionManager {
       console.log(
         `[connection] stopping existing connection for ${binding.id}`,
       );
-      existing.suppressDisconnectStatus = true;
-      existing.abortController.abort();
-      await existing.promise.catch(() => {});
+      await existing.stop();
       this.connections.delete(binding.id);
     }
 
     const connection = await this.createConnection(binding);
     this.connections.set(binding.id, connection);
-  }
-
-  /** Resolves a live connection by channel/account, applying legacy Feishu defaults. */
-  private getConnectionForChannelAccount(
-    channelType: string | undefined,
-    accountId: string | undefined,
-  ): Connection {
-    const normalizedChannelType = channelType ?? "feishu";
-    const normalizedAccountId = accountId ?? "default";
-
-    for (const connection of this.connections.values()) {
-      if (
-        connection.binding.enabled &&
-        connection.binding.channelType === normalizedChannelType &&
-        connection.binding.accountId === normalizedAccountId
-      ) {
-        return connection;
-      }
-    }
-
-    throw new Error(
-      `No active connection found for channelType=${channelType} accountId=${accountId}`,
-    );
-  }
-
-  /** Extracts normalized routing and text fields from an OpenClaw channel context. */
-  private buildMessageEvent(ctx: Record<string, unknown>): {
-    accountId: string | undefined;
-    channelType: string | undefined;
-    sessionKey: string | undefined;
-    userMessage: string;
-  } {
-    const userMessage =
-      (ctx["BodyForAgent"] as string | undefined) ??
-      (ctx["Body"] as string | undefined) ??
-      (ctx["RawBody"] as string | undefined) ??
-      "";
-
-    const channelType =
-      (ctx["ChannelType"] as string | undefined) ??
-      (ctx["Channel"] as string | undefined) ??
-      (ctx["Provider"] as string | undefined);
-    const accountId = ctx["AccountId"] as string | undefined;
-    const sessionKey = ctx["SessionKey"] as string | undefined;
-
-    return { accountId, channelType, sessionKey, userMessage };
-  }
-
-  /** Sends inbound channel text to the bound agent and emits runtime message telemetry. */
-  private async dispatchReply(
-    event: ChannelReplyEvent,
-  ): Promise<{ text: string } | null> {
-    const { accountId, channelType, sessionKey, userMessage } =
-      this.buildMessageEvent(event.ctx);
-
-    if (!userMessage.trim()) {
-      return null;
-    }
-
-    const connection = this.getConnectionForChannelAccount(
-      channelType,
-      accountId,
-    );
-
-    this.emitMessageInbound?.({
-      accountId,
-      agentUrl: connection.agentUrl,
-      channelType,
-      sessionKey,
-      userMessage,
-    });
-
-    let result: { text: string } | null;
-    try {
-      result = await connection.agentClient.send({
-        userMessage,
-        contextId: sessionKey,
-        accountId,
-      });
-    } catch (error) {
-      this.callbacks.onAgentCallFailed?.({
-        binding: connection.binding,
-        agentUrl: connection.agentUrl,
-        error,
-      });
-      throw error;
-    }
-
-    if (result) {
-      this.emitMessageOutbound?.({
-        accountId,
-        agentUrl: connection.agentUrl,
-        channelType,
-        sessionKey,
-        replyText: result.text,
-      });
-    }
-
-    return result;
-  }
-
-  /** Handles OpenClaw reply events by delivering a final agent reply through the event shape. */
-  async handleEvent(event: ChannelReplyEvent): Promise<ReplyDeliveryResult> {
-    const response = await this.dispatchReply(event);
-    return this.replyDelivery.deliver(event, response);
   }
 
   /** Starts or restarts a binding connection, stopping it instead when the binding is disabled. */
@@ -397,9 +381,7 @@ export class ConnectionManager {
     if (!connection) return;
 
     console.log(`[connection] stopping binding: ${bindingId}`);
-    connection.suppressDisconnectStatus = true;
-    connection.abortController.abort();
-    await connection.promise.catch(() => {});
+    await connection.stop();
     this.connections.delete(bindingId);
   }
 
@@ -410,23 +392,26 @@ export class ConnectionManager {
     }
   }
 
-  /** Returns the configured plugin host or fails when initialize() was not called. */
-  private requireHost(): OpenClawPluginHost {
-    if (!this.host) {
-      throw new Error("ConnectionManager has not been initialized");
-    }
-
-    return this.host;
+  onConnectionStatus(
+    listener: (event: ConnectionLifecycleEvent) => void,
+  ): void {
+    this.connectionStatusListeners.add(listener);
   }
 
-  /** Returns the configured agent-client resolver or fails before connection work starts. */
-  private requireAgentClientFactory(): NonNullable<
-    ConnectionManager["getAgentClient"]
-  > {
-    if (!this.getAgentClient) {
-      throw new Error("ConnectionManager has not been initialized");
-    }
+  private readonly connectionStatusListeners = new Set<
+    (event: ConnectionLifecycleEvent) => void
+  >();
 
-    return this.getAgentClient;
+  private emitConnectionStatus(event: ConnectionLifecycleEvent): void {
+    for (const listener of this.connectionStatusListeners) {
+      listener(event);
+    }
+  }
+
+  private logAgentCallFailed({ binding, error }: AgentCallFailureEvent): void {
+    console.error(
+      `[runtime] agent call failed for binding ${binding.id}:`,
+      String(error),
+    );
   }
 }

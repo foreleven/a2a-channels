@@ -1,4 +1,4 @@
-import { injectable } from "inversify";
+import { inject, injectable, unmanaged } from "inversify";
 
 import type { RuntimeScheduler } from "../scheduler.js";
 import { RuntimeAssignmentCoordinator } from "../runtime-assignment-coordinator.js";
@@ -6,7 +6,8 @@ import { RuntimeAssignmentService } from "../runtime-assignment-service.js";
 import { RuntimeCommandHandler } from "../runtime-command-handler.js";
 import {
   LOCAL_NODE_ID,
-  RuntimeEventBus,
+  RuntimeEventBus as RuntimeEventBusToken,
+  type RuntimeEventBus,
 } from "../event-transport/runtime-event-bus.js";
 import type { RuntimeBroadcastEvent } from "../event-transport/types.js";
 
@@ -26,47 +27,24 @@ export class LocalScheduler implements RuntimeScheduler {
   private unsubscribeBroadcast: (() => void) | null = null;
   private unsubscribeDirected: (() => void) | null = null;
 
-  private assignments: RuntimeAssignmentService | null;
-  private commandHandler: RuntimeCommandHandler | null;
-  private runtimeBus: RuntimeEventBus | null;
-  private coordinator: RuntimeAssignmentCoordinator | null;
-
-  /** Accepts optional collaborators so tests can construct before container wiring. */
+  /** Receives runtime collaborators and optional timing settings. */
   constructor(
-    assignments: RuntimeAssignmentService | null = null,
-    commandHandler: RuntimeCommandHandler | null = null,
-    runtimeBus: RuntimeEventBus | null = null,
-    coordinator: RuntimeAssignmentCoordinator | null = null,
+    @inject(RuntimeAssignmentService)
+    private readonly assignments: RuntimeAssignmentService,
+    @inject(RuntimeCommandHandler)
+    private readonly commandHandler: RuntimeCommandHandler,
+    @inject(RuntimeEventBusToken)
+    private readonly runtimeBus: RuntimeEventBus,
+    @inject(RuntimeAssignmentCoordinator)
+    private readonly coordinator: RuntimeAssignmentCoordinator,
+    @unmanaged()
     private readonly options: LocalSchedulerOptions = {},
-  ) {
-    this.assignments = assignments;
-    this.commandHandler = commandHandler;
-    this.runtimeBus = runtimeBus;
-    this.coordinator = coordinator;
-  }
-
-  /** Supplies collaborators before start when the scheduler is created early by DI. */
-  configure(
-    assignments: RuntimeAssignmentService,
-    commandHandler: RuntimeCommandHandler,
-    runtimeBus: RuntimeEventBus,
-    coordinator: RuntimeAssignmentCoordinator,
-  ): this {
-    if (!this.stopped) {
-      throw new Error("Cannot configure LocalScheduler after it has started");
-    }
-
-    this.assignments = assignments;
-    this.commandHandler = commandHandler;
-    this.runtimeBus = runtimeBus;
-    this.coordinator = coordinator;
-    return this;
-  }
+  ) {}
 
   /** Subscribes to the local bus and schedules periodic desired-state reconciliation. */
   start(): void {
     if (!this.stopped) return;
-    const bus = this.requireRuntimeBus();
+    const bus = this.runtimeBus;
     this.stopped = false;
 
     this.unsubscribeBroadcast = bus.onBroadcast((event) =>
@@ -74,7 +52,7 @@ export class LocalScheduler implements RuntimeScheduler {
     );
 
     this.unsubscribeDirected = bus.onDirectedCommand((command) => {
-      void this.requireCommandHandler().handle(command);
+      void this.commandHandler.handle(command);
     });
 
     this.intervalTimer = setInterval(
@@ -117,13 +95,13 @@ export class LocalScheduler implements RuntimeScheduler {
   /** Converts broadcast events into local directed commands and full scans. */
   private handleBroadcast(event: RuntimeBroadcastEvent): void {
     if (this.stopped) return;
-    const bus = this.runtimeBus!;
+    const bus = this.runtimeBus;
 
     switch (event.type) {
       case "NodeJoined": {
         // Refresh locally owned bindings first, then run a desired-state scan
         // for bindings that this process does not yet own.
-        const owned = this.assignments?.listOwnedBindingIds() ?? [];
+        const owned = this.assignments.listOwnedBindingIds();
         for (const bindingId of owned) {
           void bus
             .sendDirected(LOCAL_NODE_ID, {
@@ -153,7 +131,8 @@ export class LocalScheduler implements RuntimeScheduler {
       case "AgentChanged": {
         // Refresh every binding currently owned by this node that uses the
         // changed agent.
-        const affectedIds = (this.assignments?.listBindings() ?? [])
+        const affectedIds = this.assignments
+          .listBindings()
           .filter((b) => b.agentId === event.agentId)
           .map((b) => b.id);
         for (const bindingId of affectedIds) {
@@ -184,7 +163,7 @@ export class LocalScheduler implements RuntimeScheduler {
     this.nodeJoinedDebounceTimer = setTimeout(() => {
       this.nodeJoinedDebounceTimer = null;
       void this.runtimeBus
-        ?.broadcast({ type: "NodeJoined", nodeId: LOCAL_NODE_ID })
+        .broadcast({ type: "NodeJoined", nodeId: LOCAL_NODE_ID })
         .catch((error) => {
           console.error("[runtime] failed to broadcast local node join:", error);
         });
@@ -212,33 +191,6 @@ export class LocalScheduler implements RuntimeScheduler {
   private async fullScan(): Promise<void> {
     if (this.stopped) return;
 
-    await this.requireCoordinator().reconcile();
-  }
-
-  /** Returns the configured runtime bus or fails before scheduler startup. */
-  private requireRuntimeBus(): RuntimeEventBus {
-    if (!this.runtimeBus) {
-      throw new Error("LocalScheduler runtimeBus is not configured");
-    }
-
-    return this.runtimeBus;
-  }
-
-  /** Returns the configured command handler or fails before directed handling. */
-  private requireCommandHandler(): RuntimeCommandHandler {
-    if (!this.commandHandler) {
-      throw new Error("LocalScheduler commandHandler is not configured");
-    }
-
-    return this.commandHandler;
-  }
-
-  /** Returns the configured assignment coordinator or fails before full scans. */
-  private requireCoordinator(): RuntimeAssignmentCoordinator {
-    if (!this.coordinator) {
-      throw new Error("LocalScheduler coordinator is not configured");
-    }
-
-    return this.coordinator;
+    await this.coordinator.reconcile();
   }
 }
