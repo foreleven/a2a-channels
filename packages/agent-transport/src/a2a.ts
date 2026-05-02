@@ -70,36 +70,41 @@ export class A2ATransport implements AgentTransport {
   >();
 
   async send(agentUrl: string, request: AgentRequest): Promise<AgentResponse> {
-    let client = this.clientCache.get(agentUrl);
-    if (!client) {
-      client = await this.factory.createFromUrl(agentUrl);
-      this.clientCache.set(agentUrl, client);
-    }
-    const payload: MessageSendParams = {
-      message: {
-        kind: "message",
-        messageId: crypto.randomUUID(),
-        role: "user",
-        parts: [{ kind: "text", text: request.userMessage }],
-        ...(request.contextId ? { contextId: request.contextId } : {}),
-      },
-    };
-
     const timeoutMs = 30_000;
+    const abortController = new AbortController();
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(
-        () => reject(new Error(`A2A request timed out after ${timeoutMs}ms`)),
-        timeoutMs,
-      );
+      timeoutHandle = setTimeout(() => {
+        abortController.abort(
+          new Error(`A2A request timed out after ${timeoutMs}ms`),
+        );
+        reject(new Error(`A2A request timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
     });
-    try {
-      const result = await Promise.race([
-        client.sendMessage(payload),
-        timeoutPromise,
-      ]);
+
+    const requestPromise = (async () => {
+      let client = this.clientCache.get(agentUrl);
+      if (!client) {
+        client = await this.factory.createFromUrl(agentUrl);
+        this.clientCache.set(agentUrl, client);
+      }
+      const payload: MessageSendParams = {
+        message: {
+          kind: "message",
+          messageId: crypto.randomUUID(),
+          role: "user",
+          parts: [{ kind: "text", text: request.userMessage }],
+          ...(request.contextId ? { contextId: request.contextId } : {}),
+        },
+      };
+      const result = await client.sendMessage(payload);
       const text = extractText(result);
       return { text: text || "(no response from agent)" };
+    })();
+
+    try {
+      return await Promise.race([requestPromise, timeoutPromise]);
     } finally {
       if (timeoutHandle !== null) {
         clearTimeout(timeoutHandle);
