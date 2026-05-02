@@ -66,11 +66,7 @@ export class ChannelBindingService {
       ...data,
     });
     await this.repo.save(aggregate);
-    void this.eventBus
-      .broadcast({ type: "BindingChanged", bindingId: aggregate.snapshot().id })
-      .catch((err) =>
-        console.error("[binding-service] failed to broadcast BindingChanged:", err),
-      );
+    this.broadcastBindingChanged(aggregate.snapshot().id);
     return aggregate.snapshot();
   }
 
@@ -98,11 +94,7 @@ export class ChannelBindingService {
 
     aggregate.update(changes);
     await this.repo.save(aggregate);
-    void this.eventBus
-      .broadcast({ type: "BindingChanged", bindingId: id })
-      .catch((err) =>
-        console.error("[binding-service] failed to broadcast BindingChanged:", err),
-      );
+    this.broadcastBindingChanged(id);
     return aggregate.snapshot();
   }
 
@@ -114,12 +106,19 @@ export class ChannelBindingService {
 
     aggregate.delete();
     await this.repo.save(aggregate);
-    void this.eventBus
-      .broadcast({ type: "BindingChanged", bindingId: id })
-      .catch((err) =>
-        console.error("[binding-service] failed to broadcast BindingChanged:", err),
-      );
+    this.broadcastBindingChanged(id);
     return true;
+  }
+
+  private broadcastBindingChanged(bindingId: string): void {
+    void this.eventBus
+      .broadcast({ type: "BindingChanged", bindingId })
+      .catch((err) =>
+        console.error(
+          "[binding-service] failed to broadcast BindingChanged:",
+          err,
+        ),
+      );
   }
 
   private async assertAgentExists(agentId: string): Promise<void> {

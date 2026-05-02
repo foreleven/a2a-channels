@@ -78,11 +78,7 @@ export class AgentService {
 
     aggregate.update(changes);
     await this.repo.save(aggregate);
-    void this.eventBus
-      .broadcast({ type: "AgentChanged", agentId: id })
-      .catch((err) =>
-        console.error("[agent-service] failed to broadcast AgentChanged:", err),
-      );
+    this.broadcastAgentChanged(id);
     return aggregate.snapshot();
   }
 
@@ -103,5 +99,13 @@ export class AgentService {
     aggregate.delete();
     await this.repo.save(aggregate);
     return true;
+  }
+
+  private broadcastAgentChanged(agentId: string): void {
+    void this.eventBus
+      .broadcast({ type: "AgentChanged", agentId })
+      .catch((err) =>
+        console.error("[agent-service] failed to broadcast AgentChanged:", err),
+      );
   }
 }
