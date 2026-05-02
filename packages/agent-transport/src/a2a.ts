@@ -99,7 +99,9 @@ export class A2ATransport implements AgentTransport {
           ...(request.contextId ? { contextId: request.contextId } : {}),
         },
       };
-      const result = await client.sendMessage(payload);
+      const result = await client.sendMessage(payload, {
+        signal: abortController.signal,
+      });
       const text = extractText(result);
       return { text: text || "(no response from agent)" };
     })();

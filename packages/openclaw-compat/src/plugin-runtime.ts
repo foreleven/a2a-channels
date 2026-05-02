@@ -159,6 +159,11 @@ export class OpenClawPluginRuntime extends EventEmitter {
     );
     if (event.type === "channel.reply.dispatch") {
       event.dispatcher.markComplete();
+      try {
+        await event.dispatcher.waitForIdle();
+      } catch {
+        // Ignore draining errors when no connection handled the message.
+      }
     }
     return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
   }
