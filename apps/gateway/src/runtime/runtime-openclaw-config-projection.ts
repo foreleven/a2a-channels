@@ -3,7 +3,7 @@ import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import {
-  FeishuChannelConfigProjector,
+  GenericChannelConfigProjector,
   type ChannelConfigProjector,
   type ProjectedChannelConfig,
 } from "./channel-config-projector.js";
@@ -16,7 +16,7 @@ type OpenClawChannels = NonNullable<OpenClawConfig["channels"]>;
 @injectable()
 export class RuntimeOpenClawConfigProjection {
   private readonly channelConfigProjectors: ChannelConfigProjector[] = [
-    new FeishuChannelConfigProjector(),
+    new GenericChannelConfigProjector(),
   ];
   private openClawConfig: OpenClawConfig;
 
@@ -48,9 +48,7 @@ export class RuntimeOpenClawConfigProjection {
 
   /** Converts enabled bindings into the OpenClaw channel config shape. */
   private buildConfig(bindings: ChannelBinding[]): OpenClawConfig {
-    const channels: Partial<OpenClawChannels> = {
-      feishu_doc: {},
-    };
+    const channels: Partial<OpenClawChannels> = {};
 
     for (const binding of bindings) {
       for (const projector of this.channelConfigProjectors) {
