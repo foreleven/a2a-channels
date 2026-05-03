@@ -10,12 +10,7 @@
  * which replays a sequence of stored events without raising new pending events.
  */
 
-import type {
-  ChannelBindingCreated,
-  ChannelBindingDeleted,
-  ChannelBindingEvent,
-  ChannelBindingUpdated,
-} from "../events.js";
+import type { ChannelBindingEvent } from "../events.js";
 
 export interface ChannelBindingSnapshot {
   readonly id: string;
@@ -136,9 +131,7 @@ export class ChannelBindingAggregate {
    * Replay a persisted event stream to rebuild the aggregate state.
    * Does NOT add events to `pendingEvents`.
    */
-  static reconstitute(
-    events: ChannelBindingEvent[],
-  ): ChannelBindingAggregate {
+  static reconstitute(events: ChannelBindingEvent[]): ChannelBindingAggregate {
     const agg = new ChannelBindingAggregate();
     for (const event of events) {
       agg.apply(event);
@@ -147,7 +140,9 @@ export class ChannelBindingAggregate {
     return agg;
   }
 
-  static fromSnapshot(snapshot: ChannelBindingSnapshot): ChannelBindingAggregate {
+  static fromSnapshot(
+    snapshot: ChannelBindingSnapshot,
+  ): ChannelBindingAggregate {
     const agg = new ChannelBindingAggregate();
     agg.id = snapshot.id;
     agg.name = snapshot.name;

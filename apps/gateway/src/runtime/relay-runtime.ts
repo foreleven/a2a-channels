@@ -6,7 +6,7 @@ import {
 
 import { GatewayConfigService } from "../bootstrap/config.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
-import { ConnectionManager } from "./connection-manager.js";
+import { ConnectionManager } from "./connection/index.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
 import { RuntimeScheduler } from "./scheduler.js";

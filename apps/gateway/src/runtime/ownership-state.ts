@@ -5,8 +5,8 @@ import {
   createReconnectPolicy,
   type ReconnectDecision,
   type ReconnectPolicy,
-} from "./reconnect-policy.js";
-import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
+} from "./connection/reconnect-policy.js";
+import type { RuntimeConnectionStatus } from "./connection/connection-status.js";
 
 type ChannelBinding = ChannelBindingSnapshot;
 

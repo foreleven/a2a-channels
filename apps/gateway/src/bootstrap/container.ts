@@ -29,7 +29,7 @@ import { registerAllPlugins } from "../register-plugins.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
 import { AgentClientFactory } from "../runtime/agent-clients.js";
 import { RuntimeScheduler } from "../runtime/scheduler.js";
-import { ConnectionManager } from "../runtime/connection-manager.js";
+import { ConnectionManager } from "../runtime/connection/index.js";
 import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
 import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
 import { RedisRuntimeEventBus } from "../runtime/cluster/redis-runtime-event-bus.js";

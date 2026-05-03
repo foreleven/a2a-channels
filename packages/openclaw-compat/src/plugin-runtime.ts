@@ -2,11 +2,9 @@
  * OpenClaw-compatible runtime surface for community channel plugins.
  *
  * Only the subset used by @larksuite/openclaw-lark is implemented.
- * Channel reply events are constructed here and emitted as runtime inbound
- * messages so live connections can decide whether they own the message.
+ * Channel reply events are constructed here and delegated to the gateway
+ * runtime connection boundary.
  */
-
-import { EventEmitter } from "node:events";
 
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
@@ -82,90 +80,34 @@ export type ChannelReplyEvent =
   | ChannelReplyDispatchEvent
   | ChannelReplyBufferedDispatchEvent;
 
-export interface RuntimeEventMap {
-  "message:inbound": (
-    event: MessageInboundEvent,
-  ) =>
-    | ChannelReplyDispatchResult
-    | undefined
-    | Promise<ChannelReplyDispatchResult | undefined>;
-  "message:outbound": (event: MessageOutboundEvent) => void;
+export interface ReplyEventDispatcher {
+  dispatchReplyEvent(
+    event: ChannelReplyEvent,
+  ): Promise<ChannelReplyDispatchResult>;
 }
 
 // ---------------------------------------------------------------------------
 // OpenClawPluginRuntime class
 // ---------------------------------------------------------------------------
 
-/**
- * Class-based OpenClaw plugin runtime that emits lifecycle events and inbound
- * channel messages.
- */
-export class OpenClawPluginRuntime extends EventEmitter {
-  constructor(private readonly options: PluginRuntimeOptions) {
-    super();
-  }
+/** Class-based OpenClaw plugin runtime that delegates channel reply events. */
+export class OpenClawPluginRuntime {
+  private replyEventDispatcher: ReplyEventDispatcher | null = null;
 
-  override on<K extends keyof RuntimeEventMap>(
-    event: K,
-    listener: RuntimeEventMap[K],
-  ): this;
-  override on(event: string | symbol, listener: (...args: any[]) => void): this;
-  override on(
-    event: string | symbol,
-    listener: (...args: any[]) => void,
-  ): this {
-    return super.on(event, listener);
-  }
+  constructor(private readonly options: PluginRuntimeOptions) {}
 
-  override off<K extends keyof RuntimeEventMap>(
-    event: K,
-    listener: RuntimeEventMap[K],
-  ): this;
-  override off(
-    event: string | symbol,
-    listener: (...args: any[]) => void,
-  ): this;
-  override off(
-    event: string | symbol,
-    listener: (...args: any[]) => void,
-  ): this {
-    return super.off(event, listener);
-  }
-
-  override emit<K extends keyof RuntimeEventMap>(
-    event: K,
-    ...args: Parameters<RuntimeEventMap[K]>
-  ): boolean;
-  override emit(event: string | symbol, ...args: any[]): boolean;
-  override emit(event: string | symbol, ...args: any[]): boolean {
-    return super.emit(event, ...args);
+  setReplyEventDispatcher(dispatcher: ReplyEventDispatcher): void {
+    this.replyEventDispatcher = dispatcher;
   }
 
   async handleChannelReplyEvent(
     event: ChannelReplyEvent,
   ): Promise<ChannelReplyDispatchResult> {
-    const message = this.buildMessageInboundEvent(event);
-    for (const listener of this.listeners("message:inbound")) {
-      const result = await (
-        listener as RuntimeEventMap["message:inbound"]
-      )(message);
-      if (result !== undefined) {
-        return result;
-      }
+    if (this.replyEventDispatcher) {
+      return this.replyEventDispatcher.dispatchReplyEvent(event);
     }
 
-    console.warn(
-      `[runtime] no active connection for channelType=${message.channelType} accountId=${message.accountId}; message dropped`,
-    );
-    if (event.type === "channel.reply.dispatch") {
-      event.dispatcher.markComplete();
-      try {
-        await event.dispatcher.waitForIdle();
-      } catch {
-        // Ignore draining errors when no connection handled the message.
-      }
-    }
-    return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
+    return this.completeUnhandledReplyEvent(event);
   }
 
   asPluginRuntime(): PluginRuntime {
@@ -249,26 +191,18 @@ export class OpenClawPluginRuntime extends EventEmitter {
     } as PluginRuntime;
   }
 
-  private buildMessageInboundEvent(event: ChannelReplyEvent): MessageInboundEvent {
-    const ctx = event.ctx as Record<string, unknown>;
-    const userMessage =
-      (ctx["BodyForAgent"] as string | undefined) ??
-      (ctx["Body"] as string | undefined) ??
-      (ctx["RawBody"] as string | undefined) ??
-      "";
-    const channelType =
-      (ctx["ChannelType"] as string | undefined) ??
-      (ctx["Channel"] as string | undefined) ??
-      (ctx["Provider"] as string | undefined);
-    const accountId = ctx["AccountId"] as string | undefined;
-    const sessionKey = ctx["SessionKey"] as string | undefined;
+  private async completeUnhandledReplyEvent(
+    event: ChannelReplyEvent,
+  ): Promise<ChannelReplyDispatchResult> {
+    if (event.type === "channel.reply.dispatch") {
+      event.dispatcher.markComplete();
+      try {
+        await event.dispatcher.waitForIdle();
+      } catch {
+        // Ignore draining errors when no connection handled the message.
+      }
+    }
 
-    return {
-      accountId,
-      channelType,
-      replyEvent: event,
-      sessionKey,
-      userMessage,
-    };
+    return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
   }
 }

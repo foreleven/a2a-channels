@@ -7,7 +7,7 @@ import type {
 import {
   ConnectionManager,
   type ConnectionLifecycleEvent,
-} from "./connection-manager.js";
+} from "./connection/index.js";
 import { RuntimeOwnershipState } from "./ownership-state.js";
 import {
   RuntimeOwnershipGate,
@@ -16,7 +16,7 @@ import {
 } from "./ownership-gate.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
-import type { RuntimeConnectionStatus } from "./runtime-connection-status.js";
+import type { RuntimeConnectionStatus } from "./connection/index.js";
 
 type AgentConfig = AgentConfigSnapshot;
 type ChannelBinding = ChannelBindingSnapshot;

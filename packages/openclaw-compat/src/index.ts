@@ -9,5 +9,5 @@ export type {
   ChannelReplyBufferedDispatchEvent,
   ChannelReplyEvent,
   ChannelReplyDispatchResult,
-  RuntimeEventMap,
+  ReplyEventDispatcher,
 } from "./plugin-runtime.js";

@@ -27,7 +27,7 @@ import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
 import { RuntimeOwnershipState } from "../runtime/ownership-state.js";
-import { ConnectionManager } from "../runtime/connection-manager.js";
+import { ConnectionManager } from "../runtime/connection/index.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";

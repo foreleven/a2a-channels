@@ -6,10 +6,11 @@ import type {
   AgentConfigSnapshot,
   ChannelBindingSnapshot,
 } from "@a2a-channels/domain";
+import { OpenClawPluginRuntime } from "@a2a-channels/openclaw-compat";
 
 import { AgentClientRegistry } from "./agent-client-registry.js";
 import { AgentClientFactory } from "./agent-clients.js";
-import { ConnectionManager } from "./connection-manager.js";
+import { ConnectionManager } from "./connection/index.js";
 import { RuntimeOwnershipState } from "./ownership-state.js";
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
@@ -54,7 +55,7 @@ function createService(): {
   );
   const connectionManager = new ConnectionManager(
     null as never,
-    null as never,
+    createRuntime(),
     null as never,
   );
   const service = new RuntimeAssignmentService(
@@ -81,7 +82,7 @@ function createServiceWithGate(ownershipGate: OwnershipGate): {
   );
   const connectionManager = new ConnectionManager(
     null as never,
-    null as never,
+    createRuntime(),
     null as never,
   );
   const service = new RuntimeAssignmentService(
@@ -169,3 +170,12 @@ describe("RuntimeAssignmentService", () => {
     assert.equal(status?.agentUrl, agent.url);
   });
 });
+
+function createRuntime(): OpenClawPluginRuntime {
+  return new OpenClawPluginRuntime({
+    config: {
+      loadConfig: () => ({ channels: {} }) as never,
+      writeConfigFile: async () => {},
+    },
+  });
+}

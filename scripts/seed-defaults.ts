@@ -11,6 +11,10 @@ import { AgentService } from "../apps/gateway/src/application/agent-service.js";
 import { ChannelBindingService } from "../apps/gateway/src/application/channel-binding-service.js";
 import { AgentConfigStateRepository } from "../apps/gateway/src/infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../apps/gateway/src/infra/channel-binding-repo.js";
+import {
+  LocalRuntimeEventBus,
+  type RuntimeEventBus,
+} from "../apps/gateway/src/runtime/event-transport/index.js";
 import { prisma } from "../apps/gateway/src/store/prisma.js";
 
 export interface DefaultSeedWriterDependencies {
@@ -18,6 +22,7 @@ export interface DefaultSeedWriterDependencies {
   bindingService?: ChannelBindingService;
   agentRepo?: AgentConfigRepository;
   bindingRepo?: ChannelBindingRepository;
+  eventBus?: RuntimeEventBus;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -30,11 +35,13 @@ export class DefaultSeedWriter {
   constructor(deps: DefaultSeedWriterDependencies = {}) {
     const agentRepo = deps.agentRepo ?? new AgentConfigStateRepository();
     const bindingRepo = deps.bindingRepo ?? new ChannelBindingStateRepository();
+    const eventBus = deps.eventBus ?? new LocalRuntimeEventBus();
 
     this.agentService =
-      deps.agentService ?? new AgentService(agentRepo, bindingRepo);
+      deps.agentService ?? new AgentService(agentRepo, bindingRepo, eventBus);
     this.bindingService =
-      deps.bindingService ?? new ChannelBindingService(bindingRepo, agentRepo);
+      deps.bindingService ??
+      new ChannelBindingService(bindingRepo, agentRepo, eventBus);
     this.bindingRepo = bindingRepo;
     this.env = deps.env ?? process.env;
   }

@@ -37,4 +37,4 @@ start-all:
 
 test:
 	$(MAKE) gateway-test-db-push
-	cd apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH="$(test_db_path)" NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test --test-force-exit src/*.test.ts src/**/*.test.ts
+	cd apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH="$(test_db_path)" NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test --test-force-exit $$(find src -name '*.test.ts' -print)

@@ -190,6 +190,7 @@ export class OpenClawPluginHost {
       existing.push(handler);
       host.hookHandlers.set(event, existing);
     };
+    const runtime = host.runtime.asPluginRuntime();
 
     return {
       // ---- Identity -------------------------------------------------------
@@ -205,7 +206,7 @@ export class OpenClawPluginHost {
         return config;
       },
       get runtime() {
-        return host.runtime.asPluginRuntime();
+        return runtime;
       },
       pluginConfig: {},
 
