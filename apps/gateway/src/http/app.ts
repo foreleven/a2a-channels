@@ -6,6 +6,7 @@ import { inject, injectable } from "inversify";
 import { GatewayConfigService } from "../bootstrap/config.js";
 import { AgentRoutes } from "./routes/agents.js";
 import { ChannelRoutes } from "./routes/channels.js";
+import { RuntimeStatusRoutes } from "./routes/runtime-status.js";
 
 export interface GatewayApp {
   fetch(request: Request, env: unknown): Promise<unknown> | unknown;
@@ -36,6 +37,8 @@ export class HonoGatewayApp implements GatewayApp {
     private readonly channelRoutes: ChannelRoutes,
     @inject(AgentRoutes)
     private readonly agentRoutes: AgentRoutes,
+    @inject(RuntimeStatusRoutes)
+    private readonly runtimeStatusRoutes: RuntimeStatusRoutes,
   ) {
     this.app = this.createApp();
     this.request = this.app.request.bind(this.app);
@@ -71,6 +74,7 @@ export class HonoGatewayApp implements GatewayApp {
 
     this.channelRoutes.register(app);
     this.agentRoutes.register(app);
+    this.runtimeStatusRoutes.register(app);
 
     return app;
   }

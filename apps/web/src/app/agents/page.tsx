@@ -1,30 +1,50 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Bot, Pencil, Plus, Trash2 } from "lucide-react";
+
 import type { AgentConfig } from "@/lib/api";
 import {
-  listAgents,
   createAgent,
-  updateAgent,
   deleteAgent,
+  listAgents,
+  updateAgent,
 } from "@/lib/api";
-
-// ---------------------------------------------------------------------------
-// Form state
-// ---------------------------------------------------------------------------
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 
 const EMPTY_FORM = { name: "", url: "", description: "" };
 type FormState = typeof EMPTY_FORM;
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -34,15 +54,16 @@ export default function AgentsPage() {
     try {
       setError(null);
       setAgents(await listAgents());
-    } catch (e) {
-      setError(String(e));
+    } catch (refreshError) {
+      setError(String(refreshError));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void refresh();
+    const timer = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(timer);
   }, [refresh]);
 
   function openNew() {
@@ -51,9 +72,13 @@ export default function AgentsPage() {
     setShowForm(true);
   }
 
-  function openEdit(a: AgentConfig) {
-    setEditingId(a.id);
-    setForm({ name: a.name, url: a.url, description: a.description ?? "" });
+  function openEdit(agent: AgentConfig) {
+    setEditingId(agent.id);
+    setForm({
+      name: agent.name,
+      url: agent.url,
+      description: agent.description ?? "",
+    });
     setShowForm(true);
   }
 
@@ -72,8 +97,8 @@ export default function AgentsPage() {
       }
       setShowForm(false);
       await refresh();
-    } catch (e) {
-      setError(String(e));
+    } catch (saveError) {
+      setError(String(saveError));
     } finally {
       setSaving(false);
     }
@@ -84,130 +109,149 @@ export default function AgentsPage() {
     try {
       await deleteAgent(id);
       await refresh();
-    } catch (e) {
-      setError(String(e));
+    } catch (deleteError) {
+      setError(String(deleteError));
     }
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Agent Configs</h1>
-        <button
-          onClick={openNew}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
-          + New Agent
-        </button>
+    <div className="flex w-full flex-col gap-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-normal">Agents</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Register A2A-compatible targets that channel bindings can route to.
+          </p>
+        </div>
+        <Button onClick={openNew}>
+          <Plus />
+          New Agent
+        </Button>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-          {error}
-        </div>
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="p-4 text-sm text-destructive">
+            {error}
+          </CardContent>
+        </Card>
       )}
 
-      {loading ? (
-        <p className="text-gray-500 text-sm">Loading…</p>
-      ) : agents.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
-          No agents configured yet. Click &ldquo;+ New Agent&rdquo; to add one.
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-          {agents.map((a) => (
-            <div key={a.id} className="flex items-center gap-4 px-5 py-4">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium">{a.name}</p>
-                <p className="text-xs text-gray-500 truncate mt-0.5">
-                  {a.url}
-                </p>
-                {a.description && (
-                  <p className="text-xs text-gray-400 mt-0.5 truncate">
-                    {a.description}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => openEdit(a)}
-                  className="text-xs px-3 py-1 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(a.id)}
-                  className="text-xs px-3 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle>Agent Configs</CardTitle>
+              <CardDescription>
+                Endpoint inventory available to channel bindings.
+              </CardDescription>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Form modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold mb-5">
-              {editingId ? "Edit Agent" : "New Agent"}
-            </h2>
-
-            <div className="space-y-4">
-              <Field label="Name">
-                <input
-                  className={input}
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="My A2A Agent"
-                />
-              </Field>
-              <Field label="URL">
-                <input
-                  className={input}
-                  value={form.url}
-                  onChange={(e) => setForm({ ...form, url: e.target.value })}
-                  placeholder="http://localhost:3001/a2a/jsonrpc"
-                />
-              </Field>
-              <Field label="Description (optional)">
-                <textarea
-                  className={`${input} resize-none`}
-                  rows={2}
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm({ ...form, description: e.target.value })
-                  }
-                />
-              </Field>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
+            <Badge variant="secondary">{agents.length} total</Badge>
           </div>
-        </div>
-      )}
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : agents.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>URL</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="w-28 text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {agents.map((agent) => (
+                  <TableRow key={agent.id}>
+                    <TableCell className="font-medium">{agent.name}</TableCell>
+                    <TableCell className="max-w-sm truncate font-mono text-xs text-muted-foreground">
+                      {agent.url}
+                    </TableCell>
+                    <TableCell className="max-w-xs truncate text-muted-foreground">
+                      {agent.description ?? "-"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          aria-label={`Edit ${agent.name}`}
+                          onClick={() => openEdit(agent)}
+                          size="icon"
+                          variant="outline"
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          aria-label={`Delete ${agent.name}`}
+                          onClick={() => handleDelete(agent.id)}
+                          size="icon"
+                          variant="outline"
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showForm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingId ? "Edit Agent" : "New Agent"}</DialogTitle>
+            <DialogDescription>
+              Configure the JSON-RPC endpoint used by the gateway transport.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Field label="Name">
+              <Input
+                value={form.name}
+                onChange={(event) =>
+                  setForm({ ...form, name: event.target.value })
+                }
+                placeholder="Echo Agent"
+              />
+            </Field>
+            <Field label="URL">
+              <Input
+                value={form.url}
+                onChange={(event) =>
+                  setForm({ ...form, url: event.target.value })
+                }
+                placeholder="http://localhost:3001"
+              />
+            </Field>
+            <Field label="Description">
+              <Textarea
+                rows={3}
+                value={form.description}
+                onChange={(event) =>
+                  setForm({ ...form, description: event.target.value })
+                }
+              />
+            </Field>
+          </div>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowForm(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-const input =
-  "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent";
 
 function Field({
   label,
@@ -217,11 +261,23 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">
-        {label}
-      </label>
+    <div className="space-y-2">
+      <Label>{label}</Label>
       {children}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-border p-10 text-center">
+      <div className="mb-3 flex size-10 items-center justify-center rounded-md bg-accent text-accent-foreground">
+        <Bot className="size-4" />
+      </div>
+      <p className="text-sm font-medium">No agents configured</p>
+      <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+        Add an agent before creating channel bindings.
+      </p>
     </div>
   );
 }

@@ -17,10 +17,12 @@ import {
 } from "@a2a-channels/domain";
 import { AgentService } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
+import { RuntimeStatusService } from "../application/runtime-status-service.js";
 import { GatewayServer } from "./gateway-server.js";
 import { GatewayApp, GatewayWebDir, HonoGatewayApp } from "../http/app.js";
 import { AgentRoutes } from "../http/routes/agents.js";
 import { ChannelRoutes } from "../http/routes/channels.js";
+import { RuntimeStatusRoutes } from "../http/routes/runtime-status.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { RedisClientService } from "../infra/redis-client.js";
@@ -126,6 +128,7 @@ function bindApplication(container: Container): void {
   container.bind(AgentConfigRepository).toService(AgentConfigStateRepository);
   container.bind(ChannelBindingService).toSelf().inSingletonScope();
   container.bind(AgentService).toSelf().inSingletonScope();
+  container.bind(RuntimeStatusService).toSelf().inSingletonScope();
 }
 
 function bindRuntime(
@@ -226,6 +229,7 @@ function bindHttp(container: Container): void {
   container.bind(GatewayWebDir).toConstantValue(DEFAULT_GATEWAY_WEB_DIR);
   container.bind(ChannelRoutes).toSelf().inSingletonScope();
   container.bind(AgentRoutes).toSelf().inSingletonScope();
+  container.bind(RuntimeStatusRoutes).toSelf().inSingletonScope();
   container.bind(HonoGatewayApp).toSelf().inSingletonScope();
   container.bind(GatewayApp).toService(HonoGatewayApp);
 }

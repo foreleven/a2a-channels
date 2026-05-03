@@ -167,7 +167,15 @@ export class Connection {
       return;
     }
 
-    if (status.connected !== true && status.running !== true) {
+    if (status.connected === false || status.running === false) {
+      return;
+    }
+
+    if (
+      status.connected !== true &&
+      status.running !== true &&
+      status.accountId !== this.binding.accountId
+    ) {
       return;
     }
 

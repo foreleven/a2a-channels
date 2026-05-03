@@ -1,18 +1,45 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import type { AgentConfig, ChannelBinding } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Activity,
+  CircleDashed,
+  Pencil,
+  Plus,
+  Power,
+  RadioTower,
+  Trash2,
+} from "lucide-react";
+
+import type { AgentConfig, ChannelBinding, RuntimeChannelStatus } from "@/lib/api";
+import {
+  createChannel,
+  deleteChannel,
   listAgents,
   listChannels,
-  createChannel,
+  listRuntimeChannelStatuses,
   updateChannel,
-  deleteChannel,
 } from "@/lib/api";
-
-// ---------------------------------------------------------------------------
-// Empty form state
-// ---------------------------------------------------------------------------
+import { ChannelStatusEventStream } from "@/lib/channel-status";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 
 const EMPTY_FORM = {
   name: "",
@@ -28,57 +55,63 @@ const EMPTY_FORM = {
 
 type FormState = typeof EMPTY_FORM;
 
-function formToPayload(f: FormState): Omit<ChannelBinding, "id" | "createdAt"> {
-  return {
-    name: f.name,
-    channelType: f.channelType,
-    accountId: f.accountId,
-    agentId: f.agentId,
-    enabled: f.enabled,
-    channelConfig: {
-      appId: f.appId,
-      appSecret: f.appSecret,
-      verificationToken: f.verificationToken || undefined,
-      encryptKey: f.encryptKey || undefined,
-      allowFrom: ["*"],
-    },
-  };
+class ChannelFormMapper {
+  toPayload(form: FormState): Omit<ChannelBinding, "id" | "createdAt"> {
+    return {
+      name: form.name,
+      channelType: form.channelType,
+      accountId: form.accountId,
+      agentId: form.agentId,
+      enabled: form.enabled,
+      channelConfig: {
+        appId: form.appId,
+        appSecret: form.appSecret,
+        verificationToken: form.verificationToken || undefined,
+        encryptKey: form.encryptKey || undefined,
+        allowFrom: ["*"],
+      },
+    };
+  }
+
+  fromBinding(binding: ChannelBinding): FormState {
+    const config = binding.channelConfig as {
+      appId?: string;
+      appSecret?: string;
+      verificationToken?: string;
+      encryptKey?: string;
+    };
+    return {
+      name: binding.name,
+      channelType: binding.channelType,
+      accountId: binding.accountId,
+      agentId: binding.agentId,
+      enabled: binding.enabled,
+      appId: config.appId ?? "",
+      appSecret: config.appSecret ?? "",
+      verificationToken: config.verificationToken ?? "",
+      encryptKey: config.encryptKey ?? "",
+    };
+  }
 }
 
-function bindingToForm(b: ChannelBinding): FormState {
-  const cfg = b.channelConfig as {
-    appId?: string;
-    appSecret?: string;
-    verificationToken?: string;
-    encryptKey?: string;
-  };
-  return {
-    name: b.name,
-    channelType: b.channelType,
-    accountId: b.accountId,
-    agentId: b.agentId,
-    enabled: b.enabled,
-    appId: cfg.appId ?? "",
-    appSecret: cfg.appSecret ?? "",
-    verificationToken: cfg.verificationToken ?? "",
-    encryptKey: cfg.encryptKey ?? "",
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+const formMapper = new ChannelFormMapper();
 
 export default function ChannelsPage() {
   const [channels, setChannels] = useState<ChannelBinding[]>([]);
   const [agents, setAgents] = useState<AgentConfig[]>([]);
+  const [statuses, setStatuses] = useState<RuntimeChannelStatus[]>([]);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const statusStream = useMemo(() => new ChannelStatusEventStream(), []);
+  const statusesByBindingId = useMemo(
+    () => new Map(statuses.map((status) => [status.bindingId, status])),
+    [statuses],
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -89,16 +122,49 @@ export default function ChannelsPage() {
       ]);
       setChannels(channelData);
       setAgents(agentData);
-    } catch (e) {
-      setError(String(e));
+    } catch (refreshError) {
+      setError(String(refreshError));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void refresh();
+    const timer = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInitialStatuses() {
+      try {
+        const nextStatuses = await listRuntimeChannelStatuses();
+        if (!cancelled) {
+          setStatuses(nextStatuses);
+          setStatusError(null);
+        }
+      } catch (initialError) {
+        if (!cancelled) {
+          setStatusError(String(initialError));
+        }
+      }
+    }
+
+    void loadInitialStatuses();
+    statusStream.connect({
+      onSnapshot: (snapshot) => {
+        setStatuses(snapshot.statuses);
+        setStatusError(null);
+      },
+      onError: (streamError) => setStatusError(streamError),
+    });
+
+    return () => {
+      cancelled = true;
+      statusStream.close();
+    };
+  }, [statusStream]);
 
   function openNew() {
     setEditingId(null);
@@ -106,24 +172,25 @@ export default function ChannelsPage() {
     setShowForm(true);
   }
 
-  function openEdit(b: ChannelBinding) {
-    setEditingId(b.id);
-    setForm(bindingToForm(b));
+  function openEdit(binding: ChannelBinding) {
+    setEditingId(binding.id);
+    setForm(formMapper.fromBinding(binding));
     setShowForm(true);
   }
 
   async function handleSave() {
     setSaving(true);
     try {
+      const payload = formMapper.toPayload(form);
       if (editingId) {
-        await updateChannel(editingId, formToPayload(form));
+        await updateChannel(editingId, payload);
       } else {
-        await createChannel(formToPayload(form));
+        await createChannel(payload);
       }
       setShowForm(false);
       await refresh();
-    } catch (e) {
-      setError(String(e));
+    } catch (saveError) {
+      setError(String(saveError));
     } finally {
       setSaving(false);
     }
@@ -134,222 +201,394 @@ export default function ChannelsPage() {
     try {
       await deleteChannel(id);
       await refresh();
-    } catch (e) {
-      setError(String(e));
+    } catch (deleteError) {
+      setError(String(deleteError));
     }
   }
 
-  async function handleToggle(b: ChannelBinding) {
+  async function handleToggle(binding: ChannelBinding) {
     try {
-      await updateChannel(b.id, { enabled: !b.enabled });
+      await updateChannel(binding.id, { enabled: !binding.enabled });
       await refresh();
-    } catch (e) {
-      setError(String(e));
+    } catch (toggleError) {
+      setError(String(toggleError));
     }
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Channel Bindings</h1>
-        <button
-          onClick={openNew}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
-          + New Binding
-        </button>
+    <div className="flex w-full flex-col gap-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-normal">Channels</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Bind messaging provider accounts to registered A2A agents.
+          </p>
+        </div>
+        <Button onClick={openNew}>
+          <Plus />
+          New Binding
+        </Button>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-          {error}
-        </div>
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="p-4 text-sm text-destructive">
+            {error}
+          </CardContent>
+        </Card>
       )}
 
-      {loading ? (
-        <p className="text-gray-500 text-sm">Loading…</p>
-      ) : channels.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
-          No channel bindings yet. Click &ldquo;+ New Binding&rdquo; to add one.
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-          {channels.map((b) => (
-            <div key={b.id} className="flex items-center gap-4 px-5 py-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{b.name}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                    {b.channelType}
-                  </span>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
-                      b.enabled
-                        ? "bg-green-100 text-green-700"
-                        : "bg-gray-100 text-gray-500"
-                    }`}
-                  >
-                    {b.enabled ? "enabled" : "disabled"}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-500 mt-0.5 truncate">
-                  account: {b.accountId} · agent: {b.agentId}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => handleToggle(b)}
-                  className="text-xs px-3 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-                >
-                  {b.enabled ? "Disable" : "Enable"}
-                </button>
-                <button
-                  onClick={() => openEdit(b)}
-                  className="text-xs px-3 py-1 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(b.id)}
-                  className="text-xs px-3 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Form modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-            <h2 className="text-lg font-semibold mb-5">
-              {editingId ? "Edit Channel Binding" : "New Channel Binding"}
-            </h2>
-
-            <div className="space-y-4">
-              <Field label="Name">
-                <input
-                  className={input}
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="My Feishu Bot"
-                />
-              </Field>
-              <Field label="Channel Type">
-                <select
-                  className={input}
-                  value={form.channelType}
-                  onChange={(e) =>
-                    setForm({ ...form, channelType: e.target.value })
-                  }
-                >
-                  <option value="feishu">Feishu / Lark</option>
-                </select>
-              </Field>
-              <Field label="Account ID">
-                <input
-                  className={input}
-                  value={form.accountId}
-                  onChange={(e) =>
-                    setForm({ ...form, accountId: e.target.value })
-                  }
-                  placeholder="default"
-                />
-              </Field>
-              <Field label="Agent">
-                <select
-                  className={input}
-                  value={form.agentId}
-                  onChange={(e) =>
-                    setForm({ ...form, agentId: e.target.value })
-                  }
-                >
-                  <option value="" disabled>
-                    Select an agent
-                  </option>
-                  {agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name} ({agent.url})
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="App ID">
-                <input
-                  className={input}
-                  value={form.appId}
-                  onChange={(e) => setForm({ ...form, appId: e.target.value })}
-                  placeholder="cli_xxxx"
-                />
-              </Field>
-              <Field label="App Secret">
-                <input
-                  className={input}
-                  type="password"
-                  value={form.appSecret}
-                  onChange={(e) =>
-                    setForm({ ...form, appSecret: e.target.value })
-                  }
-                  placeholder="••••••••"
-                />
-              </Field>
-              <Field label="Verification Token (optional)">
-                <input
-                  className={input}
-                  value={form.verificationToken}
-                  onChange={(e) =>
-                    setForm({ ...form, verificationToken: e.target.value })
-                  }
-                />
-              </Field>
-              <Field label="Encrypt Key (optional)">
-                <input
-                  className={input}
-                  value={form.encryptKey}
-                  onChange={(e) =>
-                    setForm({ ...form, encryptKey: e.target.value })
-                  }
-                />
-              </Field>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.enabled}
-                  onChange={(e) =>
-                    setForm({ ...form, enabled: e.target.checked })
-                  }
-                />
-                Enabled
-              </label>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-base font-semibold">Channel Bindings</h2>
+            <p className="text-sm text-muted-foreground">
+              Runtime-owned routes from provider accounts to agent configs.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary">{channels.length} total</Badge>
+            {statusError && <Badge variant="destructive">status offline</Badge>}
           </div>
         </div>
-      )}
+
+        {loading ? (
+          <Card>
+            <CardContent className="p-5 text-sm text-muted-foreground">
+              Loading...
+            </CardContent>
+          </Card>
+        ) : channels.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+            {channels.map((binding) => (
+              <ChannelCard
+                key={binding.id}
+                agentLabel={agentLabel(binding.agentId, agents)}
+                binding={binding}
+                onDelete={() => handleDelete(binding.id)}
+                onEdit={() => openEdit(binding)}
+                onToggle={() => handleToggle(binding)}
+                status={statusesByBindingId.get(binding.id)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <Dialog open={showForm}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editingId ? "Edit Channel Binding" : "New Channel Binding"}
+            </DialogTitle>
+            <DialogDescription>
+              Feishu and Lark are handled by the same OpenClaw channel plugin.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Name">
+              <Input
+                value={form.name}
+                onChange={(event) =>
+                  setForm({ ...form, name: event.target.value })
+                }
+                placeholder="Support Bot"
+              />
+            </Field>
+            <Field label="Channel Type">
+              <Select
+                value={form.channelType}
+                onChange={(event) =>
+                  setForm({ ...form, channelType: event.target.value })
+                }
+              >
+                <option value="feishu">Feishu / Lark</option>
+              </Select>
+            </Field>
+            <Field label="Account ID">
+              <Input
+                value={form.accountId}
+                onChange={(event) =>
+                  setForm({ ...form, accountId: event.target.value })
+                }
+                placeholder="default"
+              />
+            </Field>
+            <Field label="Agent">
+              <Select
+                value={form.agentId}
+                onChange={(event) =>
+                  setForm({ ...form, agentId: event.target.value })
+                }
+              >
+                <option value="" disabled>
+                  Select an agent
+                </option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="App ID">
+              <Input
+                value={form.appId}
+                onChange={(event) =>
+                  setForm({ ...form, appId: event.target.value })
+                }
+                placeholder="cli_xxxx"
+              />
+            </Field>
+            <Field label="App Secret">
+              <Input
+                type="password"
+                value={form.appSecret}
+                onChange={(event) =>
+                  setForm({ ...form, appSecret: event.target.value })
+                }
+                placeholder="app secret"
+              />
+            </Field>
+            <Field label="Verification Token">
+              <Input
+                value={form.verificationToken}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    verificationToken: event.target.value,
+                  })
+                }
+              />
+            </Field>
+            <Field label="Encrypt Key">
+              <Input
+                value={form.encryptKey}
+                onChange={(event) =>
+                  setForm({ ...form, encryptKey: event.target.value })
+                }
+              />
+            </Field>
+          </div>
+          <label className="mt-4 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(event) =>
+                setForm({ ...form, enabled: event.target.checked })
+              }
+            />
+            Enabled
+          </label>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowForm(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving || !form.agentId}>
+              {saving ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-const input =
-  "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent";
+function agentLabel(agentId: string, agents: AgentConfig[]) {
+  const agent = agents.find((candidate) => candidate.id === agentId);
+  return agent ? `${agent.name} (${agent.url})` : agentId;
+}
+
+function ChannelCard({
+  agentLabel,
+  binding,
+  onDelete,
+  onEdit,
+  onToggle,
+  status,
+}: {
+  agentLabel: string;
+  binding: ChannelBinding;
+  onDelete(): void;
+  onEdit(): void;
+  onToggle(): void;
+  status?: RuntimeChannelStatus;
+}) {
+  const displayStatus = status ?? fallbackStatus(binding);
+  const statusView = describeStatus(displayStatus);
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="truncate">{binding.name}</CardTitle>
+            <CardDescription className="mt-1 truncate">
+              {binding.channelType} / {binding.accountId}
+            </CardDescription>
+          </div>
+          <Badge variant={binding.enabled ? "success" : "secondary"}>
+            {binding.enabled ? "enabled" : "disabled"}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-md border border-border bg-muted/40 p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              {statusView.icon}
+              {statusView.label}
+            </div>
+            <Badge variant={statusView.badgeVariant}>{displayStatus.status}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">{statusView.detail}</p>
+          {displayStatus.updatedAt && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Updated {new Date(displayStatus.updatedAt).toLocaleString()}
+            </p>
+          )}
+          {displayStatus.error && (
+            <p className="mt-2 break-words text-xs text-destructive">
+              {displayStatus.error}
+            </p>
+          )}
+        </div>
+
+        <div className="grid gap-3 text-sm sm:grid-cols-2">
+          <Info label="Agent" value={agentLabel} />
+          <Info label="Ownership" value={statusView.ownership} />
+          <Info label="App ID" value={readConfigValue(binding, "appId")} />
+          <Info label="Lease" value={displayStatus.leaseHeld ? "held" : "none"} />
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <Button
+            aria-label={
+              binding.enabled ? `Disable ${binding.name}` : `Enable ${binding.name}`
+            }
+            onClick={onToggle}
+            size="icon"
+            variant="outline"
+          >
+            <Power />
+          </Button>
+          <Button
+            aria-label={`Edit ${binding.name}`}
+            onClick={onEdit}
+            size="icon"
+            variant="outline"
+          >
+            <Pencil />
+          </Button>
+          <Button
+            aria-label={`Delete ${binding.name}`}
+            onClick={onDelete}
+            size="icon"
+            variant="outline"
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 truncate text-sm">{value || "-"}</p>
+    </div>
+  );
+}
+
+function fallbackStatus(binding: ChannelBinding): RuntimeChannelStatus {
+  return {
+    bindingId: binding.id,
+    mode: "local",
+    ownership: binding.enabled ? "unassigned" : "disabled",
+    status: binding.enabled ? "unknown" : "idle",
+    leaseHeld: false,
+  };
+}
+
+function describeStatus(status: RuntimeChannelStatus): {
+  badgeVariant: "success" | "secondary" | "destructive" | "outline";
+  detail: string;
+  icon: React.ReactNode;
+  label: string;
+  ownership: string;
+} {
+  if (status.ownership === "disabled") {
+    return {
+      badgeVariant: "secondary",
+      detail: "This binding is disabled, so no runtime connection is expected.",
+      icon: <CircleDashed className="size-4" />,
+      label: "Disabled",
+      ownership: "Disabled",
+    };
+  }
+
+  if (status.ownership === "cluster-lease") {
+    return {
+      badgeVariant: "outline",
+      detail:
+        "A cluster lease is held by another node; this node cannot report the remote connection edge.",
+      icon: <Activity className="size-4" />,
+      label: "Owned in cluster",
+      ownership: "Other cluster node",
+    };
+  }
+
+  if (status.status === "connected") {
+    return {
+      badgeVariant: "success",
+      detail: `Connected on ${status.ownerDisplayName ?? status.ownerNodeId ?? "this node"}.`,
+      icon: <Activity className="size-4" />,
+      label: "Connected",
+      ownership: "Current node",
+    };
+  }
+
+  if (status.status === "error") {
+    return {
+      badgeVariant: "destructive",
+      detail: "The local runtime hit a connection error and may retry.",
+      icon: <Activity className="size-4" />,
+      label: "Error",
+      ownership: status.ownership === "local" ? "Current node" : "Unassigned",
+    };
+  }
+
+  if (status.status === "connecting") {
+    return {
+      badgeVariant: "outline",
+      detail: "The local runtime is starting the channel connection.",
+      icon: <Activity className="size-4" />,
+      label: "Connecting",
+      ownership: "Current node",
+    };
+  }
+
+  return {
+    badgeVariant: "secondary",
+    detail:
+      status.mode === "cluster"
+        ? "No cluster lease is visible for this binding yet."
+        : "The local runtime has not attached this binding yet.",
+    icon: <CircleDashed className="size-4" />,
+    label: "Not connected",
+    ownership: status.ownership === "local" ? "Current node" : "Unassigned",
+  };
+}
+
+function readConfigValue(binding: ChannelBinding, key: string): string {
+  const value = binding.channelConfig[key];
+  return typeof value === "string" ? value : "";
+}
 
 function Field({
   label,
@@ -359,11 +598,23 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">
-        {label}
-      </label>
+    <div className="space-y-2">
+      <Label>{label}</Label>
       {children}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-border p-10 text-center">
+      <div className="mb-3 flex size-10 items-center justify-center rounded-md bg-accent text-accent-foreground">
+        <RadioTower className="size-4" />
+      </div>
+      <p className="text-sm font-medium">No channel bindings</p>
+      <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+        Create a binding after at least one agent is registered.
+      </p>
     </div>
   );
 }

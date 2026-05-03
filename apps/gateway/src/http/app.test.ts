@@ -9,6 +9,7 @@ import {
 } from "../application/agent-service.js";
 import type { ChannelBindingSnapshot } from "../application/channel-binding-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
+import { RuntimeStatusService } from "../application/runtime-status-service.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
 import { GatewayApp, GatewayWebDir, HonoGatewayApp } from "./app.js";
 
@@ -21,7 +22,7 @@ function createHttpContainer(): Container {
 }
 
 describe("GatewayApp", () => {
-  test("does not expose runtime status APIs", async () => {
+  test("exposes runtime status read APIs", async () => {
     const container = createHttpContainer();
     const channelService = {
       list: async () => [{ id: "binding-1", name: "Binding" }],
@@ -67,6 +68,36 @@ describe("GatewayApp", () => {
       }),
       delete: async () => true,
     };
+    const runtimeStatusService = {
+      getStatus: async () => ({
+        mode: "local",
+        currentNodeId: "local",
+        generatedAt: "2026-04-21T00:00:00.000Z",
+        nodes: [
+          {
+            nodeId: "local",
+            displayName: "Gateway Node",
+            mode: "local",
+            lastKnownAddress: "http://localhost:7890",
+            registeredAt: "2026-04-21T00:00:00.000Z",
+            updatedAt: "2026-04-21T00:00:00.000Z",
+            isCurrent: true,
+          },
+        ],
+        channels: [
+          {
+            bindingId: "binding-1",
+            mode: "local",
+            ownership: "local",
+            status: "connected",
+            ownerNodeId: "local",
+            ownerDisplayName: "Gateway Node",
+            leaseHeld: true,
+            updatedAt: "2026-04-21T00:00:00.000Z",
+          },
+        ],
+      }),
+    };
 
     container
       .rebindSync(ChannelBindingService)
@@ -74,6 +105,9 @@ describe("GatewayApp", () => {
     container
       .rebindSync(AgentService)
       .toConstantValue(agentService as unknown as AgentService);
+    container
+      .rebindSync(RuntimeStatusService)
+      .toConstantValue(runtimeStatusService as unknown as RuntimeStatusService);
 
     const app = container.get<HonoGatewayApp>(GatewayApp);
 
@@ -96,12 +130,42 @@ describe("GatewayApp", () => {
     ]);
 
     const runtimeNodesResponse = await app.request("/api/runtime/nodes");
-    assert.equal(runtimeNodesResponse.status, 404);
+    assert.equal(runtimeNodesResponse.status, 200);
+    assert.deepEqual(await runtimeNodesResponse.json(), [
+      {
+        nodeId: "local",
+        displayName: "Gateway Node",
+        mode: "local",
+        lastKnownAddress: "http://localhost:7890",
+        registeredAt: "2026-04-21T00:00:00.000Z",
+        updatedAt: "2026-04-21T00:00:00.000Z",
+        isCurrent: true,
+      },
+    ]);
 
     const runtimeConnectionsResponse = await app.request(
       "/api/runtime/connections",
     );
-    assert.equal(runtimeConnectionsResponse.status, 404);
+    assert.equal(runtimeConnectionsResponse.status, 200);
+    assert.deepEqual(await runtimeConnectionsResponse.json(), [
+      {
+        bindingId: "binding-1",
+        mode: "local",
+        ownership: "local",
+        status: "connected",
+        ownerNodeId: "local",
+        ownerDisplayName: "Gateway Node",
+        leaseHeld: true,
+        updatedAt: "2026-04-21T00:00:00.000Z",
+      },
+    ]);
+
+    const runtimeStatusResponse = await app.request("/api/runtime/status");
+    assert.equal(runtimeStatusResponse.status, 200);
+    const runtimeStatusPayload = (await runtimeStatusResponse.json()) as {
+      mode: string;
+    };
+    assert.equal(runtimeStatusPayload.mode, "local");
   });
 
   test("preserves existing mutation error handling", async () => {

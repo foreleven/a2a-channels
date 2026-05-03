@@ -31,6 +31,31 @@ export interface AgentConfig {
   createdAt: string;
 }
 
+export type RuntimeChannelOwnership =
+  | "local"
+  | "cluster-lease"
+  | "unassigned"
+  | "disabled";
+
+export interface RuntimeChannelStatus {
+  bindingId: string;
+  mode: "local" | "cluster";
+  ownership: RuntimeChannelOwnership;
+  status:
+    | "idle"
+    | "connecting"
+    | "connected"
+    | "disconnected"
+    | "error"
+    | "unknown";
+  ownerNodeId?: string;
+  ownerDisplayName?: string;
+  agentUrl?: string;
+  error?: string;
+  updatedAt?: string;
+  leaseHeld: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Channel bindings
 // ---------------------------------------------------------------------------
@@ -109,4 +134,16 @@ export async function updateAgent(
 export async function deleteAgent(id: string): Promise<void> {
   const res = await fetch(`${BASE}/api/agents/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
+}
+
+// ---------------------------------------------------------------------------
+// Runtime status
+// ---------------------------------------------------------------------------
+
+export async function listRuntimeChannelStatuses(): Promise<
+  RuntimeChannelStatus[]
+> {
+  const res = await fetch(`${BASE}/api/runtime/connections`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<RuntimeChannelStatus[]>;
 }

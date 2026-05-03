@@ -19,6 +19,45 @@ const binding: ChannelBindingSnapshot = {
 };
 
 describe("Connection", () => {
+  test("marks connected when a channel binding reports a generic status update", async () => {
+    const statuses: string[] = [];
+    const transport: AgentTransport = {
+      protocol: "a2a",
+      send: async () => ({ text: "ok" }),
+    };
+    const connection = new Connection({
+      agentClient: new AgentClient({
+        agentUrl: "http://agent-1",
+        protocol: "a2a",
+        transport,
+      }),
+      binding,
+      callbacks: {
+        onConnectionStatus: (event) => statuses.push(event.status),
+      },
+    });
+    const host = {
+      startChannelBinding: async (
+        _binding: ChannelBindingSnapshot,
+        signal: AbortSignal,
+        callbacks: {
+          onStatus?: (status: { accountId: string; port: null }) => void;
+        },
+      ) => {
+        callbacks.onStatus?.({ accountId: "default", port: null });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+    };
+
+    connection.start(host as never);
+    await waitFor(() => statuses.includes("connected"));
+    await connection.stop();
+
+    assert.deepEqual(statuses, ["connecting", "connected"]);
+  });
+
   test("handles inbound messages when called directly", async () => {
     const sentMessages: string[] = [];
     const transport: AgentTransport = {
@@ -234,4 +273,14 @@ function createRuntime(): OpenClawPluginRuntime {
       writeConfigFile: async () => {},
     },
   });
+}
+
+async function waitFor(assertion: () => boolean): Promise<void> {
+  const startedAt = Date.now();
+  while (!assertion()) {
+    if (Date.now() - startedAt > 500) {
+      throw new Error("Timed out waiting for assertion");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
