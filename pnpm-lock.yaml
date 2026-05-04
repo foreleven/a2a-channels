@@ -83,6 +83,9 @@ importers:
       openclaw:
         specifier: ^2026.5.2
         version: 2026.5.2(@types/express@5.0.6)
+      qrcode:
+        specifier: ^1.5.4
+        version: 1.5.4
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2

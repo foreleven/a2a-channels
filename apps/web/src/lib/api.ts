@@ -56,6 +56,19 @@ export interface RuntimeChannelStatus {
   leaseHeld: boolean;
 }
 
+export interface ChannelQrLoginStartResult {
+  qrDataUrl?: string;
+  message: string;
+  sessionKey?: string;
+}
+
+export interface ChannelQrLoginWaitResult {
+  connected: boolean;
+  message: string;
+  accountId?: string;
+  channelConfig?: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // Channel bindings
 // ---------------------------------------------------------------------------
@@ -94,6 +107,38 @@ export async function updateChannel(
 export async function deleteChannel(id: string): Promise<void> {
   const res = await fetch(`${BASE}/api/channels/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
+}
+
+export async function startChannelQrLogin(
+  channelType: string,
+  data: { accountId?: string; force?: boolean },
+): Promise<ChannelQrLoginStartResult> {
+  const res = await fetch(
+    `${BASE}/api/channels/${encodeURIComponent(channelType)}/auth/qr/start`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    },
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<ChannelQrLoginStartResult>;
+}
+
+export async function waitForChannelQrLogin(
+  channelType: string,
+  data: { accountId?: string; sessionKey?: string; timeoutMs?: number },
+): Promise<ChannelQrLoginWaitResult> {
+  const res = await fetch(
+    `${BASE}/api/channels/${encodeURIComponent(channelType)}/auth/qr/wait`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    },
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<ChannelQrLoginWaitResult>;
 }
 
 // ---------------------------------------------------------------------------

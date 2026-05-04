@@ -36,6 +36,17 @@ export const updateChannelBindingBodySchema: z.ZodType<UpdateChannelBindingData>
     enabled: z.boolean().optional(),
   });
 
+export const startChannelQrLoginBodySchema = z.object({
+  accountId: z.string().optional(),
+  force: z.boolean().optional(),
+});
+
+export const waitForChannelQrLoginBodySchema = z.object({
+  accountId: z.string().optional(),
+  sessionKey: z.string().optional(),
+  timeoutMs: z.number().int().positive().max(480_000).optional(),
+});
+
 export const registerAgentBodySchema: z.ZodType<RegisterAgentData> = z.object({
   name: nonEmptyString,
   url: nonEmptyString,

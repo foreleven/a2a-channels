@@ -16,6 +16,7 @@ import {
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
 import { AgentService } from "../application/agent-service.js";
+import { ChannelAuthService } from "../application/channel-auth-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { RuntimeStatusService } from "../application/runtime-status-service.js";
 import { GatewayServer } from "./gateway-server.js";
@@ -127,6 +128,7 @@ function bindApplication(container: Container): void {
     .toService(ChannelBindingStateRepository);
   container.bind(AgentConfigRepository).toService(AgentConfigStateRepository);
   container.bind(ChannelBindingService).toSelf().inSingletonScope();
+  container.bind(ChannelAuthService).toSelf().inSingletonScope();
   container.bind(AgentService).toSelf().inSingletonScope();
   container.bind(RuntimeStatusService).toSelf().inSingletonScope();
 }

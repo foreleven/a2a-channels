@@ -6,11 +6,17 @@ import {
   ChannelBindingService,
   DuplicateEnabledBindingError,
 } from "../../application/channel-binding-service.js";
+import {
+  ChannelAuthService,
+  UnsupportedChannelQrAuthError,
+} from "../../application/channel-auth-service.js";
 import type { UpdateChannelBindingData } from "../../application/channel-binding-service.js";
 import { parseJsonBody } from "../utils/schema.js";
 import {
   createChannelBindingBodySchema,
+  startChannelQrLoginBodySchema,
   updateChannelBindingBodySchema,
+  waitForChannelQrLoginBodySchema,
 } from "../schemas/request-schemas.js";
 
 /**
@@ -44,6 +50,8 @@ export class ChannelRoutes {
   constructor(
     @inject(ChannelBindingService)
     private readonly channelBindingService: ChannelBindingService,
+    @inject(ChannelAuthService)
+    private readonly channelAuthService: ChannelAuthService,
   ) {}
 
   register(app: Hono): void {
@@ -69,6 +77,48 @@ export class ChannelRoutes {
         return c.json(binding, 201);
       } catch (err) {
         return channelMutationErrorResponse(c, err);
+      }
+    });
+
+    app.post("/api/channels/:channelType/auth/qr/start", async (c) => {
+      const parsed = await parseJsonBody(c, startChannelQrLoginBodySchema);
+      if (!parsed.success) {
+        return parsed.response;
+      }
+
+      try {
+        return c.json(
+          await this.channelAuthService.startQrLogin(
+            c.req.param("channelType"),
+            parsed.data,
+          ),
+        );
+      } catch (err) {
+        if (err instanceof UnsupportedChannelQrAuthError) {
+          return c.json({ error: err.message }, 404);
+        }
+        throw err;
+      }
+    });
+
+    app.post("/api/channels/:channelType/auth/qr/wait", async (c) => {
+      const parsed = await parseJsonBody(c, waitForChannelQrLoginBodySchema);
+      if (!parsed.success) {
+        return parsed.response;
+      }
+
+      try {
+        return c.json(
+          await this.channelAuthService.waitForQrLogin(
+            c.req.param("channelType"),
+            parsed.data,
+          ),
+        );
+      } catch (err) {
+        if (err instanceof UnsupportedChannelQrAuthError) {
+          return c.json({ error: err.message }, 404);
+        }
+        throw err;
       }
     });
 

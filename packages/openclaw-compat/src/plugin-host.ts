@@ -52,6 +52,31 @@ export interface StartChannelBindingCallbacks {
   onStatus?: (status: ChannelBindingStatusUpdate) => void;
 }
 
+export interface ChannelQrLoginStartParams {
+  accountId?: string;
+  force?: boolean;
+  verbose?: boolean;
+}
+
+export interface ChannelQrLoginStartResult {
+  qrDataUrl?: string;
+  message: string;
+  sessionKey?: string;
+}
+
+export interface ChannelQrLoginWaitParams {
+  accountId?: string;
+  sessionKey?: string;
+  timeoutMs?: number;
+}
+
+export interface ChannelQrLoginWaitResult {
+  connected: boolean;
+  message: string;
+  accountId?: string;
+  channelConfig?: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // Logger
 // ---------------------------------------------------------------------------
@@ -165,6 +190,32 @@ export class OpenClawPluginHost {
     });
 
     await startPromise;
+  }
+
+  async startChannelQrLogin(
+    channelType: string,
+    params: ChannelQrLoginStartParams = {},
+  ): Promise<ChannelQrLoginStartResult> {
+    const channel = this.resolveChannel(channelType);
+    const start = channel?.gateway?.loginWithQrStart;
+    if (!start) {
+      throw new Error(`Channel QR login is not supported for ${channelType}`);
+    }
+
+    return (await start(params as any)) as ChannelQrLoginStartResult;
+  }
+
+  async waitForChannelQrLogin(
+    channelType: string,
+    params: ChannelQrLoginWaitParams,
+  ): Promise<ChannelQrLoginWaitResult> {
+    const channel = this.resolveChannel(channelType);
+    const wait = channel?.gateway?.loginWithQrWait;
+    if (!wait) {
+      throw new Error(`Channel QR login is not supported for ${channelType}`);
+    }
+
+    return (await wait(params as any)) as ChannelQrLoginWaitResult;
   }
 
   // -------------------------------------------------------------------------

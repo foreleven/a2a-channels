@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
@@ -13,13 +14,22 @@ import {
 
 import type { AgentConfig, ChannelBinding, RuntimeChannelStatus } from "@/lib/api";
 import {
-  createChannel,
   deleteChannel,
   listAgents,
   listChannels,
   listRuntimeChannelStatuses,
   updateChannel,
 } from "@/lib/api";
+import {
+  CHANNEL_CONFIG_TEMPLATES,
+  CHANNEL_OPTIONS,
+  ChannelFormMapper,
+  EMPTY_FORM,
+  type FormState,
+  channelLabel,
+  stringifyConfig,
+  summarizeConfig,
+} from "@/lib/channel-binding-form";
 import { ChannelStatusEventStream } from "@/lib/channel-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,100 +52,6 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-const CHANNEL_OPTIONS = [
-  { value: "feishu", label: "Feishu / Lark" },
-  { value: "discord", label: "Discord" },
-  { value: "slack", label: "Slack" },
-  { value: "telegram", label: "Telegram" },
-  { value: "whatsapp", label: "WhatsApp" },
-  { value: "wechat", label: "WeChat / Weixin" },
-  { value: "qqbot", label: "QQ Bot" },
-] as const;
-
-const CHANNEL_CONFIG_TEMPLATES: Record<string, Record<string, unknown>> = {
-  feishu: {
-    appId: "",
-    appSecret: "",
-    verificationToken: "",
-    encryptKey: "",
-    allowFrom: ["*"],
-  },
-  discord: {
-    botToken: "",
-    allowFrom: ["*"],
-  },
-  slack: {
-    botToken: "",
-    appToken: "",
-    signingSecret: "",
-    allowFrom: ["*"],
-  },
-  telegram: {
-    botToken: "",
-    allowFrom: ["*"],
-  },
-  whatsapp: {
-    allowFrom: ["*"],
-  },
-  wechat: {},
-  qqbot: {
-    appId: "",
-    token: "",
-    secret: "",
-    allowFrom: ["*"],
-  },
-};
-
-interface FormState {
-  name: string;
-  channelType: string;
-  accountId: string;
-  agentId: string;
-  enabled: boolean;
-  channelConfigJson: string;
-}
-
-const EMPTY_FORM: FormState = {
-  name: "",
-  channelType: "feishu",
-  accountId: "default",
-  agentId: "",
-  enabled: true,
-  channelConfigJson: stringifyConfig(CHANNEL_CONFIG_TEMPLATES["feishu"]),
-};
-
-class ChannelFormMapper {
-  toPayload(form: FormState): Omit<ChannelBinding, "id" | "createdAt"> {
-    return {
-      name: form.name,
-      channelType: form.channelType,
-      accountId: form.accountId,
-      agentId: form.agentId,
-      enabled: form.enabled,
-      channelConfig: this.parseConfig(form.channelConfigJson),
-    };
-  }
-
-  fromBinding(binding: ChannelBinding): FormState {
-    return {
-      name: binding.name,
-      channelType: binding.channelType,
-      accountId: binding.accountId,
-      agentId: binding.agentId,
-      enabled: binding.enabled,
-      channelConfigJson: stringifyConfig(binding.channelConfig),
-    };
-  }
-
-  private parseConfig(rawConfig: string): Record<string, unknown> {
-    const parsed = JSON.parse(rawConfig || "{}") as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("Channel config must be a JSON object.");
-    }
-    return parsed as Record<string, unknown>;
-  }
-}
-
 const formMapper = new ChannelFormMapper();
 
 export default function ChannelsPage() {
@@ -145,7 +61,6 @@ export default function ChannelsPage() {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -208,12 +123,6 @@ export default function ChannelsPage() {
     };
   }, [statusStream]);
 
-  function openNew() {
-    setEditingId(null);
-    setForm({ ...EMPTY_FORM, agentId: agents[0]?.id ?? "" });
-    setShowForm(true);
-  }
-
   function updateChannelType(channelType: string) {
     setForm({
       ...form,
@@ -227,19 +136,15 @@ export default function ChannelsPage() {
   function openEdit(binding: ChannelBinding) {
     setEditingId(binding.id);
     setForm(formMapper.fromBinding(binding));
-    setShowForm(true);
   }
 
   async function handleSave() {
     setSaving(true);
     try {
       const payload = formMapper.toPayload(form);
-      if (editingId) {
-        await updateChannel(editingId, payload);
-      } else {
-        await createChannel(payload);
-      }
-      setShowForm(false);
+      if (!editingId) return;
+      await updateChannel(editingId, payload);
+      setEditingId(null);
       await refresh();
     } catch (saveError) {
       setError(String(saveError));
@@ -276,9 +181,11 @@ export default function ChannelsPage() {
             Bind messaging provider accounts to registered A2A agents.
           </p>
         </div>
-        <Button onClick={openNew}>
-          <Plus />
-          New Binding
+        <Button asChild>
+          <Link href="/channels/new">
+            <Plus />
+            New Binding
+          </Link>
         </Button>
       </div>
 
@@ -329,11 +236,11 @@ export default function ChannelsPage() {
         )}
       </section>
 
-      <Dialog open={showForm}>
+      <Dialog open={Boolean(editingId)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              {editingId ? "Edit Channel Binding" : "New Channel Binding"}
+              Edit Channel Binding
             </DialogTitle>
             <DialogDescription>
               Store plugin-owned account settings as the OpenClaw channel config.
@@ -409,7 +316,7 @@ export default function ChannelsPage() {
             Enabled
           </label>
           <div className="mt-6 flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setShowForm(false)}>
+            <Button variant="outline" onClick={() => setEditingId(null)}>
               Cancel
             </Button>
             <Button
@@ -629,25 +536,6 @@ function Field({
       {children}
     </div>
   );
-}
-
-function channelLabel(channelType: string): string {
-  return (
-    CHANNEL_OPTIONS.find((channel) => channel.value === channelType)?.label ??
-    channelType
-  );
-}
-
-function stringifyConfig(config: Record<string, unknown> | undefined): string {
-  return JSON.stringify(config ?? {}, null, 2);
-}
-
-function summarizeConfig(config: Record<string, unknown>): string {
-  const keys = Object.keys(config).filter((key) => config[key] !== "");
-  if (keys.length === 0) {
-    return "{}";
-  }
-  return keys.slice(0, 3).join(", ") + (keys.length > 3 ? "..." : "");
 }
 
 function EmptyState() {
