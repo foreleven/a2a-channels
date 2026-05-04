@@ -49,6 +49,8 @@ export class InvalidTokenError extends Error {
 const scryptAsync = promisify(scrypt);
 const SCRYPT_KEYLEN = 64;
 const TOKEN_ALGO = "sha256";
+/** Tokens are valid for 30 days by default. */
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Token helpers
@@ -57,12 +59,22 @@ const TOKEN_ALGO = "sha256";
 interface TokenPayload {
   accountId: string;
   iat: number;
+  /** Expiry timestamp (ms since epoch). */
+  exp: number;
 }
 
 function buildTokenSecret(): string {
   // Prefer an explicit secret so tokens survive process restarts.
   // Falls back to a per-process random value (tokens become single-session).
-  return process.env["JWT_SECRET"] ?? randomBytes(32).toString("hex");
+  const secret = process.env["JWT_SECRET"];
+  if (!secret) {
+    console.warn(
+      "[auth] JWT_SECRET is not set. Auth tokens will be invalidated on process restart. " +
+        "Set JWT_SECRET to a stable secret for production use.",
+    );
+    return randomBytes(32).toString("hex");
+  }
+  return secret;
 }
 
 // Single-process singleton so the fallback stays stable within a process.
@@ -97,11 +109,21 @@ function verifyTokenString(
   if (sigBuf.length !== expectedBuf.length) return null;
   if (!timingSafeEqual(sigBuf, expectedBuf)) return null;
 
+  let payload: TokenPayload;
   try {
-    return JSON.parse(Buffer.from(encoded, "base64url").toString()) as TokenPayload;
+    payload = JSON.parse(
+      Buffer.from(encoded, "base64url").toString(),
+    ) as TokenPayload;
   } catch {
     return null;
   }
+
+  // Reject expired tokens.
+  if (typeof payload.exp === "number" && Date.now() > payload.exp) {
+    return null;
+  }
+
+  return payload;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +175,7 @@ export class AccountService {
     }
 
     const token = signToken(
-      { accountId: row.id, iat: Date.now() },
+      { accountId: row.id, iat: Date.now(), exp: Date.now() + TOKEN_TTL_MS },
       getTokenSecret(),
     );
 
@@ -197,7 +219,11 @@ export class AccountService {
     password: string,
     stored: string,
   ): Promise<boolean> {
-    const [salt, hash] = stored.split(":");
+    const colonIdx = stored.indexOf(":");
+    if (colonIdx < 0) return false;
+
+    const salt = stored.slice(0, colonIdx);
+    const hash = stored.slice(colonIdx + 1);
     if (!salt || !hash) return false;
 
     try {

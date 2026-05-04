@@ -6,6 +6,7 @@ import { useState } from "react";
 import { RadioTower } from "lucide-react";
 
 import { register, login, setAuthToken } from "@/lib/api";
+import { extractApiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,14 +35,7 @@ export default function RegisterPage() {
       setAuthToken(result.token);
       router.push("/");
     } catch (err) {
-      let message = String(err);
-      try {
-        const body = JSON.parse(message.replace(/^Error: /, "")) as { error?: string };
-        message = body.error ?? message;
-      } catch {
-        // keep original message
-      }
-      setError(message);
+      setError(extractApiErrorMessage(err));
     } finally {
       setLoading(false);
     }
