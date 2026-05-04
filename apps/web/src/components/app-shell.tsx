@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Bot, LayoutDashboard, RadioTower } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { Bot, LayoutDashboard, LogOut, RadioTower, User } from "lucide-react";
 
+import { clearAuthToken, getMe } from "@/lib/api";
+import type { AccountInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -14,6 +17,24 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getMe().then((me) => {
+      if (!cancelled) setAccount(me);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  function handleLogout() {
+    clearAuthToken();
+    setAccount(null);
+    router.push("/login");
+  }
 
   return (
     <div className="flex min-h-screen">
@@ -49,6 +70,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           </nav>
+
+          {/* User info + logout */}
+          <div className="mt-auto pt-6">
+            {account ? (
+              <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <User className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm font-medium">{account.username}</span>
+                </div>
+                <button
+                  aria-label="Log out"
+                  className="ml-2 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={handleLogout}
+                  type="button"
+                >
+                  <LogOut className="size-4" />
+                </button>
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                <User className="size-4" />
+                Sign In
+              </Link>
+            )}
+          </div>
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-14 items-center gap-2 border-b border-border bg-card px-4 md:hidden">
@@ -70,6 +119,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
+            {/* Mobile logout */}
+            {account && (
+              <button
+                aria-label="Log out"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+                onClick={handleLogout}
+                type="button"
+              >
+                <LogOut className="size-4" />
+              </button>
+            )}
           </header>
           <main className="flex-1 p-4 sm:p-6">{children}</main>
         </div>

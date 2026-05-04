@@ -17,6 +17,7 @@ import {
 } from "@a2a-channels/domain";
 import { AgentService } from "../application/agent-service.js";
 import { AccountIdGenerator } from "../application/account-id-generator.js";
+import { AccountService } from "../application/account-service.js";
 import { ChannelAuthService } from "../application/channel-auth-service.js";
 import {
   ChannelQrLoginProviderToken,
@@ -29,9 +30,11 @@ import { RuntimeStatusService } from "../application/runtime-status-service.js";
 import { GatewayServer } from "./gateway-server.js";
 import { GatewayApp, GatewayWebDir, HonoGatewayApp } from "../http/app.js";
 import { AgentRoutes } from "../http/routes/agents.js";
+import { AccountRoutes } from "../http/routes/accounts.js";
 import { ChannelRoutes } from "../http/routes/channels.js";
 import { RuntimeStatusRoutes } from "../http/routes/runtime-status.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
+import { AccountStateRepository } from "../infra/account-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
@@ -113,6 +116,7 @@ function bindInfrastructure(
 ): void {
   // Infrastructure adapters are the only concrete implementations of domain
   // repository ports. Application services consume the ports below, not Prisma.
+  container.bind(AccountStateRepository).toSelf().inSingletonScope();
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelBindingStateRepository).toSelf().inSingletonScope();
   container.bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();
@@ -134,6 +138,7 @@ function bindApplication(container: Container): void {
     .bind(ChannelBindingRepository)
     .toService(ChannelBindingStateRepository);
   container.bind(AgentConfigRepository).toService(AgentConfigStateRepository);
+  container.bind(AccountService).toSelf().inSingletonScope();
   container.bind(ChannelBindingService).toSelf().inSingletonScope();
   container.bind(ChannelAuthService).toSelf().inSingletonScope();
   container.bind(AccountIdGenerator).toSelf().inSingletonScope();
@@ -249,6 +254,7 @@ function bindHttp(container: Container): void {
   // HTTP routes depend on application query boundaries. They must not
   // reach into RelayRuntime or ConnectionManager directly.
   container.bind(GatewayWebDir).toConstantValue(DEFAULT_GATEWAY_WEB_DIR);
+  container.bind(AccountRoutes).toSelf().inSingletonScope();
   container.bind(ChannelRoutes).toSelf().inSingletonScope();
   container.bind(AgentRoutes).toSelf().inSingletonScope();
   container.bind(RuntimeStatusRoutes).toSelf().inSingletonScope();

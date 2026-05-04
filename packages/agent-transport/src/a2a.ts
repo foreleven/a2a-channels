@@ -119,6 +119,9 @@ class A2AAgentTransport implements AgentTransport {
           role: "user",
           parts: [{ kind: "text", text: request.userMessage }],
           ...(request.sessionKey ? { contextId: request.sessionKey } : {}),
+          ...(request.accountId
+            ? { metadata: { userId: request.accountId } }
+            : {}),
         },
       };
       const result = await client.sendMessage(payload, {

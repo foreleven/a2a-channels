@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { inject, injectable } from "inversify";
 
 import { GatewayConfigService } from "../bootstrap/config.js";
+import { AccountRoutes } from "./routes/accounts.js";
 import { AgentRoutes } from "./routes/agents.js";
 import { ChannelRoutes } from "./routes/channels.js";
 import { RuntimeStatusRoutes } from "./routes/runtime-status.js";
@@ -33,6 +34,8 @@ export class HonoGatewayApp implements GatewayApp {
     private readonly config: GatewayConfigService,
     @inject(GatewayWebDir)
     private readonly webDir: string,
+    @inject(AccountRoutes)
+    private readonly accountRoutes: AccountRoutes,
     @inject(ChannelRoutes)
     private readonly channelRoutes: ChannelRoutes,
     @inject(AgentRoutes)
@@ -58,7 +61,7 @@ export class HonoGatewayApp implements GatewayApp {
       cors({
         origin: this.config.corsOrigin,
         allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allowHeaders: ["Content-Type"],
+        allowHeaders: ["Content-Type", "Authorization"],
       }),
     );
 
@@ -75,6 +78,7 @@ export class HonoGatewayApp implements GatewayApp {
     this.channelRoutes.register(app);
     this.agentRoutes.register(app);
     this.runtimeStatusRoutes.register(app);
+    this.accountRoutes.register(app);
 
     return app;
   }

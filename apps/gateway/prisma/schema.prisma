@@ -10,6 +10,18 @@ generator client {
   output   = "../src/generated/prisma"
 }
 
+model Account {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  bindings     ChannelBinding[]
+
+  @@map("accounts")
+}
+
 model ChannelBinding {
   id            String   @id @default(uuid())
   name          String
@@ -17,12 +29,14 @@ model ChannelBinding {
   accountId     String   @map("account_id")
   channelConfig String   @default("{}") @map("channel_config")
   agentId       String   @map("agent_id")
+  userId        String?  @map("user_id")
   enabledKey    String?  @unique @map("enabled_key")
   enabled       Boolean  @default(true)
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   agent         Agent    @relation(fields: [agentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user          Account? @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@map("channel_bindings")
 }
