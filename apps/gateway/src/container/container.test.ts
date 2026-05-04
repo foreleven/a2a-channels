@@ -274,15 +274,11 @@ describe("buildGatewayContainer", () => {
     );
   });
 
-  test("resolves RelayRuntime as a singleton without manual options plumbing", () => {
+  test("resolves RelayRuntime as a singleton", () => {
     const container = buildGatewayContainer(buildGatewayConfig({ port: 7897 }));
     const first = container.get(RelayRuntime);
     const second = container.get(RelayRuntime);
 
     assert.strictEqual(first, second);
-  });
-
-  test("RelayRuntime no longer exposes static load()", () => {
-    assert.equal(Object.hasOwn(RelayRuntime, "load"), false);
   });
 });

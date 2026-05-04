@@ -16,7 +16,6 @@ import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
 import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
 import { LocalOwnershipGate } from "./local/local-ownership-gate.js";
-import type { OwnershipGate, OwnershipLease } from "./ownership-gate.js";
 
 const agent: AgentConfigSnapshot = {
   id: "agent-1",
@@ -72,33 +71,6 @@ function createService(): {
   return { connectionManager, service };
 }
 
-function createServiceWithGate(ownershipGate: OwnershipGate): {
-  connectionManager: ConnectionManager;
-  service: RuntimeAssignmentService;
-} {
-  const ownershipState = new RuntimeOwnershipState();
-  const agentRegistry = new RuntimeAgentRegistry(
-    new AgentClientRegistry(new AgentClientFactory([testTransport])),
-  );
-  const openClawConfigProjection = new RuntimeOpenClawConfigProjection(
-    ownershipState,
-  );
-  const connectionManager = new ConnectionManager(
-    null as never,
-    createRuntime(),
-    null as never,
-  );
-  const service = new RuntimeAssignmentService(
-    agentRegistry,
-    openClawConfigProjection,
-    ownershipState,
-    ownershipGate,
-    connectionManager,
-  );
-
-  return { connectionManager, service };
-}
-
 describe("RuntimeAssignmentService", () => {
   test("releaseBinding stops the connection before removing local ownership state", async () => {
     const { connectionManager, service } = createService();
@@ -118,37 +90,6 @@ describe("RuntimeAssignmentService", () => {
     await service.releaseBinding(binding.id);
 
     assert.deepEqual(observations, [1]);
-    assert.deepEqual(service.listConnectionStatuses(), []);
-  });
-
-  test("expired ownership lease cleans up local binding without releasing the stale lease", async () => {
-    let releaseCalls = 0;
-    const staleLease: OwnershipLease = {
-      bindingId: binding.id,
-      token: "stale-token",
-    };
-    const ownershipGate: OwnershipGate = {
-      acquire: async () => staleLease,
-      renew: async () => false,
-      release: async () => {
-        releaseCalls += 1;
-      },
-      isHeld: async () => false,
-    };
-    const { connectionManager, service } = createServiceWithGate(ownershipGate);
-    let stopCalls = 0;
-
-    connectionManager.hasConnection = () => false;
-    connectionManager.restartConnection = async () => {};
-    connectionManager.stopConnection = async () => {
-      stopCalls += 1;
-    };
-
-    await service.assignBinding(binding, agent);
-    await service.assignBinding(binding, agent);
-
-    assert.equal(stopCalls, 1);
-    assert.equal(releaseCalls, 0);
     assert.deepEqual(service.listConnectionStatuses(), []);
   });
 

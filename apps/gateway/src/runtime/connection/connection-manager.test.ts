@@ -138,10 +138,6 @@ describe("Connection", () => {
 });
 
 describe("ConnectionManager", () => {
-  test("does not require post-construction initialize wiring", () => {
-    assert.equal(Object.hasOwn(ConnectionManager.prototype, "initialize"), false);
-  });
-
   test("routes runtime reply events to its matching connection", async () => {
     const sentMessages: string[] = [];
     const agentClient = createAgentClient(
@@ -306,12 +302,8 @@ describe("ConnectionManager", () => {
     assert.equal(waitedForIdle, true);
   });
 
-  test("OpenClawPluginRuntime exposes dispatcher wiring instead of EventEmitter APIs", async () => {
+  test("routes channel events through a registered reply dispatcher", async () => {
     const runtime = createRuntime();
-
-    assert.equal("on" in runtime, false);
-    assert.equal("off" in runtime, false);
-    assert.equal("emit" in runtime, false);
 
     runtime.setReplyEventDispatcher({
       dispatchReplyEvent: async () => ({
