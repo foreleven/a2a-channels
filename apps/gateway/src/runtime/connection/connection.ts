@@ -137,7 +137,7 @@ export class Connection {
     try {
       result = await this.options.agentClient.send({
         userMessage,
-        contextId: sessionKey,
+        sessionKey,
         accountId,
       });
     } catch (error) {

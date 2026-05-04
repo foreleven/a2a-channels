@@ -117,7 +117,7 @@ class ACPStdioAgentProcess {
   private async sendSerialized(request: AgentRequest): Promise<AgentResponse> {
     await this.initialize();
     const connection = this.requireConnection();
-    const sessionKey = request.contextId ?? request.accountId ?? "default";
+    const sessionKey = request.sessionKey ?? request.accountId ?? "default";
     const sessionId = await this.getOrCreateSession(sessionKey);
     const collectedText: string[] = [];
     this.activeTextBuffers.set(sessionId, collectedText);
