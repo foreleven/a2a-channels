@@ -55,7 +55,9 @@ let weixinPatched = 0;
 for (const weixinDir of findInstalledPackageDirs([
   "@openclaw",
   "weixin",
-])) {
+]).concat(
+  findInstalledPackageDirs(["@tencent-weixin", "openclaw-weixin"]),
+)) {
   for (const root of [weixinDir, path.join(weixinDir, "src")]) {
     if (!isDir(root)) continue;
     walkTs(root, (filePath) => {
