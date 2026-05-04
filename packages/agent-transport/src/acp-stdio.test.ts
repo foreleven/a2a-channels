@@ -81,7 +81,7 @@ rl.on("line", (line) => {
   try {
     const response = await client.send({
         userMessage: "hello",
-        contextId: "ctx",
+        sessionKey: "ctx",
     });
 
     assert.deepEqual(response, { text: "echo:hello" });

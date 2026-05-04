@@ -118,7 +118,7 @@ class A2AAgentTransport implements AgentTransport {
           messageId: crypto.randomUUID(),
           role: "user",
           parts: [{ kind: "text", text: request.userMessage }],
-          ...(request.contextId ? { contextId: request.contextId } : {}),
+          ...(request.sessionKey ? { contextId: request.sessionKey } : {}),
         },
       };
       const result = await client.sendMessage(payload, {

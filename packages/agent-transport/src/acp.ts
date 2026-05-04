@@ -139,7 +139,7 @@ class ACPRestTransport implements AgentTransport {
         },
       ],
       // Pass context / session information when available
-      ...(request.contextId ? { session_id: request.contextId } : {}),
+      ...(request.sessionKey ? { session_id: request.sessionKey } : {}),
     };
 
     let run: AcpRunResponse;
