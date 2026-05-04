@@ -1,151 +1,203 @@
-# a2a-channels
+# AgentRelay
 
-**a2a-channels turns the OpenClaw channel plugin ecosystem into an A2A gateway.**
+AgentRelay is a TypeScript gateway that connects messaging-channel plugins to
+remote agent servers.
 
-OpenClaw already has channel plugins for messaging platforms. This project hosts those plugins, keeps their account monitors running, and forwards inbound messages to any A2A-compatible agent server.
+It hosts OpenClaw channel plugins, keeps channel account connections running,
+routes inbound messages to a configured agent, and sends the agent response back
+through the original channel. The current runtime supports A2A JSON-RPC agents
+and ACP REST agents.
 
 ```text
-OpenClaw channel plugin
-  Feishu / Lark today, more channels by registration
+Messaging platform
+  Feishu / Lark / WeChat / QQBot / Discord / Slack / Telegram / WhatsApp
           |
-          | provider WebSocket / webhook runtime
+          | OpenClaw channel plugin
           v
-    a2a-channels Gateway
+      AgentRelay gateway
           |
-          | A2A JSON-RPC
+          | A2A JSON-RPC or ACP REST
           v
-      Agent Server
+       Agent server
 ```
 
-The goal is to avoid writing one gateway per channel. A channel integration should live in the OpenClaw plugin ecosystem; this gateway supplies the runtime, configuration store, lifecycle management, admin API, and A2A transport.
+## Why AgentRelay Exists
 
-## Why This Exists
+Agent projects usually need the same channel plumbing:
 
-Most agent projects solve the same channel problem repeatedly:
+- connect to chat platforms and keep long-lived accounts online
+- normalize inbound messages from different providers
+- route each account or channel binding to the right agent backend
+- deliver the agent response through the original provider
+- expose operational APIs and a UI for managing those bindings
 
-- connect to Feishu, Lark, Slack, Discord, or another messaging platform
-- keep a long-lived account connection alive
-- normalize inbound messages
-- call an agent backend
-- send the answer back through the original channel
+AgentRelay keeps that work in one gateway. Channel-specific behavior stays in
+OpenClaw plugins; agent-specific behavior stays behind transport adapters.
 
-OpenClaw plugins already model the channel side of that work. `a2a-channels` focuses on the other half: binding those plugins to remote agents through A2A.
+## What Is Included
 
-## OpenClaw Plugin Model
+- Hono gateway API for channel bindings, agent configs, and runtime status
+- SQLite persistence through Prisma and `better-sqlite3`
+- OpenClaw plugin host/runtime compatibility layer
+- Runtime lifecycle orchestration for starting, restarting, and stopping channel
+  connections
+- Local single-node runtime mode and Redis-backed cluster mode
+- A2A and ACP agent transport adapters
+- Next.js admin UI
+- Minimal A2A echo agent for local testing
 
-The gateway is intentionally channel-agnostic.
+## Current Channel Plugins
 
-- `packages/openclaw-compat` provides the OpenClaw-compatible host and runtime surface used by channel plugins.
-- `apps/gateway/src/register-plugins.ts` is the only place where channel plugins are registered.
-- `apps/gateway` owns account lifecycle, monitor reconciliation, REST APIs, SQLite persistence, and routing.
-- `packages/agent-transport` calls the bound agent with A2A JSON-RPC.
+The gateway registers these OpenClaw channel plugins in
+`apps/gateway/src/register-plugins.ts`:
 
-Today the repo registers `@larksuite/openclaw-lark`, with Feishu and Lark treated as aliases. To add another OpenClaw channel plugin, install it and register it in `apps/gateway/src/register-plugins.ts`:
+| Channel | Package/source |
+|---|---|
+| Feishu / Lark | `@openclaw/feishu` |
+| Discord | `@openclaw/discord` |
+| Slack | bundled OpenClaw extension |
+| Telegram | bundled OpenClaw extension |
+| WhatsApp | `@openclaw/whatsapp` |
+| Weixin / WeChat | `@openclaw/weixin` |
+| QQBot | `@openclaw/qqbot` |
 
-```typescript
-import someChannelPlugin from "@example/openclaw-some-channel";
-import type { OpenClawPluginHost } from "@a2a-channels/openclaw-compat";
-
-export function registerSomeChannelPlugin(host: OpenClawPluginHost): void {
-  host.registerPlugin((api) => someChannelPlugin.default.register(api));
-}
-
-export function registerAllPlugins(host: OpenClawPluginHost): void {
-  registerLarkPlugin(host);
-  registerSomeChannelPlugin(host);
-}
-```
-
-No per-channel wrapper package is required when the plugin conforms to the OpenClaw channel plugin API.
+Aliases are normalized at the gateway boundary. For example, `lark` maps to
+`feishu`, and `wechat` / `weixin` map to `openclaw-weixin`.
 
 ## Message Flow
 
-1. A platform account receives a message through an OpenClaw channel plugin.
-2. The gateway runtime receives the plugin's reply dispatch event.
-3. The gateway resolves the enabled `ChannelBinding` for the channel account.
-4. The binding points to an `AgentConfig`, whose URL identifies the target A2A server.
-5. `@a2a-channels/agent-transport` sends a `message/send` JSON-RPC request.
-6. The first text reply from the agent is sent back through the same OpenClaw plugin dispatcher.
+1. A channel provider delivers an inbound message through an OpenClaw plugin.
+2. AgentRelay receives the plugin runtime reply event.
+3. The runtime resolves the enabled channel binding for that channel/account.
+4. The binding points to an agent config with a URL and protocol.
+5. The agent transport sends the message to the remote agent.
+6. The first text response is sent back through the same channel plugin.
 
 ```text
-Feishu/Lark account
-    -> @larksuite/openclaw-lark
+Channel account
+    -> OpenClawPluginHost
     -> OpenClawPluginRuntime
     -> ChannelBinding(agentId)
-    -> A2ATransport
+    -> AgentClient(protocol: a2a | acp)
     -> remote agent
-    -> plugin dispatcher reply
+    -> channel dispatcher reply
 ```
 
 ## Monorepo Layout
 
 ```text
 apps/
-  gateway/      Hono HTTP server, OpenClaw host, runtime orchestration, SQLite store
+  gateway/      Hono HTTP server, OpenClaw host, runtime orchestration, store
   echo-agent/   Minimal A2A-compatible echo agent for local testing
-  web/          Next.js 16 admin UI for channels and agents
+  web/          Next.js admin UI for channels, agents, and runtime status
+
 packages/
-  domain/            DDD aggregates, domain events, snapshots, repository ports
-  event-store/       Event-store port and domain-event publishing primitives
-  agent-transport/   Agent transport ports plus A2A / ACP clients
+  agent-transport/   A2A and ACP transport adapters
+  domain/            Aggregates, domain events, snapshots, repository ports
+  event-store/       Event-store port and stored event types
   openclaw-compat/   OpenClaw plugin host/runtime compatibility layer
 ```
 
+The repository is being renamed to AgentRelay, but the current workspace package
+scope is still `@a2a-channels/*`.
+
 ## Quick Start
 
-Prerequisites: Node.js 20 or newer, pnpm 10.32.0 or compatible.
+Prerequisites:
+
+- Node.js 20 or newer
+- pnpm 10.32.0
 
 ```bash
 pnpm install
+pnpm dev
+```
 
-# Terminal 1: example A2A agent on port 3001
+`pnpm dev` starts the local development stack with gateway readiness ordering.
+By default:
+
+- gateway API: `http://localhost:7890`
+- admin UI: `http://localhost:3000`
+- echo agent: `http://localhost:3001`
+
+You can also start each process separately:
+
+```bash
+# Terminal 1: example A2A agent
 pnpm echo-agent
 
-# Terminal 2: gateway API on port 7890
+# Terminal 2: gateway API
 pnpm gateway
 
-# Terminal 3: admin UI on port 3000
+# Terminal 3: admin UI
 pnpm web
 ```
 
-Open the admin UI at `http://localhost:3000`.
-
-Optional seed data:
+Seed the database with a default echo agent and optional Feishu binding:
 
 ```bash
 pnpm seed
 ```
 
-The seed command writes the default echo agent at `ECHO_AGENT_URL` or `http://localhost:3001`, plus optional Feishu bootstrap binding data when Feishu credentials are present.
-
 ## Configuration
 
-Create `.env` at the repo root when you need to override gateway defaults.
+The gateway reads `.env` from the repository root when launched through the
+provided Makefile-backed commands.
 
 | Variable | Default | Description |
 |---|---:|---|
 | `PORT` | `7890` | Gateway HTTP port |
-| `DB_PATH` | `./db/a2a-channels.db` | SQLite database path used by Makefile-backed commands |
-| `CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origin for `/api/*` |
-| `ECHO_AGENT_URL` | `http://localhost:3001` | Default agent URL used by `pnpm seed` |
-| `FEISHU_APP_ID` | - | Feishu/Lark app ID used by the bootstrap binding |
-| `FEISHU_APP_SECRET` | - | Feishu/Lark app secret |
-| `FEISHU_ACCOUNT_ID` | `default` | Account ID for the bootstrap binding |
-| `FEISHU_VERIFICATION_TOKEN` | - | Feishu event verification token |
-| `FEISHU_ENCRYPT_KEY` | - | Feishu message encrypt key |
+| `DB_PATH` | `./db/a2a-channels.db` | SQLite database path |
+| `CORS_ORIGIN` | `http://localhost:3000` | Allowed browser origin for gateway API calls |
+| `RUNTIME_ADDRESS` | `http://localhost:$PORT` | Address advertised by this runtime node |
+| `NODE_ID` | `RUNTIME_ADDRESS` | Runtime node identity |
+| `NODE_DISPLAY_NAME` | `Gateway Node` | Human-readable node name in runtime status |
+| `CLUSTER_MODE` | `false` | Enables Redis-backed runtime coordination when set to `true` |
+| `REDIS_URL` | - | Redis connection URL for cluster mode |
+| `ECHO_AGENT_PORT` | `3001` | Echo agent HTTP port |
+| `ECHO_AGENT_URL` | `http://localhost:$ECHO_AGENT_PORT` | Echo agent base URL and seed target URL |
+| `FEISHU_APP_ID` | - | Feishu/Lark app ID used by `pnpm seed` |
+| `FEISHU_APP_SECRET` | - | Feishu/Lark app secret used by `pnpm seed` |
+| `FEISHU_ACCOUNT_ID` | `default` | Account ID for the seeded Feishu binding |
+| `FEISHU_VERIFICATION_TOKEN` | - | Optional Feishu event verification token |
+| `FEISHU_ENCRYPT_KEY` | - | Optional Feishu message encrypt key |
 
-For the admin UI, create `apps/web/.env.local` when you need to override the gateway URL.
+For the admin UI:
 
 | Variable | Default | Description |
 |---|---:|---|
-| `GATEWAY_URL` | `http://localhost:7890` | Gateway base URL for the Next.js server-side rewrite in dev |
-| `NEXT_PUBLIC_GATEWAY_URL` | empty | Gateway base URL for browser-side production calls |
+| `GATEWAY_URL` | `http://localhost:7890` | Gateway URL used by Next.js dev rewrites |
+| `NEXT_PUBLIC_GATEWAY_URL` | empty | Browser-side gateway URL for production deployments |
 
-## REST API
+## HTTP API
 
-The admin UI uses the gateway JSON API under `/api/*`.
+The admin UI uses the gateway API under `/api/*`.
 
-### Channel Bindings
+### Agents
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/agents` | List agent configs |
+| `GET` | `/api/agents/:id` | Get one agent config |
+| `POST` | `/api/agents` | Create an agent config |
+| `PATCH` | `/api/agents/:id` | Update an agent config |
+| `DELETE` | `/api/agents/:id` | Delete an agent config |
+
+Example:
+
+```json
+{
+  "name": "Echo Agent",
+  "url": "http://localhost:3001",
+  "protocol": "a2a",
+  "description": "Local test agent"
+}
+```
+
+Supported protocols are registered through transport adapters. The current
+gateway binds `a2a` and `acp`; unknown protocols fall back to `a2a`.
+
+### Channels
 
 | Method | Path | Description |
 |---|---|---|
@@ -154,6 +206,10 @@ The admin UI uses the gateway JSON API under `/api/*`.
 | `POST` | `/api/channels` | Create a channel binding |
 | `PATCH` | `/api/channels/:id` | Update a channel binding |
 | `DELETE` | `/api/channels/:id` | Delete a channel binding |
+| `POST` | `/api/channels/:channelType/auth/qr/start` | Start QR login for channels that support it |
+| `POST` | `/api/channels/:channelType/auth/qr/wait` | Wait for a QR login result |
+
+Example:
 
 ```json
 {
@@ -172,91 +228,79 @@ The admin UI uses the gateway JSON API under `/api/*`.
 }
 ```
 
-`channelType` must match a registered OpenClaw channel id or alias. `channelConfig` is passed through to the plugin account startup hook, so its shape is channel-specific.
+`channelConfig` is channel-specific and is passed to the selected OpenClaw
+plugin when the account starts.
 
-### Agent Configs
+### Runtime Status
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/agents` | List agent configs |
-| `GET` | `/api/agents/:id` | Get one agent config |
-| `POST` | `/api/agents` | Create an agent config |
-| `PATCH` | `/api/agents/:id` | Update an agent config |
-| `DELETE` | `/api/agents/:id` | Delete an agent config |
+| `GET` | `/api/runtime/status` | Full runtime status read model |
+| `GET` | `/api/runtime/nodes` | Runtime node list |
+| `GET` | `/api/runtime/connections` | Channel connection status list |
 
-```json
-{
-  "name": "My Agent",
-  "url": "http://my-agent.example.com/a2a/jsonrpc",
-  "description": "Optional description"
-}
-```
+## Agent Backends
 
-## Implementing an A2A Agent
+### A2A
 
-Any A2A-compatible server can sit behind a channel binding. The gateway sends `message/send` and reads the first text part from the agent response.
+For `protocol: "a2a"`, AgentRelay uses the A2A SDK client to discover the agent
+from its configured URL and sends a `message/send` JSON-RPC request. The echo
+agent in `apps/echo-agent` exposes:
 
-Minimal `@a2a-js/sdk` executor:
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/.well-known/agent-card.json` | A2A agent card |
+| `POST` | `/a2a/jsonrpc` | A2A JSON-RPC endpoint |
+| `POST` | `/a2a/rest` | A2A HTTP+JSON endpoint |
 
-```typescript
-import type {
-  AgentExecutor,
-  ExecutionEventBus,
-  RequestContext,
-} from "@a2a-js/sdk/server";
+### ACP
 
-class MyExecutor implements AgentExecutor {
-  async execute(ctx: RequestContext, bus: ExecutionEventBus) {
-    const text = ctx.userMessage.parts
-      .filter((part) => part.kind === "text")
-      .map((part) => part.text)
-      .join("\n");
+For `protocol: "acp"`, AgentRelay posts to `{agentUrl}/runs`, polls
+`{agentUrl}/runs/{run_id}` until the run reaches a terminal state, and returns
+the first text output part.
 
-    bus.publish({
-      kind: "message",
-      role: "agent",
-      parts: [{ kind: "text", text: `Hello: ${text}` }],
-    });
-    bus.finished();
-  }
-
-  cancelTask = async () => {};
-}
-```
-
-Register the agent URL in the admin UI or through `POST /api/agents`, then create a channel binding that points to that agent.
-
-## Development
+## Development Commands
 
 ```bash
 # Type-check the non-web TypeScript project
 pnpm typecheck
 
+# Run gateway tests
+pnpm test
+
 # Type-check the admin UI
 cd apps/web && npx tsc --noEmit
 
-# Run gateway tests
-pnpm test
+# Lint the admin UI
+cd apps/web && pnpm lint
 
 # Build the admin UI
 cd apps/web && pnpm build
 ```
 
-There is no repo-wide lint script. The checked-in test script covers gateway store and monitor-manager tests.
+There is no repo-wide lint script. The root `pnpm test` target currently runs
+gateway tests under `apps/gateway/src`.
 
 ## Architecture Notes
 
-- The store is the source of truth for channel bindings and agent configs.
-- `RuntimeAssignmentCoordinator` grants enabled bindings to the local runtime.
-- `ConnectionManager` starts, restarts, and stops plugin accounts through `OpenClawPluginHost`.
-- `RuntimeOpenClawConfigProjection` builds OpenClaw-compatible config from runtime-owned bindings.
-- `OpenClawPluginRuntime` implements the subset of OpenClaw runtime behavior needed for channel-to-A2A forwarding.
-- `RelayRuntime` assembles the runtime and consumes lower-level assignment services, but assignment reconciliation must not route through the runtime facade.
+- `apps/gateway/src/bootstrap/container.ts` is the composition root and wires
+  infrastructure, application services, runtime services, HTTP routes, and
+  process lifecycle services through Inversify.
+- `packages/domain` owns channel binding and agent config model boundaries.
+- Prisma-backed repositories in `apps/gateway/src/infra` persist those models.
+- `RuntimeAssignmentCoordinator` decides which enabled bindings this runtime
+  node owns.
+- `ConnectionManager` performs the imperative plugin account lifecycle work.
+- `OpenClawPluginHost` bridges registered OpenClaw plugins to gateway runtime
+  connections.
+- `OpenClawPluginRuntime` implements the minimal runtime surface needed for
+  channel-to-agent forwarding.
+- `RuntimeOpenClawConfigProjection` synthesizes OpenClaw-compatible config from
+  runtime-owned bindings.
+- `RelayRuntime` assembles runtime behavior but assignment reconciliation must
+  stay behind the lower-level ownership and assignment services.
 
-## Current Channel Support
-
-The active channel plugin is `@larksuite/openclaw-lark`.
-
-- `feishu` and `lark` are treated as aliases.
-- Additional OpenClaw-compatible channel plugins should be added by registration, not by building gateway-specific channel packages.
-- Channel-specific credential fields belong in `channelConfig`; agent routing stays in `agentId`.
+To add a channel, install or implement an OpenClaw-compatible channel plugin and
+register it in `apps/gateway/src/register-plugins.ts`. No gateway-specific
+wrapper package is required when the plugin conforms to the OpenClaw channel
+plugin API.
