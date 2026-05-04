@@ -2,6 +2,8 @@ export { OpenClawPluginHost } from "./plugin-host.js";
 export { OpenClawPluginRuntime } from "./plugin-runtime.js";
 export type {
   ChannelBindingStatusUpdate,
+  ChannelLoginParams,
+  ChannelLoginRuntimeEnv,
   ChannelQrLoginStartParams,
   ChannelQrLoginStartResult,
   ChannelQrLoginWaitParams,

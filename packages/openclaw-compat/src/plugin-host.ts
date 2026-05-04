@@ -58,6 +58,18 @@ export interface ChannelQrLoginStartParams {
   verbose?: boolean;
 }
 
+export interface ChannelLoginRuntimeEnv {
+  log?: (...args: unknown[]) => void;
+  error?: (...args: unknown[]) => void;
+  exit?: (code: number) => void;
+}
+
+export interface ChannelLoginParams {
+  accountId?: string;
+  verbose?: boolean;
+  runtime?: ChannelLoginRuntimeEnv;
+}
+
 export interface ChannelQrLoginStartResult {
   qrDataUrl?: string;
   message: string;
@@ -133,6 +145,31 @@ export class OpenClawPluginHost {
   /** Register a gateway-owned channel id alias that points at a plugin id. */
   registerChannelAlias(alias: string, targetChannelId: string): void {
     this.channelAliases.set(alias, targetChannelId);
+  }
+
+  hasChannelLogin(channelType: string): boolean {
+    const channel = this.resolveChannel(channelType);
+    return channel?.auth?.login !== undefined;
+  }
+
+  async runChannelLogin(
+    channelType: string,
+    params: ChannelLoginParams,
+  ): Promise<void> {
+    const channel = this.resolveChannel(channelType);
+    const login = channel?.auth?.login;
+    if (!login) {
+      throw new Error(`Channel login is not supported for ${channelType}`);
+    }
+
+    const { accountId, verbose } = params;
+    const runtime = this.buildChannelLoginRuntime(params.runtime);
+    await login({
+      cfg: this.runtime.getConfig(),
+      accountId,
+      verbose,
+      runtime,
+    });
   }
 
   /**
@@ -236,6 +273,16 @@ export class OpenClawPluginHost {
     return undefined;
   }
 
+  private buildChannelLoginRuntime(
+    runtime?: ChannelLoginRuntimeEnv,
+  ): GatewayRuntimeEnv {
+    return {
+      log: runtime?.log ?? (() => {}),
+      error: runtime?.error ?? (() => {}),
+      exit: runtime?.exit ?? (() => {}),
+    };
+  }
+
   /**
    * Build the plugin API object passed to community plugins on registration.
    *
@@ -254,7 +301,7 @@ export class OpenClawPluginHost {
     };
     const runtime = host.runtime.asPluginRuntime();
 
-    return {
+    const api: OpenClawPluginApi = {
       // ---- Identity -------------------------------------------------------
       id: "a2a-channels-gateway",
       name: "A2A Channels Gateway",
@@ -313,11 +360,14 @@ export class OpenClawPluginHost {
       registerCli: () => {},
       registerReload: () => {},
       registerNodeHostCommand: () => {},
+      registerNodeInvokePolicy: () => {},
       registerSecurityAuditCollector: () => {},
       registerService: () => {},
+      registerGatewayDiscoveryService: () => {},
       registerCliBackend: () => {},
       registerTextTransforms: () => {},
       registerConfigMigration: () => {},
+      registerMigrationProvider: () => {},
       registerAutoEnableProbe: () => {},
       registerProvider: () => {},
       registerSpeechProvider: () => {},
@@ -335,6 +385,24 @@ export class OpenClawPluginHost {
       registerContextEngine: () => {},
       registerCompactionProvider: () => {},
       registerAgentHarness: () => {},
+      registerCodexAppServerExtensionFactory: () => {},
+      registerAgentToolResultMiddleware: () => {},
+      registerSessionExtension: () => {},
+      enqueueNextTurnInjection: async (injection) => ({
+        enqueued: false,
+        id: "",
+        sessionKey: injection.sessionKey,
+      }),
+      registerTrustedToolPolicy: () => {},
+      registerToolMetadata: () => {},
+      registerControlUiDescriptor: () => {},
+      registerRuntimeLifecycle: () => {},
+      registerAgentEventSubscription: () => {},
+      setRunContext: () => false,
+      getRunContext: () => undefined,
+      clearRunContext: () => {},
+      registerSessionSchedulerJob: () => undefined,
+      registerDetachedTaskRuntime: () => {},
       registerMemoryCapability: () => {},
       registerMemoryPromptSection: () => {},
       registerMemoryPromptSupplement: () => {},
@@ -342,6 +410,8 @@ export class OpenClawPluginHost {
       registerMemoryFlushPlan: () => {},
       registerMemoryRuntime: () => {},
       registerMemoryEmbeddingProvider: () => {},
-    } as unknown as OpenClawPluginApi;
+    };
+
+    return api;
   }
 }
