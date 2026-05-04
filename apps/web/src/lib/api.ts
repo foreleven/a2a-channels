@@ -59,6 +59,7 @@ export interface RuntimeChannelStatus {
 export interface ChannelQrLoginStartResult {
   qrDataUrl?: string;
   message: string;
+  accountId?: string;
   sessionKey?: string;
 }
 
@@ -80,7 +81,9 @@ export async function listChannels(): Promise<ChannelBinding[]> {
 }
 
 export async function createChannel(
-  data: Omit<ChannelBinding, "id" | "createdAt">,
+  data: Omit<ChannelBinding, "id" | "createdAt" | "accountId"> & {
+    accountId?: string;
+  },
 ): Promise<ChannelBinding> {
   const res = await fetch(`${BASE}/api/channels`, {
     method: "POST",

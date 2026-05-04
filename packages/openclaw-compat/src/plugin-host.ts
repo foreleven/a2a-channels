@@ -73,6 +73,7 @@ export interface ChannelLoginParams {
 export interface ChannelQrLoginStartResult {
   qrDataUrl?: string;
   message: string;
+  accountId?: string;
   sessionKey?: string;
 }
 

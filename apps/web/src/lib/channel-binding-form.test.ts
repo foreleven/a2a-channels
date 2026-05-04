@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   CHANNEL_OPTIONS,
+  ChannelFormMapper,
   channelCreateHref,
   channelGuide,
   normalizeChannelType,
@@ -35,5 +36,18 @@ describe("channel binding form metadata", () => {
       assert.ok(guide.setup.length > 0, channel.value);
       assert.ok(guide.fields.length > 0, channel.value);
     }
+  });
+
+  test("omits blank account IDs so the gateway can generate them", () => {
+    const payload = new ChannelFormMapper().toPayload({
+      name: "WeChat",
+      channelType: "wechat",
+      accountId: " ",
+      agentId: "agent-1",
+      enabled: true,
+      channelConfigJson: "{}",
+    });
+
+    assert.equal("accountId" in payload, false);
   });
 });

@@ -43,7 +43,9 @@ type QrState = {
   imageUrl?: string;
   message?: string;
   sessionKey?: string;
+  accountId?: string;
   connectedAccountId?: string;
+  pollingStopped?: boolean;
 };
 
 const formMapper = new ChannelFormMapper();
@@ -74,6 +76,12 @@ export function NewChannelBindingPage({
     [form.channelType],
   );
   const guide = useMemo(() => channelGuide(form.channelType), [form.channelType]);
+  const qrPolling =
+    supportsQrLogin(form.channelType) &&
+    Boolean(qrState.sessionKey) &&
+    !qrState.connectedAccountId &&
+    !qrState.pollingStopped &&
+    !qrLoading;
 
   useEffect(() => {
     let cancelled = false;
@@ -130,10 +138,14 @@ export function NewChannelBindingPage({
         accountId: form.accountId || undefined,
         force: true,
       });
+      if (result.accountId) {
+        setForm((current) => ({ ...current, accountId: result.accountId ?? "" }));
+      }
       setQrState({
         imageUrl: result.qrDataUrl,
         message: result.message,
         sessionKey: result.sessionKey,
+        accountId: result.accountId,
       });
     } catch (qrError) {
       setError(String(qrError));
@@ -142,39 +154,85 @@ export function NewChannelBindingPage({
     }
   }
 
-  async function checkQr() {
-    setQrLoading(true);
-    setError(null);
-    try {
-      const result = await waitForChannelQrLogin(form.channelType, {
-        accountId: form.accountId || undefined,
-        sessionKey: qrState.sessionKey,
-        timeoutMs: 30_000,
-      });
-      setQrState((current) => ({
-        ...current,
-        message: result.message,
-        connectedAccountId: result.accountId,
-      }));
-      if (result.connected && result.accountId) {
-        const accountId = result.accountId;
-        setForm((current) => ({
-          ...current,
-          accountId,
-          channelConfigJson: result.channelConfig
-            ? stringifyConfig({
-                ...parseConfig(current.channelConfigJson),
-                ...result.channelConfig,
-              })
-            : current.channelConfigJson,
-        }));
+  const checkQr = useCallback(
+    async (options: { silent?: boolean } = {}): Promise<boolean> => {
+      if (!qrState.sessionKey) {
+        return false;
       }
-    } catch (qrError) {
-      setError(String(qrError));
-    } finally {
-      setQrLoading(false);
+      if (!options.silent) {
+        setQrLoading(true);
+        setError(null);
+      }
+      try {
+        const result = await waitForChannelQrLogin(form.channelType, {
+          accountId: form.accountId || qrState.accountId || undefined,
+          sessionKey: qrState.sessionKey,
+          timeoutMs: options.silent ? 5_000 : 30_000,
+        });
+        const pollingStopped =
+          result.connected || isTerminalQrMessage(result.message);
+        setQrState((current) => ({
+          ...current,
+          message: result.message,
+          connectedAccountId: result.accountId,
+          pollingStopped,
+        }));
+        if (result.connected && result.accountId) {
+          const accountId = result.accountId;
+          setForm((current) => ({
+            ...current,
+            accountId,
+            channelConfigJson: result.channelConfig
+              ? stringifyConfig({
+                  ...parseConfig(current.channelConfigJson),
+                  ...result.channelConfig,
+                })
+              : current.channelConfigJson,
+          }));
+        }
+        return pollingStopped;
+      } catch (qrError) {
+        if (!options.silent) {
+          setError(String(qrError));
+        }
+        return false;
+      } finally {
+        if (!options.silent) {
+          setQrLoading(false);
+        }
+      }
+    },
+    [form.accountId, form.channelType, qrState.accountId, qrState.sessionKey],
+  );
+
+  useEffect(() => {
+    if (
+      !supportsQrLogin(form.channelType) ||
+      !qrState.sessionKey ||
+      qrState.connectedAccountId
+    ) {
+      return;
     }
-  }
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function poll() {
+      const connected = await checkQr({ silent: true });
+      if (cancelled || connected) {
+        return;
+      }
+      timer = window.setTimeout(poll, 1500);
+    }
+
+    timer = window.setTimeout(poll, 1000);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [checkQr, form.channelType, qrState.connectedAccountId, qrState.sessionKey]);
 
   async function handleSave() {
     setSaving(true);
@@ -207,7 +265,7 @@ export function NewChannelBindingPage({
           </p>
         </div>
         <Button
-          disabled={saving || !form.name || !form.agentId || !form.accountId}
+          disabled={saving || !form.name || !form.agentId}
           onClick={handleSave}
         >
           {saving ? "Saving..." : "Create Binding"}
@@ -275,6 +333,7 @@ export function NewChannelBindingPage({
                 loading={qrLoading}
                 onCheck={checkQr}
                 onStart={startQr}
+                polling={qrPolling}
                 state={qrState}
               />
             )}
@@ -308,17 +367,6 @@ export function NewChannelBindingPage({
                     </option>
                   ))}
                 </Select>
-              </Field>
-              <Field label="Account ID">
-                <Input
-                  onChange={(event) =>
-                    setForm({ ...form, accountId: event.target.value })
-                  }
-                  placeholder={
-                    supportsQrLogin(form.channelType) ? "QR login result" : "default"
-                  }
-                  value={form.accountId}
-                />
               </Field>
               <Field label="Enabled">
                 <label className="flex h-9 items-center gap-2 rounded-md border border-input px-3 text-sm">
@@ -362,12 +410,14 @@ function QrLoginPanel({
   loading,
   onCheck,
   onStart,
+  polling,
   state,
 }: {
   channelLabel: string;
   loading: boolean;
   onCheck(): void;
   onStart(): void;
+  polling: boolean;
   state: QrState;
 }) {
   return (
@@ -395,7 +445,9 @@ function QrLoginPanel({
             {channelLabel} QR Login
           </div>
           <p className="mt-2 break-words text-sm text-muted-foreground">
-            {state.message ?? "Generate a QR code from the channel gateway."}
+            {polling
+              ? "Waiting for scan confirmation..."
+              : (state.message ?? "Generate a QR code from the channel gateway.")}
           </p>
           {state.connectedAccountId && (
             <p className="mt-2 break-all text-xs text-muted-foreground">
@@ -409,12 +461,16 @@ function QrLoginPanel({
             Generate QR
           </Button>
           <Button
-            disabled={loading || !state.sessionKey}
+            disabled={loading || polling || !state.sessionKey}
             onClick={onCheck}
             variant="secondary"
           >
-            {loading ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
-            Check Login
+            {loading || polling ? (
+              <Loader2 className="animate-spin" />
+            ) : (
+              <CheckCircle2 />
+            )}
+            {polling ? "Checking..." : "Check Login"}
           </Button>
         </div>
       </div>
@@ -513,12 +569,27 @@ function fieldValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function isTerminalQrMessage(message: string | undefined): boolean {
+  if (!message) return false;
+  return [
+    "expired",
+    "failed",
+    "timeout",
+    "二维码已过期",
+    "登录超时",
+    "登录失败",
+    "当前没有进行中",
+    "连接流程已停止",
+    "无需重复连接",
+  ].some((marker) => message.includes(marker));
+}
+
 function createFormState(channelType: string, agentId = ""): FormState {
   const normalizedChannelType = normalizeChannelType(channelType);
   return {
     name: "",
     channelType: normalizedChannelType,
-    accountId: normalizedChannelType === "wechat" ? "" : "default",
+    accountId: "",
     agentId,
     enabled: true,
     channelConfigJson: stringifyConfig(

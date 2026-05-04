@@ -1,13 +1,15 @@
-import { inject, injectable } from "inversify";
+import { injectable, multiInject } from "inversify";
 
 import {
-  OpenClawPluginHost,
   type ChannelQrLoginStartParams,
   type ChannelQrLoginStartResult,
   type ChannelQrLoginWaitParams,
   type ChannelQrLoginWaitResult,
 } from "@a2a-channels/openclaw-compat";
-import QRCode from "qrcode";
+import {
+  ChannelQrLoginProviderToken,
+  type ChannelQrLoginProvider,
+} from "./channel-qr-login-provider.js";
 
 export class UnsupportedChannelQrAuthError extends Error {
   constructor(readonly channelType: string) {
@@ -15,34 +17,20 @@ export class UnsupportedChannelQrAuthError extends Error {
   }
 }
 
-export interface ChannelQrAuthGateway {
-  startChannelQrLogin(
-    channelType: string,
-    params: ChannelQrLoginStartParams,
-  ): Promise<ChannelQrLoginStartResult>;
-  waitForChannelQrLogin(
-    channelType: string,
-    params: ChannelQrLoginWaitParams,
-  ): Promise<ChannelQrLoginWaitResult>;
-}
-
 @injectable()
 export class ChannelAuthService {
   constructor(
-    @inject(OpenClawPluginHost)
-    private readonly gateway: ChannelQrAuthGateway,
+    @multiInject(ChannelQrLoginProviderToken)
+    private readonly providers: ChannelQrLoginProvider[],
   ) {}
 
   async startQrLogin(
     channelType: string,
     params: ChannelQrLoginStartParams,
   ): Promise<ChannelQrLoginStartResult> {
-    if (isFeishuChannel(channelType)) {
-      return this.startFeishuSetupQrLogin();
-    }
-
+    const provider = this.resolveProvider(channelType);
     try {
-      return await this.gateway.startChannelQrLogin(channelType, params);
+      return await provider.start(channelType, params);
     } catch (err) {
       this.rethrowQrSupportError(channelType, err);
     }
@@ -52,15 +40,22 @@ export class ChannelAuthService {
     channelType: string,
     params: ChannelQrLoginWaitParams,
   ): Promise<ChannelQrLoginWaitResult> {
-    if (isFeishuChannel(channelType)) {
-      return this.waitForFeishuSetupQrLogin(params);
-    }
-
+    const provider = this.resolveProvider(channelType);
     try {
-      return await this.gateway.waitForChannelQrLogin(channelType, params);
+      return await provider.wait(channelType, params);
     } catch (err) {
       this.rethrowQrSupportError(channelType, err);
     }
+  }
+
+  private resolveProvider(channelType: string): ChannelQrLoginProvider {
+    const provider = this.providers.find((candidate) =>
+      candidate.supports(channelType),
+    );
+    if (!provider) {
+      throw new UnsupportedChannelQrAuthError(channelType);
+    }
+    return provider;
   }
 
   private rethrowQrSupportError(channelType: string, err: unknown): never {
@@ -72,99 +67,4 @@ export class ChannelAuthService {
     }
     throw err;
   }
-
-  private async startFeishuSetupQrLogin(): Promise<ChannelQrLoginStartResult> {
-    const registration =
-      await import("@openclaw/feishu/src/app-registration.js");
-    await registration.initAppRegistration("feishu");
-    const begin = await registration.beginAppRegistration("feishu");
-    const qrDataUrl = await QRCode.toDataURL(begin.qrUrl, {
-      margin: 1,
-      width: 256,
-    });
-
-    return {
-      qrDataUrl,
-      message: "Scan with Feishu/Lark to create and authorize the app.",
-      sessionKey: encodeFeishuSetupSession({
-        deviceCode: begin.deviceCode,
-        expireIn: begin.expireIn,
-        interval: begin.interval,
-      }),
-    };
-  }
-
-  private async waitForFeishuSetupQrLogin(
-    params: ChannelQrLoginWaitParams,
-  ): Promise<ChannelQrLoginWaitResult> {
-    const session = decodeFeishuSetupSession(params.sessionKey);
-    const registration =
-      await import("@openclaw/feishu/src/app-registration.js");
-    const expireIn = Math.min(
-      session.expireIn,
-      Math.max(
-        Math.ceil((params.timeoutMs ?? 60_000) / 1000),
-        session.interval,
-      ),
-    );
-    const outcome = await registration.pollAppRegistration({
-      deviceCode: session.deviceCode,
-      interval: session.interval,
-      expireIn,
-      initialDomain: "feishu",
-      tp: "ob_app",
-    });
-
-    if (outcome.status !== "success") {
-      return {
-        connected: false,
-        message: `Feishu scan status: ${outcome.status}`,
-      };
-    }
-
-    const result = outcome.result;
-
-    console.log("result", result);
-    return {
-      connected: true,
-      message: "Feishu app authorization completed.",
-      accountId: "default",
-      channelConfig: {
-        appId: result.appId,
-        appSecret: result.appSecret,
-        allowFrom: result.openId ? [result.openId] : ["*"],
-      },
-    };
-  }
-}
-
-function isFeishuChannel(channelType: string): boolean {
-  return channelType === "feishu" || channelType === "lark";
-}
-
-interface FeishuSetupSession {
-  deviceCode: string;
-  interval: number;
-  expireIn: number;
-}
-
-function encodeFeishuSetupSession(session: FeishuSetupSession): string {
-  return Buffer.from(JSON.stringify(session), "utf8").toString("base64url");
-}
-
-function decodeFeishuSetupSession(rawSessionKey?: string): FeishuSetupSession {
-  if (!rawSessionKey) {
-    throw new Error("Feishu setup session is missing.");
-  }
-  const parsed = JSON.parse(
-    Buffer.from(rawSessionKey, "base64url").toString("utf8"),
-  ) as Partial<FeishuSetupSession>;
-  if (!parsed.deviceCode || !parsed.interval || !parsed.expireIn) {
-    throw new Error("Feishu setup session is invalid.");
-  }
-  return {
-    deviceCode: parsed.deviceCode,
-    interval: parsed.interval,
-    expireIn: parsed.expireIn,
-  };
 }

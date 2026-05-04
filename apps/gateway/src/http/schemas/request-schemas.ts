@@ -20,7 +20,7 @@ export const createChannelBindingBodySchema: z.ZodType<CreateChannelBindingData>
   z.object({
     name: nonEmptyString,
     channelType: z.string().default("feishu"),
-    accountId: z.string().default("default"),
+    accountId: z.string().optional(),
     channelConfig: z.record(z.string(), z.unknown()),
     agentId: nonEmptyString,
     enabled: z.boolean().default(true),

@@ -17,6 +17,7 @@ import {
 } from "@a2a-channels/openclaw-compat";
 import { inject, injectable } from "inversify";
 
+import { channelTypeRegistry } from "../channel-type-registry.js";
 import { RuntimeAgentRegistry } from "../runtime-agent-registry.js";
 import { Connection } from "./connection.js";
 import type {
@@ -221,6 +222,10 @@ export class ConnectionManager implements ReplyEventDispatcher {
     channelType: string | undefined,
     accountId: string | undefined,
   ): string {
-    return `${channelType ?? "feishu"}:${accountId ?? "default"}`;
+    const canonicalChannelType = channelTypeRegistry.canonicalize(
+      channelType ?? "feishu",
+    );
+
+    return `${canonicalChannelType}:${accountId ?? "default"}`;
   }
 }

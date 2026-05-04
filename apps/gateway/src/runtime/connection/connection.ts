@@ -6,6 +6,7 @@ import type {
   MessageInboundEvent,
 } from "@a2a-channels/openclaw-compat";
 
+import { channelTypeRegistry } from "../channel-type-registry.js";
 import type { ConnectionCallbacks } from "./events.js";
 import {
   ChannelReplyDelivery,
@@ -104,9 +105,16 @@ export class Connection {
     channelType: string | undefined,
     accountId: string | undefined,
   ): boolean {
+    const bindingChannelType = channelTypeRegistry.canonicalize(
+      this.binding.channelType,
+    );
+    const incomingChannelType = channelTypeRegistry.canonicalize(
+      channelType ?? "feishu",
+    );
+
     return (
       this.binding.enabled &&
-      this.binding.channelType === (channelType ?? "feishu") &&
+      bindingChannelType === incomingChannelType &&
       this.binding.accountId === (accountId ?? "default")
     );
   }

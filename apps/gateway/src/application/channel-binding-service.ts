@@ -15,14 +15,17 @@ import {
   RuntimeEventBus,
   type RuntimeEventBus as RuntimeEventBusType,
 } from "../runtime/event-transport/runtime-event-bus.js";
+import { AccountIdGenerator } from "./account-id-generator.js";
 import { AgentNotFoundError, DuplicateEnabledBindingError } from "./errors.js";
 
 export { AgentNotFoundError, DuplicateEnabledBindingError };
 export type { ChannelBindingSnapshot };
 export type CreateChannelBindingData = Omit<
   ChannelBindingSnapshot,
-  "id" | "createdAt"
->;
+  "id" | "createdAt" | "accountId"
+> & {
+  accountId?: string;
+};
 export type UpdateChannelBindingData = Partial<
   Omit<ChannelBindingSnapshot, "id" | "createdAt">
 >;
@@ -42,6 +45,8 @@ export class ChannelBindingService {
     private readonly agentRepo: AgentConfigRepository,
     @inject(RuntimeEventBus)
     private readonly eventBus: RuntimeEventBusType,
+    @inject(AccountIdGenerator)
+    private readonly accountIdGenerator: AccountIdGenerator,
   ) {}
 
   async list(): Promise<ChannelBindingSnapshot[]> {
@@ -54,16 +59,18 @@ export class ChannelBindingService {
   }
 
   async create(data: CreateChannelBindingData): Promise<ChannelBindingSnapshot> {
+    const accountId = this.accountIdGenerator.resolve(data.accountId);
     await this.assertAgentExists(data.agentId);
     await this.assertNoDuplicateEnabled(
       data.channelType,
-      data.accountId,
+      accountId,
       data.enabled,
     );
 
     const aggregate = ChannelBindingAggregate.create({
       id: randomUUID(),
       ...data,
+      accountId,
     });
     await this.repo.save(aggregate);
     this.broadcastBindingChanged(aggregate.snapshot().id);

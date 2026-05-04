@@ -119,8 +119,8 @@ export const CHANNEL_GUIDES: Record<string, ChannelGuide> = {
   wechat: {
     docsUrl: "https://docs.openclaw.ai/channels/wechat",
     summary: "WeChat/Weixin QR login integration for OpenClaw account binding.",
-    setup: "Generate a QR code, scan it in WeChat, then check login to fill the account ID before saving.",
-    fields: ["Account ID is filled by QR login.", "Advanced Config JSON can stay empty for normal QR login."],
+    setup: "Generate a QR code, scan it in WeChat, then check login before saving.",
+    fields: ["Account ID is generated automatically.", "Advanced Config JSON can stay empty for normal QR login."],
   },
   qqbot: {
     docsUrl: "https://docs.openclaw.ai/channels/qqbot",
@@ -149,11 +149,16 @@ export const EMPTY_FORM: FormState = {
 };
 
 export class ChannelFormMapper {
-  toPayload(form: FormState): Omit<ChannelBinding, "id" | "createdAt"> {
+  toPayload(
+    form: FormState,
+  ): Omit<ChannelBinding, "id" | "createdAt" | "accountId"> & {
+    accountId?: string;
+  } {
+    const accountId = form.accountId.trim();
     return {
       name: form.name,
       channelType: form.channelType,
-      accountId: form.accountId,
+      ...(accountId ? { accountId } : {}),
       agentId: form.agentId,
       enabled: form.enabled,
       channelConfig: this.parseConfig(form.channelConfigJson),

@@ -8,6 +8,7 @@ import type {
 } from "@a2a-channels/domain";
 
 import { AgentService } from "../apps/gateway/src/application/agent-service.js";
+import { AccountIdGenerator } from "../apps/gateway/src/application/account-id-generator.js";
 import { ChannelBindingService } from "../apps/gateway/src/application/channel-binding-service.js";
 import { AgentConfigStateRepository } from "../apps/gateway/src/infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../apps/gateway/src/infra/channel-binding-repo.js";
@@ -41,7 +42,12 @@ export class DefaultSeedWriter {
       deps.agentService ?? new AgentService(agentRepo, bindingRepo, eventBus);
     this.bindingService =
       deps.bindingService ??
-      new ChannelBindingService(bindingRepo, agentRepo, eventBus);
+      new ChannelBindingService(
+        bindingRepo,
+        agentRepo,
+        eventBus,
+        new AccountIdGenerator(),
+      );
     this.bindingRepo = bindingRepo;
     this.env = deps.env ?? process.env;
   }

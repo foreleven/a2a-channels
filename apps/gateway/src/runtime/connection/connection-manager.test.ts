@@ -96,6 +96,49 @@ describe("Connection", () => {
       counts: { tool: 0, block: 0, final: 1 },
     });
   });
+
+  test("matches channel account across channel type aliases", async () => {
+    const sentMessages: string[] = [];
+    const transport: AgentTransport = {
+      protocol: "a2a",
+      send: async (_agentUrl, request) => {
+        sentMessages.push(request.userMessage);
+        return { text: `echo: ${request.userMessage}` };
+      },
+    };
+    const connection = new Connection({
+      agentClient: new AgentClient({
+        agentUrl: "http://agent-1",
+        protocol: "a2a",
+        transport,
+      }),
+      binding: {
+        ...binding,
+        channelType: "wechat",
+        accountId: "911b9b000589-im-bot",
+      },
+    });
+
+    const response = await connection.handleInbound({
+      accountId: "911b9b000589-im-bot",
+      channelType: "openclaw-weixin",
+      replyEvent: {
+        type: "channel.reply.buffered.dispatch",
+        ctx: {} as never,
+        dispatcherOptions: {
+          deliver: async () => {},
+        },
+      },
+      sessionKey: "session-1",
+      userMessage: "hello",
+    });
+
+    assert.deepEqual(sentMessages, ["hello"]);
+    assert.deepEqual(response, {
+      queuedFinal: false,
+      counts: { tool: 0, block: 0, final: 1 },
+    });
+  });
 });
 
 describe("ConnectionManager", () => {
@@ -189,6 +232,52 @@ describe("ConnectionManager", () => {
         BodyForAgent: "hello",
         ChannelType: "feishu",
         AccountId: "default",
+        SessionKey: "session-1",
+      } as never,
+      dispatcherOptions: {
+        deliver: async () => {},
+      },
+    });
+
+    assert.deepEqual(sentMessages, ["hello"]);
+    assert.deepEqual(response, {
+      queuedFinal: false,
+      counts: { tool: 0, block: 0, final: 1 },
+    });
+  });
+
+  test("routes runtime reply events across channel type aliases", async () => {
+    const sentMessages: string[] = [];
+    const transport: AgentTransport = {
+      protocol: "a2a",
+      send: async (_agentUrl, request) => {
+        sentMessages.push(request.userMessage);
+        return { text: `echo: ${request.userMessage}` };
+      },
+    };
+    const runtime = createRuntime();
+    const manager = new ConnectionManager(null as never, runtime, null as never);
+    const connection = new Connection({
+      agentClient: new AgentClient({
+        agentUrl: "http://agent-1",
+        protocol: "a2a",
+        transport,
+      }),
+      binding: {
+        ...binding,
+        channelType: "wechat",
+        accountId: "911b9b000589-im-bot",
+      },
+    });
+
+    Reflect.get(manager, "trackConnection").call(manager, connection);
+
+    const response = await runtime.handleChannelReplyEvent({
+      type: "channel.reply.buffered.dispatch",
+      ctx: {
+        BodyForAgent: "hello",
+        ChannelType: "openclaw-weixin",
+        AccountId: "911b9b000589-im-bot",
         SessionKey: "session-1",
       } as never,
       dispatcherOptions: {
