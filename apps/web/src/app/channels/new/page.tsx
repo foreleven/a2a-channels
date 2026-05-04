@@ -23,9 +23,11 @@ import {
   CHANNEL_CONFIG_TEMPLATES,
   CHANNEL_OPTIONS,
   ChannelFormMapper,
-  EMPTY_FORM,
   type FormState,
+  channelCreateHref,
+  channelGuide,
   channelLabel,
+  normalizeChannelType,
   stringifyConfig,
   supportsQrLogin,
 } from "@/lib/channel-binding-form";
@@ -46,10 +48,21 @@ type QrState = {
 
 const formMapper = new ChannelFormMapper();
 
-export default function NewChannelBindingPage() {
+export default function NewChannelBindingDefaultPage() {
+  return <NewChannelBindingPage initialChannelType="feishu" key="feishu" />;
+}
+
+export function NewChannelBindingPage({
+  initialChannelType,
+}: {
+  initialChannelType: string;
+}) {
   const router = useRouter();
+  const routeChannelType = normalizeChannelType(initialChannelType);
   const [agents, setAgents] = useState<AgentConfig[]>([]);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [form, setForm] = useState<FormState>(() =>
+    createFormState(routeChannelType),
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [qrLoading, setQrLoading] = useState(false);
@@ -60,6 +73,7 @@ export default function NewChannelBindingPage() {
     () => CHANNEL_OPTIONS.find((channel) => channel.value === form.channelType),
     [form.channelType],
   );
+  const guide = useMemo(() => channelGuide(form.channelType), [form.channelType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,17 +120,6 @@ export default function NewChannelBindingPage() {
     },
     [],
   );
-
-  function updateChannelType(channelType: string) {
-    setForm((current) => ({
-      ...current,
-      channelType,
-      accountId: channelType === "wechat" ? "" : "default",
-      channelConfigJson: stringifyConfig(CHANNEL_CONFIG_TEMPLATES[channelType] ?? {}),
-    }));
-    setQrState({});
-    setError(null);
-  }
 
   async function startQr() {
     setQrLoading(true);
@@ -228,22 +231,21 @@ export default function NewChannelBindingPage() {
           </div>
           <div className="space-y-1">
             {CHANNEL_OPTIONS.map((channel) => (
-              <button
+              <Link
                 className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${
                   form.channelType === channel.value
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
+                href={channelCreateHref(channel.value)}
                 key={channel.value}
-                onClick={() => updateChannelType(channel.value)}
-                type="button"
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <RadioTower className="size-4 shrink-0" />
                   <span className="truncate">{channel.label}</span>
                 </span>
                 {channel.supportsQr && <Badge variant="secondary">QR</Badge>}
-              </button>
+              </Link>
             ))}
           </div>
         </aside>
@@ -276,6 +278,8 @@ export default function NewChannelBindingPage() {
                 state={qrState}
               />
             )}
+
+            <ChannelGuidePanel guide={guide} />
 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Name">
@@ -418,6 +422,32 @@ function QrLoginPanel({
   );
 }
 
+function ChannelGuidePanel({ guide }: { guide: ReturnType<typeof channelGuide> }) {
+  return (
+    <div className="rounded-md border border-border bg-background p-4">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Configuration Guide</p>
+          <p className="mt-1 text-sm text-muted-foreground">{guide.summary}</p>
+        </div>
+        <Button asChild size="sm" variant="outline">
+          <a href={guide.docsUrl} rel="noreferrer" target="_blank">
+            Docs
+          </a>
+        </Button>
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground">{guide.setup}</p>
+      <ul className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+        {guide.fields.map((field) => (
+          <li className="rounded-md bg-muted/60 px-3 py-2" key={field}>
+            {field}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ChannelConfigFields({
   channelType,
   config,
@@ -441,6 +471,9 @@ function ChannelConfigFields({
             type={field.secret ? "password" : "text"}
             value={fieldValue(config[field.key])}
           />
+          {field.help && (
+            <p className="text-xs text-muted-foreground">{field.help}</p>
+          )}
         </Field>
       ))}
     </div>
@@ -478,4 +511,18 @@ function parseConfig(rawConfig: string): Record<string, unknown> {
 function fieldValue(value: unknown): string {
   if (Array.isArray(value)) return value.join(", ");
   return typeof value === "string" ? value : "";
+}
+
+function createFormState(channelType: string, agentId = ""): FormState {
+  const normalizedChannelType = normalizeChannelType(channelType);
+  return {
+    name: "",
+    channelType: normalizedChannelType,
+    accountId: normalizedChannelType === "wechat" ? "" : "default",
+    agentId,
+    enabled: true,
+    channelConfigJson: stringifyConfig(
+      CHANNEL_CONFIG_TEMPLATES[normalizedChannelType] ?? {},
+    ),
+  };
 }

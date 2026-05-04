@@ -74,7 +74,8 @@ export class ChannelAuthService {
   }
 
   private async startFeishuSetupQrLogin(): Promise<ChannelQrLoginStartResult> {
-    const registration = await import("@openclaw/feishu/src/app-registration.js");
+    const registration =
+      await import("@openclaw/feishu/src/app-registration.js");
     await registration.initAppRegistration("feishu");
     const begin = await registration.beginAppRegistration("feishu");
     const qrDataUrl = await QRCode.toDataURL(begin.qrUrl, {
@@ -97,10 +98,14 @@ export class ChannelAuthService {
     params: ChannelQrLoginWaitParams,
   ): Promise<ChannelQrLoginWaitResult> {
     const session = decodeFeishuSetupSession(params.sessionKey);
-    const registration = await import("@openclaw/feishu/src/app-registration.js");
+    const registration =
+      await import("@openclaw/feishu/src/app-registration.js");
     const expireIn = Math.min(
       session.expireIn,
-      Math.max(Math.ceil((params.timeoutMs ?? 60_000) / 1000), session.interval),
+      Math.max(
+        Math.ceil((params.timeoutMs ?? 60_000) / 1000),
+        session.interval,
+      ),
     );
     const outcome = await registration.pollAppRegistration({
       deviceCode: session.deviceCode,
@@ -118,6 +123,8 @@ export class ChannelAuthService {
     }
 
     const result = outcome.result;
+
+    console.log("result", result);
     return {
       connected: true,
       message: "Feishu app authorization completed.",
