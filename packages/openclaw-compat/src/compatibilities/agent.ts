@@ -9,12 +9,32 @@ type PluginRuntimeAgent = PluginRuntime["agent"];
  * return safe sentinel values without performing any real work.
  */
 export function buildAgentCompat(): PluginRuntimeAgent {
-  return {
+  const agentCompat: PluginRuntimeAgent = {
     defaults: { model: "gpt-5.5", provider: "openai" },
     resolveAgentDir: () => "/tmp/a2a-channels",
     resolveAgentWorkspaceDir: () => "/tmp/a2a-channels",
     resolveAgentIdentity: () => ({ agentId: "main", name: "main" }),
     resolveThinkingDefault: () => "off",
+    normalizeThinkingLevel: (raw?: string | null) => {
+      const normalized = raw?.toLowerCase();
+      if (
+        normalized === "off" ||
+        normalized === "minimal" ||
+        normalized === "low" ||
+        normalized === "medium" ||
+        normalized === "high" ||
+        normalized === "xhigh" ||
+        normalized === "adaptive" ||
+        normalized === "max"
+      ) {
+        return normalized;
+      }
+      return undefined;
+    },
+    resolveThinkingPolicy: () => ({
+      levels: [{ id: "off", label: "Off" }],
+      defaultLevel: "off",
+    }),
     runEmbeddedAgent: async () => ({ meta: { durationMs: 0 } }),
     runEmbeddedPiAgent: async () => ({ meta: { durationMs: 0 } }),
     resolveAgentTimeoutMs: () => 30_000,
@@ -26,7 +46,10 @@ export function buildAgentCompat(): PluginRuntimeAgent {
       resolveStorePath: () => "/tmp/a2a-sessions",
       loadSessionStore: () => ({}),
       saveSessionStore: async () => {},
+      updateSessionStore: async (_storePath, mutator) => mutator({}),
+      updateSessionStoreEntry: async () => null,
       resolveSessionFilePath: () => "/tmp/a2a-sessions/session.json",
     },
-  } as unknown as PluginRuntimeAgent;
+  };
+  return agentCompat;
 }

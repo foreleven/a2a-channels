@@ -93,5 +93,5 @@ export function buildTasksCompat(): PluginRuntimeTasks {
       fromToolContext: (ctx: { sessionKey?: string }) =>
         makeBoundTaskFlow(ctx.sessionKey ?? ""),
     },
-  } as unknown as PluginRuntimeTasks;
+  } as PluginRuntimeTasks;
 }

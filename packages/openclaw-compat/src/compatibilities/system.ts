@@ -9,12 +9,13 @@ type PluginRuntimeSystem = PluginRuntime["system"];
  * so all methods are stubs that log or return safe sentinel values.
  */
 export function buildSystemCompat(): PluginRuntimeSystem {
-  return {
+  const systemCompat: PluginRuntimeSystem = {
     enqueueSystemEvent: (msg: string, meta?: unknown) => {
       console.log("[system]", msg, meta ?? "");
       return false;
     },
-    requestHeartbeatNow: async () => {},
+    requestHeartbeat: () => {},
+    requestHeartbeatNow: () => {},
     runHeartbeatOnce: async () => ({ status: "ran" as const, durationMs: 0 }),
     runCommandWithTimeout: async () => ({
       code: 0,
@@ -25,5 +26,6 @@ export function buildSystemCompat(): PluginRuntimeSystem {
       stderr: "",
     }),
     formatNativeDependencyHint: (h: { packageName: string }) => h.packageName,
-  } as unknown as PluginRuntimeSystem;
+  };
+  return systemCompat;
 }

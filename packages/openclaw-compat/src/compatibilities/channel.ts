@@ -13,6 +13,216 @@ import type { ChannelReplyEvent } from "../plugin-runtime.js";
 
 type PluginRuntimeChannel = PluginRuntime["channel"];
 
+const DEFAULT_CHANNEL_EVENT_CLASS = {
+  kind: "message",
+  canStartAgentTurn: true,
+};
+
+const EMPTY_CHANNEL_TURN_DISPATCH_COUNTS = { tool: 0, block: 0, final: 0 };
+
+function isChannelTurnAdmission(value: unknown): value is { kind: string } {
+  if (!value || typeof value !== "object") return false;
+  const kind = (value as { kind?: unknown }).kind;
+  return (
+    kind === "dispatch" ||
+    kind === "observeOnly" ||
+    kind === "handled" ||
+    kind === "drop"
+  );
+}
+
+function normalizeChannelTurnPreflight(
+  value: unknown,
+): Record<string, unknown> {
+  if (!value) return {};
+  if (isChannelTurnAdmission(value)) return { admission: value };
+  return value as Record<string, unknown>;
+}
+
+function isPreparedChannelTurn(value: unknown): value is {
+  runDispatch: () => Promise<unknown>;
+} {
+  return Boolean(value && typeof value === "object" && "runDispatch" in value);
+}
+
+async function runPreparedChannelTurn(params: any): Promise<any> {
+  const admission = params.admission ?? { kind: "dispatch" };
+  try {
+    await params.recordInboundSession({
+      storePath: params.storePath,
+      sessionKey: params.ctxPayload.SessionKey ?? params.routeSessionKey,
+      ctx: params.ctxPayload,
+      groupResolution: params.record?.groupResolution,
+      createIfMissing: params.record?.createIfMissing,
+      updateLastRoute: params.record?.updateLastRoute,
+      onRecordError: params.record?.onRecordError ?? (() => {}),
+      trackSessionMetaTask: params.record?.trackSessionMetaTask,
+    });
+  } catch (err) {
+    try {
+      await params.onPreDispatchFailure?.(err);
+    } catch {
+      // Preserve the original record failure.
+    }
+    throw err;
+  }
+
+  const dispatchResult =
+    admission.kind === "observeOnly"
+      ? (params.observeOnlyDispatchResult ?? {
+          queuedFinal: false,
+          counts: EMPTY_CHANNEL_TURN_DISPATCH_COUNTS,
+        })
+      : await params.runDispatch();
+
+  return {
+    admission,
+    dispatched: true,
+    ctxPayload: params.ctxPayload,
+    routeSessionKey: params.routeSessionKey,
+    dispatchResult,
+  };
+}
+
+async function dispatchAssembledChannelTurn(params: any): Promise<any> {
+  return runPreparedChannelTurn({
+    channel: params.channel,
+    accountId: params.accountId,
+    routeSessionKey: params.routeSessionKey,
+    storePath: params.storePath,
+    ctxPayload: params.ctxPayload,
+    recordInboundSession: params.recordInboundSession,
+    record: params.record,
+    history: params.history,
+    admission: params.admission,
+    log: params.log,
+    messageId: params.messageId,
+    runDispatch: async () =>
+      params.dispatchReplyWithBufferedBlockDispatcher({
+        ctx: params.ctxPayload,
+        cfg: params.cfg,
+        dispatcherOptions: {
+          ...params.dispatcherOptions,
+          deliver: async (payload: unknown, info: unknown) => {
+            await params.delivery.deliver(payload, info);
+          },
+          onError: params.delivery.onError,
+        },
+        replyOptions: params.replyOptions,
+        replyResolver: params.replyResolver,
+      }),
+  });
+}
+
+async function runChannelTurn(params: any): Promise<any> {
+  const input = await params.adapter.ingest(params.raw);
+  if (!input) {
+    return {
+      admission: { kind: "drop", reason: "ingest-null" },
+      dispatched: false,
+    };
+  }
+
+  const eventClass =
+    (await params.adapter.classify?.(input)) ?? DEFAULT_CHANNEL_EVENT_CLASS;
+  if (!eventClass.canStartAgentTurn) {
+    return {
+      admission: { kind: "handled", reason: `event:${eventClass.kind}` },
+      dispatched: false,
+    };
+  }
+
+  const preflight = normalizeChannelTurnPreflight(
+    await params.adapter.preflight?.(input, eventClass),
+  );
+  const preflightAdmission = preflight.admission as
+    | { kind: string; reason?: string }
+    | undefined;
+  if (
+    preflightAdmission &&
+    preflightAdmission.kind !== "dispatch" &&
+    preflightAdmission.kind !== "observeOnly"
+  ) {
+    return { admission: preflightAdmission, dispatched: false };
+  }
+
+  const resolved = await params.adapter.resolveTurn(
+    input,
+    eventClass,
+    preflight,
+  );
+  const admission = resolved.admission ??
+    preflightAdmission ?? { kind: "dispatch" };
+
+  let result;
+  try {
+    result = {
+      ...(isPreparedChannelTurn(resolved)
+        ? await runPreparedChannelTurn({ ...resolved, admission })
+        : await dispatchAssembledChannelTurn({
+            ...resolved,
+            admission,
+            delivery:
+              admission.kind === "observeOnly"
+                ? { deliver: async () => ({ visibleReplySent: false }) }
+                : resolved.delivery,
+          })),
+      admission,
+    };
+  } catch (err) {
+    try {
+      await params.adapter.onFinalize?.({
+        admission,
+        dispatched: false,
+        ctxPayload: resolved.ctxPayload,
+        routeSessionKey: resolved.routeSessionKey,
+      });
+    } catch {
+      // Preserve the dispatch failure.
+    }
+    throw err;
+  }
+
+  await params.adapter.onFinalize?.(result);
+  return result;
+}
+
+async function runResolvedChannelTurn(params: any): Promise<any> {
+  return runChannelTurn({
+    channel: params.channel,
+    accountId: params.accountId,
+    raw: params.raw,
+    log: params.log,
+    adapter: {
+      ingest: (raw: unknown) =>
+        typeof params.input === "function" ? params.input(raw) : params.input,
+      resolveTurn: params.resolveTurn,
+    },
+  });
+}
+
+function buildChannelTurnContext(params: any): any {
+  return replyDispatchRuntime.finalizeInboundContext({
+    Body: params.message?.body ?? params.message?.rawBody,
+    BodyForAgent: params.message?.bodyForAgent ?? params.message?.rawBody,
+    RawBody: params.message?.rawBody,
+    CommandBody: params.message?.commandBody ?? params.message?.rawBody,
+    BodyForCommands: params.message?.commandBody ?? params.message?.rawBody,
+    From: params.from,
+    To: params.reply?.to,
+    SessionKey:
+      params.route?.dispatchSessionKey ?? params.route?.routeSessionKey,
+    AccountId: params.route?.accountId ?? params.accountId,
+    MessageSid: params.messageId,
+    ChatType: params.conversation?.kind,
+    Provider: params.provider ?? params.channel,
+    Surface: params.surface ?? params.provider ?? params.channel,
+    OriginatingChannel: params.channel,
+    OriginatingTo: params.reply?.originatingTo,
+    ...params.extra,
+  });
+}
+
 /**
  * Build the `channel` surface of a `PluginRuntime`.
  *
@@ -116,6 +326,18 @@ export function buildChannelCompat(
         };
       },
       resolveHumanDelayConfig: () => undefined,
+      settleReplyDispatcher: async (
+        params: Parameters<
+          PluginRuntimeChannel["reply"]["settleReplyDispatcher"]
+        >[0],
+      ) => {
+        params.dispatcher.markComplete();
+        try {
+          await params.dispatcher.waitForIdle();
+        } finally {
+          await params.onSettled?.();
+        }
+      },
       withReplyDispatcher: async <T>(
         params: Parameters<
           PluginRuntimeChannel["reply"]["withReplyDispatcher"]
@@ -231,8 +453,10 @@ export function buildChannelCompat(
         channelInbound.resolveInboundMentionDecision,
     },
     reactions: {
+      createAckReactionHandle: () => null,
       shouldAckReaction: () => false,
-      removeAckReactionAfterReply: async () => {},
+      removeAckReactionAfterReply: () => {},
+      removeAckReactionHandleAfterReply: () => {},
     },
     groups: {
       resolveGroupPolicy: () => ({ allowed: true, allowlistEnabled: true }),
@@ -250,6 +474,13 @@ export function buildChannelCompat(
       shouldHandleTextCommands: () => true,
     },
     outbound: { loadAdapter: async () => undefined },
+    turn: {
+      run: runChannelTurn,
+      runResolved: runResolvedChannelTurn,
+      buildContext: buildChannelTurnContext,
+      runPrepared: runPreparedChannelTurn,
+      dispatchAssembled: dispatchAssembledChannelTurn,
+    },
     threadBindings: {
       setIdleTimeoutBySessionKey: () => [],
       setMaxAgeBySessionKey: () => [],
@@ -259,5 +490,5 @@ export function buildChannelCompat(
       get: () => undefined,
       watch: () => () => {},
     },
-  } as unknown as PluginRuntimeChannel;
+  } as PluginRuntimeChannel;
 }

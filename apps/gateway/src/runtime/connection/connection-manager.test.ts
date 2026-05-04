@@ -264,6 +264,63 @@ describe("ConnectionManager", () => {
       counts: { tool: 0, block: 0, final: 7 },
     });
   });
+
+  test("OpenClawPluginRuntime supports OpenClaw channel turn dispatch", async () => {
+    const runtime = createRuntime().asPluginRuntime();
+    let recordedSessionKey: string | undefined;
+    let dispatchCalled = false;
+
+    const result = await runtime.channel.turn.run({
+      channel: "feishu",
+      accountId: "default",
+      raw: { messageId: "message-1" },
+      adapter: {
+        ingest: () => ({
+          id: "message-1",
+          rawText: "hello",
+          raw: { messageId: "message-1" },
+        }),
+        resolveTurn: () => ({
+          channel: "feishu",
+          accountId: "default",
+          routeSessionKey: "session-1",
+          storePath: "/tmp/a2a-test-sessions",
+          ctxPayload: {
+            BodyForAgent: "hello",
+            AccountId: "default",
+            SessionKey: "session-1",
+          } as never,
+          recordInboundSession: async ({ sessionKey }) => {
+            recordedSessionKey = sessionKey;
+          },
+          runDispatch: async () => {
+            dispatchCalled = true;
+            return {
+              queuedFinal: false,
+              counts: { tool: 0, block: 0, final: 1 },
+            };
+          },
+        }),
+      },
+    });
+
+    assert.equal(recordedSessionKey, "session-1");
+    assert.equal(dispatchCalled, true);
+    assert.deepEqual(result, {
+      admission: { kind: "dispatch" },
+      dispatched: true,
+      ctxPayload: {
+        BodyForAgent: "hello",
+        AccountId: "default",
+        SessionKey: "session-1",
+      },
+      routeSessionKey: "session-1",
+      dispatchResult: {
+        queuedFinal: false,
+        counts: { tool: 0, block: 0, final: 1 },
+      },
+    });
+  });
 });
 
 function createRuntime(): OpenClawPluginRuntime {

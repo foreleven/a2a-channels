@@ -16,7 +16,7 @@ seed: gateway-db-push
 	DB_PATH="$(or $(DB_PATH),$(default_db_path))" node --env-file-if-exists $(CURDIR)/.env --import tsx/esm scripts/seed-defaults.ts
 
 dev:
-	($(MAKE) gateway & pnpm run echo-agent & pnpm run web & wait)
+	node scripts/dev.mjs
 
 gateway-dev:
 	$(MAKE) gateway-db-push
@@ -33,7 +33,7 @@ web:
 	pnpm --filter @a2a-channels/web dev
 
 start-all:
-	($(MAKE) gateway & pnpm run echo-agent & pnpm run web & wait)
+	node scripts/dev.mjs
 
 test:
 	$(MAKE) gateway-test-db-push

@@ -6,6 +6,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 - All new features and functional changes in this project must default to OOP, EventSource, and clean architecture.
 - When extending existing code, prefer refactoring toward these constraints instead of adding more procedural or tightly coupled logic.
+- Do not use `as unknown as ...` or similar double-cast patterns to bypass TypeScript errors. Fix the underlying types, narrow values with proper type guards, update interfaces, or add typed adapters so the compiler verifies the behavior instead of being silenced.
 
 ## Commands
 
@@ -13,7 +14,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - Start the gateway server: `npm run gateway` or `pnpm gateway` (serves API on port 7890 by default)
 - Start the example echo agent: `npm run echo-agent` or `pnpm echo-agent` (port 3001)
 - Start the Next.js admin UI: `npm run web` or `pnpm web` (port 3000)
-- Start the gateway in default dev mode: `npm run dev` or `pnpm dev`
+- Start the full local dev stack with ordered gateway readiness: `npm run dev`, `pnpm dev`, or `make dev`
 - Type-check the non-web TypeScript project: `npm run typecheck` or `pnpm typecheck`
 - Type-check the admin UI: `cd apps/web && npx tsc --noEmit`
 - Run the gateway store test: `npm test` or `pnpm test`
