@@ -6,7 +6,7 @@ remote agent servers.
 It hosts OpenClaw channel plugins, keeps channel account connections running,
 routes inbound messages to a configured agent, and sends the agent response back
 through the original channel. The current runtime supports A2A JSON-RPC agents
-and ACP REST agents.
+and ACP agents over REST or stdio.
 
 ```text
 Messaging platform
@@ -16,7 +16,7 @@ Messaging platform
           v
       AgentRelay gateway
           |
-          | A2A JSON-RPC or ACP REST
+          | A2A JSON-RPC or ACP REST/stdio
           v
        Agent server
 ```
@@ -42,7 +42,7 @@ OpenClaw plugins; agent-specific behavior stays behind transport adapters.
 - Runtime lifecycle orchestration for starting, restarting, and stopping channel
   connections
 - Local single-node runtime mode and Redis-backed cluster mode
-- A2A and ACP agent transport adapters
+- A2A and ACP transport adapters
 - Next.js admin UI
 - Minimal A2A echo agent for local testing
 
@@ -69,7 +69,7 @@ Aliases are normalized at the gateway boundary. For example, `lark` maps to
 1. A channel provider delivers an inbound message through an OpenClaw plugin.
 2. AgentRelay receives the plugin runtime reply event.
 3. The runtime resolves the enabled channel binding for that channel/account.
-4. The binding points to an agent config with a URL and protocol.
+4. The binding points to an agent config with a protocol-specific config.
 5. The agent transport sends the message to the remote agent.
 6. The first text response is sent back through the same channel plugin.
 
@@ -188,14 +188,16 @@ Example:
 ```json
 {
   "name": "Echo Agent",
-  "url": "http://localhost:3001",
   "protocol": "a2a",
+  "config": {
+    "url": "http://localhost:3001"
+  },
   "description": "Local test agent"
 }
 ```
 
 Supported protocols are registered through transport adapters. The current
-gateway binds `a2a` and `acp`; unknown protocols fall back to `a2a`.
+gateway binds `a2a` and `acp`.
 
 ### Channels
 
@@ -244,7 +246,7 @@ plugin when the account starts.
 ### A2A
 
 For `protocol: "a2a"`, AgentRelay uses the A2A SDK client to discover the agent
-from its configured URL and sends a `message/send` JSON-RPC request. The echo
+from `config.url` and sends a `message/send` JSON-RPC request. The echo
 agent in `apps/echo-agent` exposes:
 
 | Method | Path | Description |
@@ -255,9 +257,35 @@ agent in `apps/echo-agent` exposes:
 
 ### ACP
 
-For `protocol: "acp"`, AgentRelay posts to `{agentUrl}/runs`, polls
-`{agentUrl}/runs/{run_id}` until the run reaches a terminal state, and returns
-the first text output part.
+For `protocol: "acp"` with `{ "transport": "rest", "url": "..." }`,
+AgentRelay posts to `{config.url}/runs`, polls `{config.url}/runs/{run_id}`
+until the run reaches a terminal state, and returns the first text output part.
+
+For `protocol: "acp"` with `{ "transport": "stdio" }`, AgentRelay starts the
+configured command as a local stdio process and talks to it with the Agent
+Client Protocol. This is intended for adapters such as Zed Codex ACP:
+
+```json
+{
+  "name": "Codex",
+  "protocol": "acp",
+  "config": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["@zed-industries/codex-acp"]
+  },
+  "description": "Local Codex ACP adapter over ACP stdio"
+}
+```
+
+Install `codex-acp` from a release or use the npm command above. The process
+inherits the gateway environment, so provide `OPENAI_API_KEY`,
+`CODEX_API_KEY`, or an authenticated Codex setup before routing messages to it.
+`config.cwd` controls the ACP session working directory and defaults to
+`CODEX_ACP_CWD` or the gateway process directory. Tool permission requests are
+rejected by default; set `config.permission` or `CODEX_ACP_PERMISSION` to
+`allow_once` only when the gateway process is allowed to grant tool execution
+for inbound channel messages.
 
 ## Development Commands
 

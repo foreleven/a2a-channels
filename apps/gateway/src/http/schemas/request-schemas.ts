@@ -9,6 +9,58 @@ import type {
 import { z } from "../utils/schema.js";
 
 const nonEmptyString = z.string().min(1);
+const agentProtocolSchema = z.enum(["a2a", "acp"]);
+const acpPermissionSchema = z.enum([
+  "allow_once",
+  "allow_always",
+  "reject_once",
+  "reject_always",
+]);
+const a2aAgentConfigSchema = z.object({
+  url: nonEmptyString,
+}).strict();
+const acpRestAgentConfigSchema = z.object({
+  transport: z.literal("rest"),
+  url: nonEmptyString,
+}).strict();
+const acpStdioAgentConfigSchema = z.object({
+  transport: z.literal("stdio"),
+  command: nonEmptyString,
+  args: z.array(z.string()).optional(),
+  cwd: z.string().optional(),
+  permission: acpPermissionSchema.optional(),
+  timeoutMs: z.number().int().positive().optional(),
+}).strict();
+const agentConfigSchema = z.union([
+  acpRestAgentConfigSchema,
+  acpStdioAgentConfigSchema,
+  a2aAgentConfigSchema,
+]);
+
+function validateAgentProtocolConfig(
+  data: { protocol?: "a2a" | "acp"; config?: unknown },
+  ctx: z.RefinementCtx,
+): void {
+  if (!data.protocol || !data.config || typeof data.config !== "object") {
+    return;
+  }
+
+  const config = data.config as { transport?: unknown };
+  if (data.protocol === "a2a" && config.transport !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["config"],
+      message: "A2A agent config must contain only protocol-specific URL fields",
+    });
+  }
+  if (data.protocol === "acp" && config.transport === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["config"],
+      message: "ACP agent config requires transport",
+    });
+  }
+}
 
 /**
  * HTTP request schemas are owned by the transport layer.
@@ -47,16 +99,20 @@ export const waitForChannelQrLoginBodySchema = z.object({
   timeoutMs: z.number().int().positive().max(480_000).optional(),
 });
 
-export const registerAgentBodySchema: z.ZodType<RegisterAgentData> = z.object({
-  name: nonEmptyString,
-  url: nonEmptyString,
-  protocol: z.string().default("a2a"),
-  description: z.string().optional(),
-});
+export const registerAgentBodySchema: z.ZodType<RegisterAgentData> = z
+  .object({
+    name: nonEmptyString,
+    protocol: agentProtocolSchema.default("a2a"),
+    config: agentConfigSchema,
+    description: z.string().optional(),
+  })
+  .superRefine(validateAgentProtocolConfig);
 
-export const updateAgentBodySchema: z.ZodType<UpdateAgentData> = z.object({
-  name: z.string().optional(),
-  url: z.string().optional(),
-  protocol: z.string().optional(),
-  description: z.string().optional(),
-});
+export const updateAgentBodySchema: z.ZodType<UpdateAgentData> = z
+  .object({
+    name: z.string().optional(),
+    protocol: agentProtocolSchema.optional(),
+    config: agentConfigSchema.optional(),
+    description: z.string().optional(),
+  })
+  .superRefine(validateAgentProtocolConfig);

@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { inject, injectable } from "inversify";
 
-import type { UpdateAgentData } from "../../application/agent-service.js";
 import {
   AgentService,
+  InvalidAgentConfigError,
   ReferencedAgentError,
 } from "../../application/agent-service.js";
 import { parseJsonBody } from "../utils/schema.js";
@@ -39,10 +39,17 @@ export class AgentRoutes {
         return parsed.response;
       }
 
-      // Default protocol selection is an API concern; deeper routing and
-      // transport behavior remains encapsulated behind the runtime layer.
-      const agent = await this.agentService.register(parsed.data);
-      return c.json(agent, 201);
+      try {
+        // Default protocol selection is an API concern; deeper routing and
+        // transport behavior remains encapsulated behind the runtime layer.
+        const agent = await this.agentService.register(parsed.data);
+        return c.json(agent, 201);
+      } catch (err) {
+        if (err instanceof InvalidAgentConfigError) {
+          return c.json({ error: err.message }, 400);
+        }
+        throw err;
+      }
     });
 
     app.patch("/api/agents/:id", async (c) => {
@@ -52,14 +59,18 @@ export class AgentRoutes {
         return parsed.response;
       }
 
-      const updated = await this.agentService.update(
-        id,
-        parsed.data as UpdateAgentData,
-      );
-      if (!updated) {
-        return c.json({ error: `Agent ${id} not found` }, 404);
+      try {
+        const updated = await this.agentService.update(id, parsed.data);
+        if (!updated) {
+          return c.json({ error: `Agent ${id} not found` }, 404);
+        }
+        return c.json(updated);
+      } catch (err) {
+        if (err instanceof InvalidAgentConfigError) {
+          return c.json({ error: err.message }, 400);
+        }
+        throw err;
       }
-      return c.json(updated);
     });
 
     app.delete("/api/agents/:id", async (c) => {

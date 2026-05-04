@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bot, Pencil, Plus, Trash2 } from "lucide-react";
 
-import type { AgentConfig } from "@/lib/api";
+import type {
+  AgentConfig,
+  AgentProtocol,
+  AgentProtocolConfig,
+} from "@/lib/api";
 import {
   createAgent,
   deleteAgent,
@@ -28,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -38,8 +43,29 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 
-const EMPTY_FORM = { name: "", url: "", description: "" };
-type FormState = typeof EMPTY_FORM;
+const DEFAULT_PROTOCOL: AgentProtocol = "a2a";
+type FormState = {
+  name: string;
+  url: string;
+  protocol: AgentProtocol;
+  transport: "rest" | "stdio";
+  command: string;
+  args: string;
+  description: string;
+};
+const EMPTY_FORM: FormState = {
+  name: "",
+  url: "",
+  protocol: DEFAULT_PROTOCOL,
+  transport: "rest",
+  command: "",
+  args: "",
+  description: "",
+};
+const SUPPORTED_PROTOCOLS = [
+  { value: "a2a", label: "A2A JSON-RPC" },
+  { value: "acp", label: "ACP" },
+];
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
@@ -68,7 +94,7 @@ export default function AgentsPage() {
 
   function openNew() {
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, protocol: DEFAULT_PROTOCOL });
     setShowForm(true);
   }
 
@@ -76,7 +102,11 @@ export default function AgentsPage() {
     setEditingId(agent.id);
     setForm({
       name: agent.name,
-      url: agent.url,
+      url: getConfigUrl(agent.config),
+      protocol: agent.protocol,
+      transport: getConfigTransport(agent.config),
+      command: getConfigCommand(agent.config),
+      args: getConfigArgs(agent.config),
       description: agent.description ?? "",
     });
     setShowForm(true);
@@ -85,9 +115,11 @@ export default function AgentsPage() {
   async function handleSave() {
     setSaving(true);
     try {
+      const config = buildAgentConfig(form);
       const payload = {
         name: form.name,
-        url: form.url,
+        protocol: form.protocol,
+        config,
         description: form.description || undefined,
       };
       if (editingId) {
@@ -120,7 +152,7 @@ export default function AgentsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-normal">Agents</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Register A2A-compatible targets that channel bindings can route to.
+            Register agent targets that channel bindings can route to.
           </p>
         </div>
         <Button onClick={openNew}>
@@ -159,7 +191,8 @@ export default function AgentsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>URL</TableHead>
+                  <TableHead>Protocol</TableHead>
+                  <TableHead>Target</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="w-28 text-right">Actions</TableHead>
                 </TableRow>
@@ -168,8 +201,16 @@ export default function AgentsPage() {
                 {agents.map((agent) => (
                   <TableRow key={agent.id}>
                     <TableCell className="font-medium">{agent.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">
+                        {agent.protocol}
+                        {getConfigTransportLabel(agent.config)
+                          ? `:${getConfigTransportLabel(agent.config)}`
+                          : ""}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="max-w-sm truncate font-mono text-xs text-muted-foreground">
-                      {agent.url}
+                      {describeAgentTarget(agent)}
                     </TableCell>
                     <TableCell className="max-w-xs truncate text-muted-foreground">
                       {agent.description ?? "-"}
@@ -207,7 +248,7 @@ export default function AgentsPage() {
           <DialogHeader>
             <DialogTitle>{editingId ? "Edit Agent" : "New Agent"}</DialogTitle>
             <DialogDescription>
-              Configure the JSON-RPC endpoint used by the gateway transport.
+              Configure the target used by the gateway transport.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -220,15 +261,72 @@ export default function AgentsPage() {
                 placeholder="Echo Agent"
               />
             </Field>
-            <Field label="URL">
-              <Input
-                value={form.url}
+            <Field label="Protocol">
+              <Select
+                value={form.protocol}
                 onChange={(event) =>
-                  setForm({ ...form, url: event.target.value })
+                  setForm({
+                    ...form,
+                    protocol: parseAgentProtocol(event.target.value),
+                  })
                 }
-                placeholder="http://localhost:3001"
-              />
+              >
+                {SUPPORTED_PROTOCOLS.map((protocol) => (
+                  <option key={protocol.value} value={protocol.value}>
+                    {protocol.label}
+                  </option>
+                ))}
+              </Select>
             </Field>
+            {form.protocol === "acp" && (
+              <Field label="Transport">
+                <Select
+                  value={form.transport}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      transport: parseAgentTransport(event.target.value),
+                    })
+                  }
+                >
+                  <option value="rest">REST</option>
+                  <option value="stdio">stdio</option>
+                </Select>
+              </Field>
+            )}
+            {(form.protocol !== "acp" || form.transport !== "stdio") && (
+              <Field label="URL">
+                <Input
+                  value={form.url}
+                  onChange={(event) =>
+                    setForm({ ...form, url: event.target.value })
+                  }
+                  placeholder="http://localhost:3001"
+                />
+              </Field>
+            )}
+            {form.protocol === "acp" && form.transport === "stdio" && (
+              <>
+                <Field label="Command">
+                  <Input
+                    value={form.command}
+                    onChange={(event) =>
+                      setForm({ ...form, command: event.target.value })
+                    }
+                    placeholder="npx"
+                  />
+                </Field>
+                <Field label="Args">
+                  <Input
+                    value={form.args}
+                    onChange={(event) =>
+                      setForm({ ...form, args: event.target.value })
+                    }
+                    placeholder="@zed-industries/codex-acp"
+                  />
+                </Field>
+              </>
+            )}
             <Field label="Description">
               <Textarea
                 rows={3}
@@ -243,7 +341,7 @@ export default function AgentsPage() {
             <Button variant="outline" onClick={() => setShowForm(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={saving}>
+            <Button onClick={handleSave} disabled={saving || !canSave(form)}>
               {saving ? "Saving..." : "Save"}
             </Button>
           </div>
@@ -280,4 +378,77 @@ function EmptyState() {
       </p>
     </div>
   );
+}
+
+function buildAgentConfig(form: FormState): AgentProtocolConfig {
+  if (form.protocol === "a2a") return { url: form.url };
+  if (form.transport === "stdio") {
+    return {
+      transport: "stdio",
+      command: form.command,
+      args: splitArgs(form.args),
+    };
+  }
+
+  return { transport: "rest", url: form.url };
+}
+
+function canSave(form: FormState): boolean {
+  if (!form.name.trim()) return false;
+  if (form.protocol === "acp" && form.transport === "stdio") {
+    return Boolean(form.command.trim());
+  }
+
+  return Boolean(form.url.trim());
+}
+
+function describeAgentTarget(agent: AgentConfig): string {
+  const config = agent.config;
+  if ("transport" in config && config.transport === "stdio") {
+    return buildCommandLine(config.command, getConfigArgs(config));
+  }
+  return config.url;
+}
+
+function getConfigUrl(config: AgentProtocolConfig): string {
+  return "url" in config ? config.url : "";
+}
+
+function getConfigTransport(config: AgentProtocolConfig): "rest" | "stdio" {
+  return "transport" in config ? config.transport : "rest";
+}
+
+function getConfigTransportLabel(config: AgentProtocolConfig): string {
+  return "transport" in config ? config.transport : "";
+}
+
+function getConfigCommand(config: AgentProtocolConfig): string {
+  return "transport" in config && config.transport === "stdio"
+    ? config.command
+    : "";
+}
+
+function getConfigArgs(config: AgentProtocolConfig): string {
+  return "transport" in config && config.transport === "stdio"
+    ? (config.args ?? []).join(" ")
+    : "";
+}
+
+function splitArgs(value: string): string[] {
+  return value
+    .split(" ")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function buildCommandLine(command: string, args: string): string {
+  return [command, args].filter(Boolean).join(" ").trim();
+}
+
+function parseAgentProtocol(value: string): AgentProtocol {
+  return value === "acp" ? "acp" : "a2a";
+}
+
+function parseAgentTransport(value: string): "rest" | "stdio" {
+  return value === "stdio" ? "stdio" : "rest";
 }

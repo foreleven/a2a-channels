@@ -5,9 +5,9 @@
  * Reference: https://agentcommunicationprotocol.dev/
  *
  * The transport:
- *   1. POST {agentUrl}/runs  – create a run synchronously
+ *   1. POST {config.url}/runs  – create a run synchronously
  *   2. If the run is still in-progress (status "created" | "running"),
- *      poll GET {agentUrl}/runs/{run_id} until it reaches a terminal state.
+ *      poll GET {config.url}/runs/{run_id} until it reaches a terminal state.
  *   3. Extract the first text part from the agent's output.
  *
  * The transport is stateless; a single instance can be shared across all
@@ -15,10 +15,16 @@
  */
 
 import type {
+  ACPAgentConfig,
+  ACPRestAgentConfig,
+  ACPStdioAgentConfig,
+  AgentProtocolConfig,
   AgentRequest,
   AgentResponse,
   AgentTransport,
+  AgentTransportFactory,
 } from "./transport.js";
+import { ACPStdioClient } from "./acp-stdio.js";
 
 // ---------------------------------------------------------------------------
 // ACP wire types (minimal subset we actually use)
@@ -75,12 +81,59 @@ const MAX_POLLS = 60;
 // ---------------------------------------------------------------------------
 
 /** Agent transport adapter for ACP-compatible agents. */
-export class ACPTransport implements AgentTransport {
+export class ACPTransport implements AgentTransportFactory {
   readonly protocol = "acp";
 
-  async send(agentUrl: string, request: AgentRequest): Promise<AgentResponse> {
+  create(config: AgentProtocolConfig): AgentTransport {
+    if (!isACPAgentConfig(config)) {
+      throw new Error("ACP transport requires config.transport");
+    }
+
+    if (config.transport === "stdio") {
+      return new ACPStdioTransport(config);
+    }
+
+    return new ACPRestTransport(config);
+  }
+}
+
+function isACPAgentConfig(config: AgentProtocolConfig): config is ACPAgentConfig {
+  return "transport" in config;
+}
+
+class ACPStdioTransport implements AgentTransport {
+  readonly protocol = "acp";
+  readonly displayTarget: string;
+  private readonly stdio = new ACPStdioClient();
+
+  constructor(private readonly config: ACPStdioAgentConfig) {
+    this.displayTarget = [config.command, ...(config.args ?? [])].join(" ");
+  }
+
+  send(request: AgentRequest): Promise<AgentResponse> {
+    return this.stdio.send(request, this.config);
+  }
+
+  start(): Promise<void> {
+    return this.stdio.start(this.config);
+  }
+
+  stop(): Promise<void> {
+    return this.stdio.stop(this.config);
+  }
+}
+
+class ACPRestTransport implements AgentTransport {
+  readonly protocol = "acp";
+  readonly displayTarget: string;
+
+  constructor(private readonly config: ACPRestAgentConfig) {
+    this.displayTarget = config.url;
+  }
+
+  async send(request: AgentRequest): Promise<AgentResponse> {
     // Normalise base URL: strip trailing slashes (avoid regex to prevent ReDoS)
-    let base = agentUrl;
+    let base = this.config.url;
     while (base.endsWith("/")) base = base.slice(0, -1);
     const runsUrl = `${base}/runs`;
 

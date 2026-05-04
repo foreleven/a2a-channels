@@ -37,8 +37,8 @@ describe("GatewayApp", () => {
         {
           id: "agent-1",
           name: "Echo",
-          url: "http://localhost:3001",
           protocol: "a2a",
+          config: { url: "http://localhost:3001" },
           createdAt: "2026-04-21T00:00:00.000Z",
         },
       ],
@@ -47,23 +47,23 @@ describe("GatewayApp", () => {
           ? {
               id: "agent-1",
               name: "Echo",
-              url: "http://localhost:3001",
               protocol: "a2a",
+              config: { url: "http://localhost:3001" },
               createdAt: "2026-04-21T00:00:00.000Z",
             }
           : null,
       register: async (): Promise<AgentConfigSnapshot> => ({
         id: "agent-2",
         name: "Echo 2",
-        url: "http://localhost:3002",
         protocol: "a2a",
+        config: { url: "http://localhost:3002" },
         createdAt: "2026-04-21T00:00:00.000Z",
       }),
       update: async (): Promise<AgentConfigSnapshot> => ({
         id: "agent-1",
         name: "Echo",
-        url: "http://localhost:3001",
         protocol: "a2a",
+        config: { url: "http://localhost:3001" },
         createdAt: "2026-04-21T00:00:00.000Z",
       }),
       delete: async () => true,
@@ -123,8 +123,8 @@ describe("GatewayApp", () => {
       {
         id: "agent-1",
         name: "Echo",
-        url: "http://localhost:3001",
         protocol: "a2a",
+        config: { url: "http://localhost:3001" },
         createdAt: "2026-04-21T00:00:00.000Z",
       },
     ]);
@@ -185,8 +185,8 @@ describe("GatewayApp", () => {
       register: async (): Promise<AgentConfigSnapshot> => ({
         id: "agent-1",
         name: "Echo",
-        url: "http://localhost:3001",
         protocol: "a2a",
+        config: { url: "http://localhost:3001" },
         createdAt: "2026-04-21T00:00:00.000Z",
       }),
       update: async () => null,
@@ -216,8 +216,8 @@ describe("GatewayApp", () => {
       error: "Invalid request body",
       issues: [
         {
-          path: "url",
-          message: "Invalid input: expected string, received undefined",
+          path: "config",
+          message: "Invalid input",
         },
       ],
     });
@@ -253,7 +253,7 @@ describe("GatewayApp", () => {
       issues: [
         {
           path: "protocol",
-          message: "Invalid input: expected string, received number",
+          message: 'Invalid option: expected one of "a2a"|"acp"',
         },
       ],
     });

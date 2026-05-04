@@ -31,8 +31,8 @@ export class Connection {
 
   constructor(private readonly options: ConnectionOptions) {}
 
-  get agentUrl(): string {
-    return this.options.agentClient.agentUrl;
+  get agentTarget(): string {
+    return this.options.agentClient.displayTarget;
   }
 
   get binding(): ChannelBinding {
@@ -48,7 +48,7 @@ export class Connection {
     this.options.callbacks?.onConnectionStatus?.({
       binding: this.binding,
       status: "connecting",
-      agentUrl: this.agentUrl,
+      agentUrl: this.agentTarget,
     });
 
     this.promise = Promise.resolve()
@@ -65,7 +65,7 @@ export class Connection {
         this.options.callbacks?.onConnectionStatus?.({
           binding: this.binding,
           status: "disconnected",
-          agentUrl: this.agentUrl,
+          agentUrl: this.agentTarget,
         });
       })
       .catch((err: unknown) => {
@@ -77,7 +77,7 @@ export class Connection {
           this.options.callbacks?.onConnectionStatus?.({
             binding: this.binding,
             status: "disconnected",
-            agentUrl: this.agentUrl,
+            agentUrl: this.agentTarget,
           });
           return;
         }
@@ -85,7 +85,7 @@ export class Connection {
         this.options.callbacks?.onConnectionStatus?.({
           binding: this.binding,
           status: "error",
-          agentUrl: this.agentUrl,
+          agentUrl: this.agentTarget,
           error: err,
         });
         console.error(
@@ -151,7 +151,7 @@ export class Connection {
     } catch (error) {
       this.options.callbacks?.onAgentCallFailed?.({
         binding: this.binding,
-        agentUrl: this.agentUrl,
+        agentUrl: this.agentTarget,
         error,
       });
       result = { text: "(agent temporarily unavailable)" };
@@ -160,7 +160,7 @@ export class Connection {
     if (result) {
       this.options.callbacks?.emitMessageOutbound?.({
         accountId,
-        agentUrl: this.agentUrl,
+        agentUrl: this.agentTarget,
         channelType,
         sessionKey,
         replyText: result.text,
@@ -191,7 +191,7 @@ export class Connection {
     this.options.callbacks?.onConnectionStatus?.({
       binding: this.binding,
       status: "connected",
-      agentUrl: this.agentUrl,
+      agentUrl: this.agentTarget,
     });
   }
 }

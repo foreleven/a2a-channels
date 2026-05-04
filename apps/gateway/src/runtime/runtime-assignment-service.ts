@@ -217,8 +217,8 @@ export class RuntimeAssignmentService {
     const previousAgent = this.agentRegistry.getAgent(agent.id);
     return (
       !previousAgent ||
-      previousAgent.url !== agent.url ||
-      previousAgent.protocol !== agent.protocol
+      previousAgent.protocol !== agent.protocol ||
+      JSON.stringify(previousAgent.config) !== JSON.stringify(agent.config)
     );
   }
 

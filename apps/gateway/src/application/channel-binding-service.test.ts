@@ -15,7 +15,8 @@ import type { AccountIdGenerator } from "./account-id-generator.js";
 const agent = AgentConfigAggregate.register({
   id: "agent-1",
   name: "Echo",
-  url: "http://localhost:3001",
+  protocol: "a2a",
+  config: { url: "http://localhost:3001" },
 });
 
 const eventBus: RuntimeEventBus = {
@@ -46,7 +47,6 @@ describe("ChannelBindingService", () => {
     };
     const agentRepo: AgentConfigRepository = {
       findById: async (id) => (id === agent.id ? agent : null),
-      findByUrl: async () => null,
       findAll: async () => [agent.snapshot()],
       save: async () => {},
     };

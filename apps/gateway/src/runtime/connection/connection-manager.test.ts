@@ -1,7 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { AgentClient, type AgentTransport } from "@a2a-channels/agent-transport";
+import {
+  AgentClient,
+  type AgentRequest,
+  type AgentTransport,
+} from "@a2a-channels/agent-transport";
 import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import { OpenClawPluginRuntime } from "@a2a-channels/openclaw-compat";
 
@@ -18,19 +22,29 @@ const binding: ChannelBindingSnapshot = {
   createdAt: new Date().toISOString(),
 };
 
+function createAgentClient(
+  displayTarget: string,
+  send: (request: AgentRequest) => Promise<{ text: string }> = async () => ({
+    text: "ok",
+  }),
+): AgentClient {
+  const transport: AgentTransport = {
+    protocol: "a2a",
+    displayTarget,
+    send,
+  };
+  return new AgentClient({
+    displayTarget,
+    protocol: "a2a",
+    transport,
+  });
+}
+
 describe("Connection", () => {
   test("marks connected when a channel binding reports a generic status update", async () => {
     const statuses: string[] = [];
-    const transport: AgentTransport = {
-      protocol: "a2a",
-      send: async () => ({ text: "ok" }),
-    };
     const connection = new Connection({
-      agentClient: new AgentClient({
-        agentUrl: "http://agent-1",
-        protocol: "a2a",
-        transport,
-      }),
+      agentClient: createAgentClient("http://agent-1"),
       binding,
       callbacks: {
         onConnectionStatus: (event) => statuses.push(event.status),
@@ -60,18 +74,10 @@ describe("Connection", () => {
 
   test("handles inbound messages when called directly", async () => {
     const sentMessages: string[] = [];
-    const transport: AgentTransport = {
-      protocol: "a2a",
-      send: async (_agentUrl, request) => {
+    const connection = new Connection({
+      agentClient: createAgentClient("http://agent-1", async (request) => {
         sentMessages.push(request.userMessage);
         return { text: `echo: ${request.userMessage}` };
-      },
-    };
-    const connection = new Connection({
-      agentClient: new AgentClient({
-        agentUrl: "http://agent-1",
-        protocol: "a2a",
-        transport,
       }),
       binding,
     });
@@ -99,18 +105,10 @@ describe("Connection", () => {
 
   test("matches channel account across channel type aliases", async () => {
     const sentMessages: string[] = [];
-    const transport: AgentTransport = {
-      protocol: "a2a",
-      send: async (_agentUrl, request) => {
+    const connection = new Connection({
+      agentClient: createAgentClient("http://agent-1", async (request) => {
         sentMessages.push(request.userMessage);
         return { text: `echo: ${request.userMessage}` };
-      },
-    };
-    const connection = new Connection({
-      agentClient: new AgentClient({
-        agentUrl: "http://agent-1",
-        protocol: "a2a",
-        transport,
       }),
       binding: {
         ...binding,
@@ -148,21 +146,17 @@ describe("ConnectionManager", () => {
 
   test("routes runtime reply events to its matching connection", async () => {
     const sentMessages: string[] = [];
-    const transport: AgentTransport = {
-      protocol: "a2a",
-      send: async (_agentUrl, request) => {
+    const agentClient = createAgentClient(
+      "http://agent-1",
+      async (request) => {
         sentMessages.push(request.userMessage);
         return { text: `echo: ${request.userMessage}` };
       },
-    };
+    );
     const runtime = createRuntime();
     const manager = new ConnectionManager(null as never, runtime, null as never);
     const connection = new Connection({
-      agentClient: new AgentClient({
-        agentUrl: "http://agent-1",
-        protocol: "a2a",
-        transport,
-      }),
+      agentClient,
       binding,
     });
 
@@ -190,29 +184,21 @@ describe("ConnectionManager", () => {
 
   test("routes by channel account without probing unrelated connections", async () => {
     const sentMessages: string[] = [];
-    const transport: AgentTransport = {
-      protocol: "a2a",
-      send: async (_agentUrl, request) => {
+    const agentClient = createAgentClient(
+      "http://agent-1",
+      async (request) => {
         sentMessages.push(request.userMessage);
         return { text: `echo: ${request.userMessage}` };
       },
-    };
+    );
     const runtime = createRuntime();
     const manager = new ConnectionManager(null as never, runtime, null as never);
     const matchingConnection = new Connection({
-      agentClient: new AgentClient({
-        agentUrl: "http://agent-1",
-        protocol: "a2a",
-        transport,
-      }),
+      agentClient,
       binding,
     });
     const unrelatedConnection = new Connection({
-      agentClient: new AgentClient({
-        agentUrl: "http://agent-2",
-        protocol: "a2a",
-        transport,
-      }),
+      agentClient: createAgentClient("http://agent-2"),
       binding: {
         ...binding,
         id: "binding-2",
@@ -248,21 +234,17 @@ describe("ConnectionManager", () => {
 
   test("routes runtime reply events across channel type aliases", async () => {
     const sentMessages: string[] = [];
-    const transport: AgentTransport = {
-      protocol: "a2a",
-      send: async (_agentUrl, request) => {
+    const agentClient = createAgentClient(
+      "http://agent-1",
+      async (request) => {
         sentMessages.push(request.userMessage);
         return { text: `echo: ${request.userMessage}` };
       },
-    };
+    );
     const runtime = createRuntime();
     const manager = new ConnectionManager(null as never, runtime, null as never);
     const connection = new Connection({
-      agentClient: new AgentClient({
-        agentUrl: "http://agent-1",
-        protocol: "a2a",
-        transport,
-      }),
+      agentClient,
       binding: {
         ...binding,
         channelType: "wechat",

@@ -1,4 +1,10 @@
-import type { AgentConfigRepository, AgentConfigSnapshot } from "@a2a-channels/domain";
+import type {
+  ACPAgentConfig,
+  AgentConfigRepository,
+  AgentConfigSnapshot,
+  AgentProtocol,
+  AgentProtocolConfig,
+} from "@a2a-channels/domain";
 import { AgentConfigAggregate } from "@a2a-channels/domain";
 import { injectable } from "inversify";
 
@@ -7,16 +13,16 @@ import { prisma } from "../store/prisma.js";
 function mapPrismaRowToSnapshot(row: {
   id: string;
   name: string;
-  url: string;
   protocol: string;
+  config: string;
   description: string | null;
   createdAt: Date;
 }): AgentConfigSnapshot {
   return {
     id: row.id,
     name: row.name,
-    url: row.url,
-    protocol: row.protocol,
+    protocol: parseAgentProtocol(row.protocol),
+    config: parseAgentConfig(row.protocol, row.config),
     description: row.description ?? undefined,
     createdAt: row.createdAt.toISOString(),
   };
@@ -29,14 +35,6 @@ export class AgentConfigStateRepository implements AgentConfigRepository {
     const row = await prisma.agent.findUnique({ where: { id } });
     if (!row) return null;
     return AgentConfigAggregate.fromSnapshot(mapPrismaRowToSnapshot(row));
-  }
-
-  async findByUrl(url: string): Promise<AgentConfigSnapshot | null> {
-    const row = await prisma.agent.findFirst({
-      where: { url },
-      orderBy: { createdAt: "asc" },
-    });
-    return row ? mapPrismaRowToSnapshot(row) : null;
   }
 
   async findAll(): Promise<AgentConfigSnapshot[]> {
@@ -60,15 +58,15 @@ export class AgentConfigStateRepository implements AgentConfigRepository {
           create: {
             id: snapshot.id,
             name: snapshot.name,
-            url: snapshot.url,
-            protocol: snapshot.protocol ?? "a2a",
+            protocol: snapshot.protocol,
+            config: JSON.stringify(snapshot.config),
             description: snapshot.description,
             createdAt: new Date(snapshot.createdAt),
           },
           update: {
             name: snapshot.name,
-            url: snapshot.url,
-            protocol: snapshot.protocol ?? "a2a",
+            protocol: snapshot.protocol,
+            config: JSON.stringify(snapshot.config),
             description: snapshot.description,
           },
         });
@@ -78,4 +76,65 @@ export class AgentConfigStateRepository implements AgentConfigRepository {
 
     aggregate.clearPendingEvents();
   }
+}
+
+function parseAgentProtocol(value: string): AgentProtocol {
+  return value === "acp" ? "acp" : "a2a";
+}
+
+function parseAgentConfig(
+  protocolValue: string,
+  value: string,
+): AgentProtocolConfig {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    const protocol = parseAgentProtocol(protocolValue);
+    if (protocol === "a2a" && isA2AAgentConfig(parsed)) {
+      return parsed;
+    }
+    if (protocol === "acp" && isACPAgentConfig(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to an inert local default for corrupt rows.
+  }
+
+  return parseAgentProtocol(protocolValue) === "acp"
+    ? { transport: "stdio", command: "" }
+    : { url: "" };
+}
+
+function isA2AAgentConfig(value: unknown): value is AgentProtocolConfig {
+  return isObject(value) && typeof value.url === "string";
+}
+
+function isACPAgentConfig(value: unknown): value is ACPAgentConfig {
+  if (!isObject(value)) return false;
+  if (value.transport === "rest") {
+    return typeof value.url === "string";
+  }
+  if (value.transport === "stdio") {
+    return (
+      typeof value.command === "string" &&
+      (value.args === undefined ||
+        (Array.isArray(value.args) &&
+          value.args.every((arg) => typeof arg === "string"))) &&
+      (value.cwd === undefined || typeof value.cwd === "string") &&
+      (value.permission === undefined ||
+        value.permission === "allow_once" ||
+        value.permission === "allow_always" ||
+        value.permission === "reject_once" ||
+        value.permission === "reject_always") &&
+      (value.timeoutMs === undefined ||
+        (typeof value.timeoutMs === "number" &&
+          Number.isInteger(value.timeoutMs) &&
+          value.timeoutMs > 0))
+    );
+  }
+
+  return false;
+}
+
+function isObject(value: unknown): value is { [key: string]: unknown } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { AgentTransport } from "@a2a-channels/agent-transport";
+import type { AgentTransportFactory } from "@a2a-channels/agent-transport";
 import type {
   AgentConfigSnapshot,
   ChannelBindingSnapshot,
@@ -21,10 +21,11 @@ import type { OwnershipGate, OwnershipLease } from "./ownership-gate.js";
 const agent: AgentConfigSnapshot = {
   id: "agent-1",
   name: "Agent One",
-  url: "http://agent-1",
   protocol: "a2a",
+  config: { url: "http://agent-1" },
   createdAt: new Date().toISOString(),
 };
+const agentTarget = "http://agent-1";
 
 const binding: ChannelBindingSnapshot = {
   id: "binding-1",
@@ -37,9 +38,13 @@ const binding: ChannelBindingSnapshot = {
   createdAt: new Date().toISOString(),
 };
 
-const testTransport: AgentTransport = {
+const testTransport: AgentTransportFactory = {
   protocol: "a2a",
-  send: async () => ({ text: "ok" }),
+  create: (config) => ({
+    protocol: "a2a",
+    displayTarget: "url" in config ? config.url : "",
+    send: async () => ({ text: "ok" }),
+  }),
 };
 
 function createService(): {
@@ -161,13 +166,13 @@ describe("RuntimeAssignmentService", () => {
     Reflect.get(connectionManager, "emitConnectionStatus").call(connectionManager, {
       binding,
       status: "connected",
-      agentUrl: agent.url,
+      agentUrl: agentTarget,
     });
 
     const [status] = service.listConnectionStatuses();
     assert.equal(status?.bindingId, binding.id);
     assert.equal(status?.status, "connected");
-    assert.equal(status?.agentUrl, agent.url);
+    assert.equal(status?.agentUrl, agentTarget);
   });
 });
 

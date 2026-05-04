@@ -25,6 +25,7 @@ const checkedFiles = [
   "packages/agent-transport/package.json",
   "packages/agent-transport/src/a2a.ts",
   "packages/agent-transport/src/acp.ts",
+  "packages/agent-transport/src/acp-stdio.ts",
   "packages/openclaw-compat/package.json",
   "packages/openclaw-compat/src/plugin-host.ts",
   "package-lock.json",

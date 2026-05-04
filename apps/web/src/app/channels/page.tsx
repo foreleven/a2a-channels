@@ -334,7 +334,15 @@ export default function ChannelsPage() {
 
 function agentLabel(agentId: string, agents: AgentConfig[]) {
   const agent = agents.find((candidate) => candidate.id === agentId);
-  return agent ? `${agent.name} (${agent.url})` : agentId;
+  return agent ? `${agent.name} (${describeAgentTarget(agent)})` : agentId;
+}
+
+function describeAgentTarget(agent: AgentConfig): string {
+  const config = agent.config;
+  if ("transport" in config && config.transport === "stdio") {
+    return [config.command, ...(config.args ?? [])].join(" ");
+  }
+  return config.url;
 }
 
 function ChannelCard({

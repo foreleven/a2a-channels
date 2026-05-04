@@ -11,11 +11,38 @@ import type {
   AgentUpdated,
 } from "../events.js";
 
+export type AgentProtocol = "a2a" | "acp";
+
+export interface A2AAgentConfig {
+  readonly url: string;
+}
+
+export interface ACPRestAgentConfig {
+  readonly transport: "rest";
+  readonly url: string;
+}
+
+export interface ACPStdioAgentConfig {
+  readonly transport: "stdio";
+  readonly command: string;
+  readonly args?: readonly string[];
+  readonly cwd?: string;
+  readonly permission?:
+    | "allow_once"
+    | "allow_always"
+    | "reject_once"
+    | "reject_always";
+  readonly timeoutMs?: number;
+}
+
+export type ACPAgentConfig = ACPRestAgentConfig | ACPStdioAgentConfig;
+export type AgentProtocolConfig = A2AAgentConfig | ACPAgentConfig;
+
 export interface AgentConfigSnapshot {
   readonly id: string;
   readonly name: string;
-  readonly url: string;
-  readonly protocol?: string;
+  readonly protocol: AgentProtocol;
+  readonly config: AgentProtocolConfig;
   readonly description?: string;
   readonly createdAt: string;
 }
@@ -24,8 +51,8 @@ export interface AgentConfigSnapshot {
 export class AgentConfigAggregate {
   id!: string;
   name!: string;
-  url!: string;
-  protocol!: string;
+  protocol!: AgentProtocol;
+  config!: AgentProtocolConfig;
   description?: string;
   createdAt!: string;
 
@@ -49,8 +76,8 @@ export class AgentConfigAggregate {
     return {
       id: this.id,
       name: this.name,
-      url: this.url,
       protocol: this.protocol,
+      config: this.config,
       description: this.description,
       createdAt: this.createdAt,
     };
@@ -63,8 +90,8 @@ export class AgentConfigAggregate {
   static register(data: {
     id: string;
     name: string;
-    url: string;
-    protocol?: string;
+    protocol: AgentProtocol;
+    config: AgentProtocolConfig;
     description?: string;
   }): AgentConfigAggregate {
     const agg = new AgentConfigAggregate();
@@ -72,8 +99,8 @@ export class AgentConfigAggregate {
       eventType: "AgentRegistered.v1",
       agentId: data.id,
       name: data.name,
-      url: data.url,
-      protocol: data.protocol ?? "a2a",
+      protocol: data.protocol,
+      config: data.config,
       description: data.description,
       occurredAt: new Date().toISOString(),
     });
@@ -96,8 +123,8 @@ export class AgentConfigAggregate {
       agentId: this.id,
       changes: {
         name: changes.name,
-        url: changes.url,
         protocol: changes.protocol,
+        config: changes.config,
         // `undefined` means "not included in changes", `null` means "clear the field".
         description:
           changes.description === undefined ? undefined : (changes.description ?? null),
@@ -134,8 +161,8 @@ export class AgentConfigAggregate {
     const agg = new AgentConfigAggregate();
     agg.id = snapshot.id;
     agg.name = snapshot.name;
-    agg.url = snapshot.url;
-    agg.protocol = snapshot.protocol ?? "a2a";
+    agg.protocol = snapshot.protocol;
+    agg.config = snapshot.config;
     agg.description = snapshot.description;
     agg.createdAt = snapshot.createdAt;
     return agg;
@@ -156,8 +183,8 @@ export class AgentConfigAggregate {
       case "AgentRegistered.v1":
         this.id = event.agentId;
         this.name = event.name;
-        this.url = event.url;
         this.protocol = event.protocol;
+        this.config = event.config;
         this.description = event.description;
         this.createdAt = event.occurredAt;
         break;
@@ -165,8 +192,8 @@ export class AgentConfigAggregate {
       case "AgentUpdated.v1": {
         const c = event.changes;
         if (c.name !== undefined) this.name = c.name;
-        if (c.url !== undefined) this.url = c.url;
         if (c.protocol !== undefined) this.protocol = c.protocol;
+        if (c.config !== undefined) this.config = c.config;
         if (c.description !== undefined)
           this.description = c.description ?? undefined;
         break;

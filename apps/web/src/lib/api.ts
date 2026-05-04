@@ -26,10 +26,40 @@ export interface ChannelBinding {
 export interface AgentConfig {
   id: string;
   name: string;
-  url: string;
+  protocol: AgentProtocol;
+  config: AgentProtocolConfig;
   description?: string;
   createdAt: string;
 }
+
+export type AgentProtocol = "a2a" | "acp";
+
+export interface A2AAgentConfig {
+  url: string;
+}
+
+export interface ACPRestAgentConfig {
+  transport: "rest";
+  url: string;
+}
+
+export interface ACPStdioAgentConfig {
+  transport: "stdio";
+  command: string;
+  args?: string[];
+  cwd?: string;
+  permission?:
+    | "allow_once"
+    | "allow_always"
+    | "reject_once"
+    | "reject_always";
+  timeoutMs?: number;
+}
+
+export type AgentProtocolConfig =
+  | A2AAgentConfig
+  | ACPRestAgentConfig
+  | ACPStdioAgentConfig;
 
 export type RuntimeChannelOwnership =
   | "local"

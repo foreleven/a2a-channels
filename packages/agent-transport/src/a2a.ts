@@ -2,17 +2,19 @@
  * A2A (Agent-to-Agent) protocol transport adapter.
  *
  * Implements AgentTransport over the A2A JSON-RPC protocol using
- * @a2a-js/sdk.  The transport is stateless; a single instance can be
- * shared across all channel accounts.
+ * @a2a-js/sdk.
  */
 
 import crypto from "node:crypto";
 import { ClientFactory } from "@a2a-js/sdk/client";
 import type { MessageSendParams } from "@a2a-js/sdk";
 import type {
+  A2AAgentConfig,
+  AgentProtocolConfig,
   AgentRequest,
   AgentResponse,
   AgentTransport,
+  AgentTransportFactory,
 } from "./transport.js";
 
 /** Extract the first text reply from an A2A result envelope. */
@@ -59,17 +61,39 @@ function extractText(result: unknown): string {
   return "";
 }
 
-/** Agent transport adapter for JSON-RPC A2A-compatible agents. */
-export class A2ATransport implements AgentTransport {
+/** Factory for JSON-RPC A2A-compatible agent transports. */
+export class A2ATransport implements AgentTransportFactory {
   readonly protocol = "a2a";
+
+  create(config: AgentProtocolConfig): AgentTransport {
+    if (!isA2AAgentConfig(config)) {
+      throw new Error("A2A transport requires config.url");
+    }
+
+    return new A2AAgentTransport(config);
+  }
+}
+
+function isA2AAgentConfig(config: AgentProtocolConfig): config is A2AAgentConfig {
+  return "url" in config && typeof config.url === "string";
+}
+
+/** Agent transport adapter for one configured JSON-RPC A2A-compatible agent. */
+class A2AAgentTransport implements AgentTransport {
+  readonly protocol = "a2a";
+  readonly displayTarget: string;
   private readonly factory = new ClientFactory();
-  /** Cache resolved clients by agent URL to avoid re-fetching the agent card. */
+  /** Cache the resolved client to avoid re-fetching the agent card. */
   private readonly clientCache = new Map<
     string,
     Awaited<ReturnType<ClientFactory["createFromUrl"]>>
   >();
 
-  async send(agentUrl: string, request: AgentRequest): Promise<AgentResponse> {
+  constructor(private readonly config: A2AAgentConfig) {
+    this.displayTarget = config.url;
+  }
+
+  async send(request: AgentRequest): Promise<AgentResponse> {
     const timeoutMs = 30_000;
     const abortController = new AbortController();
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -85,6 +109,7 @@ export class A2ATransport implements AgentTransport {
     const requestPromise = (async () => {
       // createFromUrl is included in the timeout race via Promise.race below,
       // so a hang in client discovery will be cancelled by the timeout winning.
+      const agentUrl = this.config.url;
       let client = this.clientCache.get(agentUrl);
       if (!client) {
         client = await this.factory.createFromUrl(agentUrl);

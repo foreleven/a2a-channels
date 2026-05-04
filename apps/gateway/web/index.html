@@ -212,7 +212,7 @@
             </select>
           </div>
           <div>
-            <label>Agent</label>
+            <label>Agent URL</label>
             <input id="ag-url" placeholder="http://localhost:3001" required />
           </div>
           <div>
@@ -292,7 +292,7 @@
       <tr>
         <td><strong>${esc(a.name)}</strong></td>
         <td><span class="badge" style="background:#e8f0fe;color:#1a73e8">${esc(a.protocol ?? 'a2a').toUpperCase()}</span></td>
-        <td><code>${esc(a.url)}</code></td>
+        <td><code>${esc(agentTarget(a))}</code></td>
         <td>${esc(a.description ?? '')}</td>
         <td class="actions">
           <button class="btn btn-danger btn-sm" onclick="deleteAgent('${a.id}')">Delete</button>
@@ -304,18 +304,20 @@
     const sel = document.getElementById('ch-agentId');
     const current = sel.value;
     sel.innerHTML = '<option value="">— select an agent —</option>' +
-      agents.map(a => `<option value="${a.id}" ${a.id === current ? 'selected' : ''}>${esc(a.name)} (${esc(a.url)})</option>`).join('');
+      agents.map(a => `<option value="${a.id}" ${a.id === current ? 'selected' : ''}>${esc(a.name)} (${esc(agentTarget(a))})</option>`).join('');
   }
 
   async function submitAgent(e) {
     e.preventDefault();
     try {
+      const protocol = document.getElementById('ag-protocol').value;
+      const url = document.getElementById('ag-url').value;
       await api('/api/agents', {
         method: 'POST',
         body: JSON.stringify({
           name: document.getElementById('ag-name').value,
-          url: document.getElementById('ag-url').value,
-          protocol: document.getElementById('ag-protocol').value,
+          protocol,
+          config: protocol === 'acp' ? { transport: 'rest', url } : { url },
           description: document.getElementById('ag-desc').value || undefined,
         }),
       });
@@ -354,7 +356,7 @@
       return;
     }
     tbody.innerHTML = channels.map(c => {
-      const agent = agentMap[c.agentId] || { name: c.agentId, url: c.agentId };
+      const agent = agentMap[c.agentId] || { name: c.agentId, config: { url: c.agentId } };
       return `
         <tr>
           <td><strong>${esc(c.name)}</strong></td>
@@ -371,6 +373,14 @@
         </tr>
       `;
     }).join('');
+  }
+
+  function agentTarget(agent) {
+    const config = agent.config || {};
+    if (config.transport === 'stdio') {
+      return [config.command, ...(config.args || [])].filter(Boolean).join(' ');
+    }
+    return config.url || '';
   }
 
   async function submitChannel(e) {

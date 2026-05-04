@@ -50,7 +50,7 @@ export class RuntimeAgentRegistry {
     return new Map(this.agentsById);
   }
 
-  /** Resolves the active client and target URL for a binding's agent id. */
+  /** Resolves the active client and target label for a binding's agent id. */
   async getAgentClient(
     agentId: string,
   ): Promise<{ client: AgentClient; url: string }> {
@@ -61,7 +61,7 @@ export class RuntimeAgentRegistry {
 
     return {
       client: this.agentClientRegistry.require(agent),
-      url: agent.url,
+      url: describeAgentTarget(agent),
     };
   }
 
@@ -69,4 +69,12 @@ export class RuntimeAgentRegistry {
   async stopAllClients(): Promise<void> {
     await this.agentClientRegistry.stopAll();
   }
+}
+
+function describeAgentTarget(agent: AgentConfigSnapshot): string {
+  const config = agent.config;
+  if ("transport" in config && config.transport === "stdio") {
+    return [config.command, ...(config.args ?? [])].join(" ");
+  }
+  return config.url;
 }

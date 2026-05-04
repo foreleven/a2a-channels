@@ -6,6 +6,11 @@
  * upcasting when the schema evolves.
  */
 
+import type {
+  AgentProtocol,
+  AgentProtocolConfig,
+} from "./aggregates/agent-config.js";
+
 // ---------------------------------------------------------------------------
 // ChannelBinding events
 // ---------------------------------------------------------------------------
@@ -55,8 +60,8 @@ export interface AgentRegistered {
   readonly eventType: "AgentRegistered.v1";
   readonly agentId: string;
   readonly name: string;
-  readonly url: string;
-  readonly protocol: string;
+  readonly protocol: AgentProtocol;
+  readonly config: AgentProtocolConfig;
   readonly description?: string;
   readonly occurredAt: string;
 }
@@ -66,8 +71,8 @@ export interface AgentUpdated {
   readonly agentId: string;
   readonly changes: Partial<{
     readonly name: string;
-    readonly url: string;
-    readonly protocol: string;
+    readonly protocol: AgentProtocol;
+    readonly config: AgentProtocolConfig;
     readonly description: string | null;
   }>;
   readonly occurredAt: string;

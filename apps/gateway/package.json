@@ -9,7 +9,7 @@
     "dev": "make -C ../.. gateway-dev",
     "postinstall": "prisma generate --schema=prisma/schema.prisma",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
-    "db:push": "prisma db push --schema=prisma/schema.prisma",
+    "db:push": "node scripts/backfill-agent-config.mjs && prisma db push --schema=prisma/schema.prisma",
     "test": "make -C ../.. test"
   },
   "dependencies": {
@@ -25,6 +25,7 @@
     "@prisma/adapter-better-sqlite3": "7.7.0",
     "@prisma/client": "7.7.0",
     "@prisma/client-runtime-utils": "7.7.0",
+    "better-sqlite3": "12.9.0",
     "inversify": "^7.7.1",
     "ioredis": "^5.10.1",
     "openclaw": "^2026.5.2",

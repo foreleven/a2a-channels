@@ -53,7 +53,6 @@ export interface ChannelBindingRepository {
 
 export interface AgentConfigRepository {
   findById(id: string): Promise<AgentConfigAggregate | null>;
-  findByUrl(url: string): Promise<AgentConfigSnapshot | null>;
   /** Load all non-deleted agents as snapshots from the current state table. */
   findAll(): Promise<AgentConfigSnapshot[]>;
   save(aggregate: AgentConfigAggregate): Promise<void>;

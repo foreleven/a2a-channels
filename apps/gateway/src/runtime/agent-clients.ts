@@ -1,6 +1,6 @@
 import { injectable, multiInject } from "inversify";
 import type {
-  AgentTransport,
+  AgentTransportFactory,
 } from "@a2a-channels/agent-transport";
 import { AgentClient, TransportRegistry } from "@a2a-channels/agent-transport";
 import type { AgentConfigSnapshot } from "@a2a-channels/domain";
@@ -15,7 +15,7 @@ export class AgentClientFactory {
   /** Registers all injected transport implementations by protocol. */
   constructor(
     @multiInject(AgentTransportToken)
-    transports: AgentTransport[],
+    transports: AgentTransportFactory[],
   ) {
     for (const transport of transports) {
       this.transportRegistry.register(transport);
@@ -24,13 +24,12 @@ export class AgentClientFactory {
 
   /** Creates an agent client for the configured agent transport. */
   create(agent: AgentConfigSnapshot): AgentClient {
-    const transport = this.transportRegistry.resolve(
-      agent.protocol ?? "a2a",
-    );
+    const factory = this.transportRegistry.resolve(agent.protocol);
+    const transport = factory.create(agent.config);
 
     return new AgentClient({
-      agentUrl: agent.url,
-      protocol: agent.protocol ?? transport.protocol,
+      displayTarget: transport.displayTarget,
+      protocol: agent.protocol,
       transport,
     });
   }

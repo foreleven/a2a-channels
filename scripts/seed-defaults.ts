@@ -57,8 +57,8 @@ export class DefaultSeedWriter {
     if (!defaultAgent) {
       defaultAgent = await this.agentService.register({
         name: "Echo Agent",
-        url: this.env["ECHO_AGENT_URL"] ?? "http://localhost:3001",
         protocol: "a2a",
+        config: { url: this.env["ECHO_AGENT_URL"] ?? "http://localhost:3001" },
         description: "Built-in echo agent - mirrors every message back",
       });
     }

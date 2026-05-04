@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   AgentClient,
-  type AgentTransport,
+  type AgentTransportFactory,
 } from "@a2a-channels/agent-transport";
 import type { AgentConfigSnapshot } from "@a2a-channels/domain";
 
@@ -13,14 +13,18 @@ import { AgentClientFactory } from "./agent-clients.js";
 const agent: AgentConfigSnapshot = {
   id: "agent-1",
   name: "Agent One",
-  url: "http://agent-1",
   protocol: "a2a",
+  config: { url: "http://agent-1" },
   createdAt: new Date().toISOString(),
 };
 
-const testTransport: AgentTransport = {
+const testTransport: AgentTransportFactory = {
   protocol: "a2a",
-  send: async () => ({ text: "ok" }),
+  create: (config) => ({
+    protocol: "a2a",
+    displayTarget: "url" in config ? config.url : "",
+    send: async () => ({ text: "ok" }),
+  }),
 };
 
 describe("AgentClientRegistry", () => {
@@ -31,7 +35,7 @@ describe("AgentClientRegistry", () => {
 
     assert.throws(
       () => registry.require(agent),
-      /Agent client for http:\/\/agent-1 is not registered/,
+      /Agent client for agent-1 is not registered/,
     );
   });
 

@@ -8,7 +8,11 @@ import {
   AgentConfigRepository,
   ChannelBindingRepository,
 } from "@a2a-channels/domain";
-import type { AgentConfigSnapshot } from "@a2a-channels/domain";
+import type {
+  AgentConfigSnapshot,
+  AgentProtocol,
+  AgentProtocolConfig,
+} from "@a2a-channels/domain";
 import { inject, injectable } from "inversify";
 
 import {
@@ -29,6 +33,12 @@ export class ReferencedAgentError extends Error {
     readonly bindingIds: string[],
   ) {
     super(`Agent ${agentId} is referenced by ${bindingIds.length} channel binding(s)`);
+  }
+}
+
+export class InvalidAgentConfigError extends Error {
+  constructor(message: string) {
+    super(message);
   }
 }
 
@@ -59,6 +69,7 @@ export class AgentService {
   }
 
   async register(data: RegisterAgentData): Promise<AgentConfigSnapshot> {
+    assertProtocolConfig(data.protocol, data.config);
     const aggregate = AgentConfigAggregate.register({
       id: randomUUID(),
       ...data,
@@ -75,6 +86,11 @@ export class AgentService {
     if (!aggregate) {
       return null;
     }
+
+    const current = aggregate.snapshot();
+    const nextProtocol = changes.protocol ?? current.protocol;
+    const nextConfig = changes.config ?? current.config;
+    assertProtocolConfig(nextProtocol, nextConfig);
 
     aggregate.update(changes);
     await this.repo.save(aggregate);
@@ -107,5 +123,23 @@ export class AgentService {
       .catch((err) =>
         console.error("[agent-service] failed to broadcast AgentChanged:", err),
       );
+  }
+}
+
+function assertProtocolConfig(
+  protocol: AgentProtocol,
+  config: AgentProtocolConfig,
+): void {
+  if (protocol === "a2a") {
+    if ("transport" in config) {
+      throw new InvalidAgentConfigError(
+        "A2A agent config must contain only protocol-specific URL fields",
+      );
+    }
+    return;
+  }
+
+  if (!("transport" in config)) {
+    throw new InvalidAgentConfigError("ACP agent config requires transport");
   }
 }

@@ -8,57 +8,96 @@ export interface AgentResponse {
   text: string;
 }
 
+export type AgentProtocol = "a2a" | "acp";
+
+export interface A2AAgentConfig {
+  readonly url: string;
+}
+
+export interface ACPRestAgentConfig {
+  readonly transport: "rest";
+  readonly url: string;
+}
+
+export interface ACPStdioAgentConfig {
+  readonly transport: "stdio";
+  readonly command: string;
+  readonly args?: readonly string[];
+  readonly cwd?: string;
+  readonly permission?:
+    | "allow_once"
+    | "allow_always"
+    | "reject_once"
+    | "reject_always";
+  readonly timeoutMs?: number;
+}
+
+export type ACPAgentConfig = ACPRestAgentConfig | ACPStdioAgentConfig;
+export type AgentProtocolConfig = A2AAgentConfig | ACPAgentConfig;
+
 export interface AgentClientOptions {
-  agentUrl: string;
-  protocol: string;
+  displayTarget: string;
+  protocol: AgentProtocol;
   transport: AgentTransport;
 }
 
 export class AgentClient {
-  readonly agentUrl: string;
-  readonly protocol: string;
+  readonly displayTarget: string;
+  readonly protocol: AgentProtocol;
 
   constructor(private readonly options: AgentClientOptions) {
-    this.agentUrl = options.agentUrl;
+    this.displayTarget = options.displayTarget;
     this.protocol = options.protocol;
   }
 
   send(request: AgentRequest): Promise<AgentResponse> {
-    return this.options.transport.send(this.agentUrl, request);
+    return this.options.transport.send(request);
   }
 
-  async start(): Promise<void> {}
+  async start(): Promise<void> {
+    await this.options.transport.start?.();
+  }
 
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    await this.options.transport.stop?.();
+  }
 }
 
 export interface AgentTransport {
-  readonly protocol: string;
-  send(agentUrl: string, request: AgentRequest): Promise<AgentResponse>;
+  readonly protocol: AgentProtocol;
+  readonly displayTarget: string;
+  send(request: AgentRequest): Promise<AgentResponse>;
+  start?(): Promise<void>;
+  stop?(): Promise<void>;
+}
+
+export interface AgentTransportFactory {
+  readonly protocol: AgentProtocol;
+  create(config: AgentProtocolConfig): AgentTransport;
 }
 
 /** Protocol-keyed registry for resolving agent transport implementations. */
 export class TransportRegistry {
-  private readonly transports = new Map<string, AgentTransport>();
+  private readonly factories = new Map<AgentProtocol, AgentTransportFactory>();
 
-  register(transport: AgentTransport): this {
-    this.transports.set(transport.protocol, transport);
+  register(factory: AgentTransportFactory): this {
+    this.factories.set(factory.protocol, factory);
     return this;
   }
 
-  resolve(protocol: string): AgentTransport {
-    const transport =
-      this.transports.get(protocol) ?? this.transports.get("a2a");
-    if (!transport) {
+  resolve(protocol: AgentProtocol): AgentTransportFactory {
+    const factory =
+      this.factories.get(protocol) ?? this.factories.get("a2a");
+    if (!factory) {
       throw new Error(
         `No transport registered for protocol "${protocol}" and no "a2a" fallback available.`,
       );
     }
 
-    return transport;
+    return factory;
   }
 
-  has(protocol: string): boolean {
-    return this.transports.has(protocol);
+  has(protocol: AgentProtocol): boolean {
+    return this.factories.has(protocol);
   }
 }

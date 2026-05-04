@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   A2ATransport,
   ACPTransport,
-  type AgentTransport,
+  type AgentTransportFactory,
 } from "@a2a-channels/agent-transport";
 import {
   OpenClawPluginHost,
@@ -166,11 +166,11 @@ function bindRuntime(
   container.bind(ConnectionManager).toSelf().inSingletonScope();
 
   container
-    .bind<AgentTransport>(AgentTransportToken)
+    .bind<AgentTransportFactory>(AgentTransportToken)
     .toDynamicValue(() => new A2ATransport())
     .inSingletonScope();
   container
-    .bind<AgentTransport>(AgentTransportToken)
+    .bind<AgentTransportFactory>(AgentTransportToken)
     .toDynamicValue(() => new ACPTransport())
     .inSingletonScope();
   container.bind(AgentClientFactory).toSelf().inSingletonScope();
