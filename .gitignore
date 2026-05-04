@@ -36,6 +36,7 @@ node_modules
 
 # Dev
 db/
+.worktrees/
 # Prisma generated client
 apps/gateway/src/generated/
 .claude/
