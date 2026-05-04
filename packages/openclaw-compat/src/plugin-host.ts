@@ -202,7 +202,7 @@ export class OpenClawPluginHost {
       throw new Error(`Channel QR login is not supported for ${channelType}`);
     }
 
-    return (await start(params as any)) as ChannelQrLoginStartResult;
+    return await start.bind(channel.gateway)(params);
   }
 
   async waitForChannelQrLogin(
@@ -215,7 +215,7 @@ export class OpenClawPluginHost {
       throw new Error(`Channel QR login is not supported for ${channelType}`);
     }
 
-    return (await wait(params as any)) as ChannelQrLoginWaitResult;
+    return await wait.bind(channel.gateway)(params);
   }
 
   // -------------------------------------------------------------------------
