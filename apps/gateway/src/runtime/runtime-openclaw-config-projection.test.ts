@@ -64,4 +64,27 @@ describe("RuntimeOpenClawConfigProjection", () => {
       },
     });
   });
+
+  test("projects WeChat aliases into the OpenClaw Weixin plugin channel key", () => {
+    const ownershipState = new RuntimeOwnershipState();
+    ownershipState.attachBinding(
+      createBinding({
+        id: "binding-wechat",
+        channelType: "wechat",
+        accountId: "default",
+        channelConfig: {
+          token: "token-1",
+        },
+      }),
+    );
+
+    const projection = new RuntimeOpenClawConfigProjection(ownershipState);
+
+    assert.deepEqual(projection.getConfig().channels?.["openclaw-weixin"], {
+      bindingId: "binding-wechat",
+      token: "token-1",
+      enabled: true,
+    });
+    assert.equal(projection.getConfig().channels?.["wechat"], undefined);
+  });
 });

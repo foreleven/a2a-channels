@@ -3,8 +3,7 @@
  * TypeScript definitions.
  */
 
-declare module "@larksuite/openclaw-lark" {
+declare module "@openclaw/weixin" {
   const plugin: { register(api: unknown): void };
-  const exports = { default: plugin };
-  export default exports;
+  export default plugin;
 }

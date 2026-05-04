@@ -76,16 +76,22 @@ function makeBoundTaskFlow(sessionKey: string): BoundTaskFlowRuntime {
 export function buildTasksCompat(): PluginRuntimeTasks {
   return {
     runs: {
-      bindSession: ({ sessionKey }) => makeBoundTaskRuns(sessionKey),
-      fromToolContext: (ctx) => makeBoundTaskRuns(ctx.sessionKey ?? ""),
+      bindSession: ({ sessionKey }: { sessionKey: string }) =>
+        makeBoundTaskRuns(sessionKey),
+      fromToolContext: (ctx: { sessionKey?: string }) =>
+        makeBoundTaskRuns(ctx.sessionKey ?? ""),
     },
     flows: {
-      bindSession: ({ sessionKey }) => makeBoundTaskFlows(sessionKey),
-      fromToolContext: (ctx) => makeBoundTaskFlows(ctx.sessionKey ?? ""),
+      bindSession: ({ sessionKey }: { sessionKey: string }) =>
+        makeBoundTaskFlows(sessionKey),
+      fromToolContext: (ctx: { sessionKey?: string }) =>
+        makeBoundTaskFlows(ctx.sessionKey ?? ""),
     },
     flow: {
-      bindSession: ({ sessionKey }) => makeBoundTaskFlow(sessionKey),
-      fromToolContext: (ctx) => makeBoundTaskFlow(ctx.sessionKey ?? ""),
+      bindSession: ({ sessionKey }: { sessionKey: string }) =>
+        makeBoundTaskFlow(sessionKey),
+      fromToolContext: (ctx: { sessionKey?: string }) =>
+        makeBoundTaskFlow(ctx.sessionKey ?? ""),
     },
-  };
+  } as unknown as PluginRuntimeTasks;
 }

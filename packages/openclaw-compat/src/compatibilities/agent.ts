@@ -10,7 +10,7 @@ type PluginRuntimeAgent = PluginRuntime["agent"];
  */
 export function buildAgentCompat(): PluginRuntimeAgent {
   return {
-    defaults: { model: "gpt-5.4", provider: "openai" },
+    defaults: { model: "gpt-5.5", provider: "openai" },
     resolveAgentDir: () => "/tmp/a2a-channels",
     resolveAgentWorkspaceDir: () => "/tmp/a2a-channels",
     resolveAgentIdentity: () => ({ agentId: "main", name: "main" }),
@@ -28,5 +28,5 @@ export function buildAgentCompat(): PluginRuntimeAgent {
       saveSessionStore: async () => {},
       resolveSessionFilePath: () => "/tmp/a2a-sessions/session.json",
     },
-  };
+  } as unknown as PluginRuntimeAgent;
 }

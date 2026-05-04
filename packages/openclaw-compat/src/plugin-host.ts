@@ -2,7 +2,7 @@
  * OpenClaw-compatible plugin host facade.
  *
  * Exposes only the registration surface that community channel plugins
- * (e.g. @larksuite/openclaw-lark) actually use, while the gateway stays in
+ * (e.g. @openclaw/feishu) actually use, while the gateway stays in
  * full control of the account lifecycle.
  *
  * This class is intentionally channel-agnostic.  Channel-specific bootstrap
@@ -70,6 +70,7 @@ const logger: ChannelLogSink = {
 /** Hosts OpenClaw channel plugins and controls channel account lifecycles. */
 export class OpenClawPluginHost {
   private readonly channels = new Map<string, ChannelPlugin>();
+  private readonly channelAliases = new Map<string, string>();
   private readonly hookHandlers = new Map<
     string,
     Array<(...args: any[]) => unknown>
@@ -102,6 +103,11 @@ export class OpenClawPluginHost {
    */
   registerPlugin(loader: (api: OpenClawPluginApi) => void): void {
     loader(this.buildPluginApi());
+  }
+
+  /** Register a gateway-owned channel id alias that points at a plugin id. */
+  registerChannelAlias(alias: string, targetChannelId: string): void {
+    this.channelAliases.set(alias, targetChannelId);
   }
 
   /**
@@ -168,6 +174,11 @@ export class OpenClawPluginHost {
   private resolveChannel(channelType: string): ChannelPlugin | undefined {
     const exact = this.channels.get(channelType);
     if (exact) return exact;
+    const aliasTarget = this.channelAliases.get(channelType);
+    if (aliasTarget) {
+      const aliased = this.channels.get(aliasTarget);
+      if (aliased) return aliased;
+    }
     for (const channel of this.channels.values()) {
       if (channel.meta?.aliases?.includes(channelType)) return channel;
     }
@@ -177,7 +188,7 @@ export class OpenClawPluginHost {
   /**
    * Build the plugin API object passed to community plugins on registration.
    *
-   * Only the surface that @larksuite/openclaw-lark actually calls is
+   * Only the surface that OpenClaw channel plugins actually call is
    * implemented.  Everything else is a deliberate no-op stub — stubs exist
    * to satisfy the plugin's registration phase without throwing.
    */
@@ -280,6 +291,6 @@ export class OpenClawPluginHost {
       registerMemoryFlushPlan: () => {},
       registerMemoryRuntime: () => {},
       registerMemoryEmbeddingProvider: () => {},
-    };
+    } as unknown as OpenClawPluginApi;
   }
 }

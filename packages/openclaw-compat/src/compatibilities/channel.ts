@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 import * as channelInbound from "openclaw/plugin-sdk/channel-inbound";
 import * as channelRuntimeSdk from "openclaw/plugin-sdk/channel-runtime";
 import * as commandDetection from "openclaw/plugin-sdk/command-detection";
@@ -261,5 +259,5 @@ export function buildChannelCompat(
       get: () => undefined,
       watch: () => () => {},
     },
-  };
+  } as unknown as PluginRuntimeChannel;
 }

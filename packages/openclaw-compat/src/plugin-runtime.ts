@@ -1,7 +1,7 @@
 /**
  * OpenClaw-compatible runtime surface for community channel plugins.
  *
- * Only the subset used by @larksuite/openclaw-lark is implemented.
+ * Only the subset used by OpenClaw channel plugins is implemented.
  * Channel reply events are constructed here and delegated to the gateway
  * runtime connection boundary.
  */
@@ -22,7 +22,13 @@ import {
 import { buildSystemCompat } from "./compatibilities/system.js";
 import { buildTasksCompat } from "./compatibilities/tasks.js";
 
-export type ConfigProvider = PluginRuntime["config"];
+export interface ConfigProvider {
+  loadConfig(): OpenClawConfig;
+  writeConfigFile?(cfg: OpenClawConfig, options?: unknown): Promise<unknown>;
+  current?(): OpenClawConfig;
+  mutateConfigFile?(params: unknown): Promise<unknown>;
+  replaceConfigFile?(params: unknown): Promise<unknown>;
+}
 
 type ChannelReplyDispatchParams = Parameters<
   PluginRuntime["channel"]["reply"]["dispatchReplyFromConfig"]
@@ -86,6 +92,8 @@ export interface ReplyEventDispatcher {
   ): Promise<ChannelReplyDispatchResult>;
 }
 
+const OPENCLAW_PLUGIN_API_VERSION = "2026.5.2";
+
 // ---------------------------------------------------------------------------
 // OpenClawPluginRuntime class
 // ---------------------------------------------------------------------------
@@ -120,7 +128,7 @@ export class OpenClawPluginRuntime {
 
   private _buildPluginRuntime(): PluginRuntime {
     return {
-      version: "1.0.0",
+      version: OPENCLAW_PLUGIN_API_VERSION,
       config: this.options.config,
       agent: buildAgentCompat(),
       system: buildSystemCompat(),
@@ -187,8 +195,10 @@ export class OpenClawPluginRuntime {
         getSession: async () => ({ messages: [] }),
         deleteSession: async () => {},
       },
-      channel: buildChannelCompat((event) => this.handleChannelReplyEvent(event)),
-    } as PluginRuntime;
+      channel: buildChannelCompat((event) =>
+        this.handleChannelReplyEvent(event),
+      ),
+    } as unknown as PluginRuntime;
   }
 
   private async completeUnhandledReplyEvent(

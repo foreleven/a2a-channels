@@ -1,6 +1,8 @@
 import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
+import { channelTypeRegistry } from "./channel-type-registry.js";
+
 type ChannelBinding = ChannelBindingSnapshot;
 type OpenClawChannels = NonNullable<OpenClawConfig["channels"]>;
 
@@ -26,7 +28,9 @@ export class GenericChannelConfigProjector implements ChannelConfigProjector {
 
     return {
       accountId: binding.accountId,
-      channelKey: binding.channelType,
+      channelKey: channelTypeRegistry.canonicalize(
+        binding.channelType,
+      ) as keyof OpenClawChannels,
       config: this.buildAccountConfig(binding),
     };
   }

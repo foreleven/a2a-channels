@@ -25,5 +25,5 @@ export function buildSystemCompat(): PluginRuntimeSystem {
       stderr: "",
     }),
     formatNativeDependencyHint: (h: { packageName: string }) => h.packageName,
-  };
+  } as unknown as PluginRuntimeSystem;
 }

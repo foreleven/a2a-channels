@@ -40,20 +40,69 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
-const EMPTY_FORM = {
+const CHANNEL_OPTIONS = [
+  { value: "feishu", label: "Feishu / Lark" },
+  { value: "discord", label: "Discord" },
+  { value: "slack", label: "Slack" },
+  { value: "telegram", label: "Telegram" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "wechat", label: "WeChat / Weixin" },
+  { value: "qqbot", label: "QQ Bot" },
+] as const;
+
+const CHANNEL_CONFIG_TEMPLATES: Record<string, Record<string, unknown>> = {
+  feishu: {
+    appId: "",
+    appSecret: "",
+    verificationToken: "",
+    encryptKey: "",
+    allowFrom: ["*"],
+  },
+  discord: {
+    botToken: "",
+    allowFrom: ["*"],
+  },
+  slack: {
+    botToken: "",
+    appToken: "",
+    signingSecret: "",
+    allowFrom: ["*"],
+  },
+  telegram: {
+    botToken: "",
+    allowFrom: ["*"],
+  },
+  whatsapp: {
+    allowFrom: ["*"],
+  },
+  wechat: {},
+  qqbot: {
+    appId: "",
+    token: "",
+    secret: "",
+    allowFrom: ["*"],
+  },
+};
+
+interface FormState {
+  name: string;
+  channelType: string;
+  accountId: string;
+  agentId: string;
+  enabled: boolean;
+  channelConfigJson: string;
+}
+
+const EMPTY_FORM: FormState = {
   name: "",
   channelType: "feishu",
   accountId: "default",
   agentId: "",
   enabled: true,
-  appId: "",
-  appSecret: "",
-  verificationToken: "",
-  encryptKey: "",
+  channelConfigJson: stringifyConfig(CHANNEL_CONFIG_TEMPLATES["feishu"]),
 };
-
-type FormState = typeof EMPTY_FORM;
 
 class ChannelFormMapper {
   toPayload(form: FormState): Omit<ChannelBinding, "id" | "createdAt"> {
@@ -63,34 +112,27 @@ class ChannelFormMapper {
       accountId: form.accountId,
       agentId: form.agentId,
       enabled: form.enabled,
-      channelConfig: {
-        appId: form.appId,
-        appSecret: form.appSecret,
-        verificationToken: form.verificationToken || undefined,
-        encryptKey: form.encryptKey || undefined,
-        allowFrom: ["*"],
-      },
+      channelConfig: this.parseConfig(form.channelConfigJson),
     };
   }
 
   fromBinding(binding: ChannelBinding): FormState {
-    const config = binding.channelConfig as {
-      appId?: string;
-      appSecret?: string;
-      verificationToken?: string;
-      encryptKey?: string;
-    };
     return {
       name: binding.name,
       channelType: binding.channelType,
       accountId: binding.accountId,
       agentId: binding.agentId,
       enabled: binding.enabled,
-      appId: config.appId ?? "",
-      appSecret: config.appSecret ?? "",
-      verificationToken: config.verificationToken ?? "",
-      encryptKey: config.encryptKey ?? "",
+      channelConfigJson: stringifyConfig(binding.channelConfig),
     };
+  }
+
+  private parseConfig(rawConfig: string): Record<string, unknown> {
+    const parsed = JSON.parse(rawConfig || "{}") as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Channel config must be a JSON object.");
+    }
+    return parsed as Record<string, unknown>;
   }
 }
 
@@ -170,6 +212,16 @@ export default function ChannelsPage() {
     setEditingId(null);
     setForm({ ...EMPTY_FORM, agentId: agents[0]?.id ?? "" });
     setShowForm(true);
+  }
+
+  function updateChannelType(channelType: string) {
+    setForm({
+      ...form,
+      channelType,
+      channelConfigJson: stringifyConfig(
+        CHANNEL_CONFIG_TEMPLATES[channelType] ?? {},
+      ),
+    });
   }
 
   function openEdit(binding: ChannelBinding) {
@@ -284,7 +336,7 @@ export default function ChannelsPage() {
               {editingId ? "Edit Channel Binding" : "New Channel Binding"}
             </DialogTitle>
             <DialogDescription>
-              Feishu and Lark are handled by the same OpenClaw channel plugin.
+              Store plugin-owned account settings as the OpenClaw channel config.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -300,11 +352,13 @@ export default function ChannelsPage() {
             <Field label="Channel Type">
               <Select
                 value={form.channelType}
-                onChange={(event) =>
-                  setForm({ ...form, channelType: event.target.value })
-                }
+                onChange={(event) => updateChannelType(event.target.value)}
               >
-                <option value="feishu">Feishu / Lark</option>
+                {CHANNEL_OPTIONS.map((channel) => (
+                  <option key={channel.value} value={channel.value}>
+                    {channel.label}
+                  </option>
+                ))}
               </Select>
             </Field>
             <Field label="Account ID">
@@ -333,42 +387,14 @@ export default function ChannelsPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="App ID">
-              <Input
-                value={form.appId}
+            <Field className="sm:col-span-2" label="Channel Config">
+              <Textarea
+                className="min-h-44 font-mono text-xs"
+                value={form.channelConfigJson}
                 onChange={(event) =>
-                  setForm({ ...form, appId: event.target.value })
+                  setForm({ ...form, channelConfigJson: event.target.value })
                 }
-                placeholder="cli_xxxx"
-              />
-            </Field>
-            <Field label="App Secret">
-              <Input
-                type="password"
-                value={form.appSecret}
-                onChange={(event) =>
-                  setForm({ ...form, appSecret: event.target.value })
-                }
-                placeholder="app secret"
-              />
-            </Field>
-            <Field label="Verification Token">
-              <Input
-                value={form.verificationToken}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    verificationToken: event.target.value,
-                  })
-                }
-              />
-            </Field>
-            <Field label="Encrypt Key">
-              <Input
-                value={form.encryptKey}
-                onChange={(event) =>
-                  setForm({ ...form, encryptKey: event.target.value })
-                }
+                spellCheck={false}
               />
             </Field>
           </div>
@@ -386,7 +412,10 @@ export default function ChannelsPage() {
             <Button variant="outline" onClick={() => setShowForm(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={saving || !form.agentId}>
+            <Button
+              onClick={handleSave}
+              disabled={saving || !form.agentId || !form.name || !form.accountId}
+            >
               {saving ? "Saving..." : "Save"}
             </Button>
           </div>
@@ -426,7 +455,7 @@ function ChannelCard({
           <div className="min-w-0">
             <CardTitle className="truncate">{binding.name}</CardTitle>
             <CardDescription className="mt-1 truncate">
-              {binding.channelType} / {binding.accountId}
+              {channelLabel(binding.channelType)} / {binding.accountId}
             </CardDescription>
           </div>
           <Badge variant={binding.enabled ? "success" : "secondary"}>
@@ -459,7 +488,7 @@ function ChannelCard({
         <div className="grid gap-3 text-sm sm:grid-cols-2">
           <Info label="Agent" value={agentLabel} />
           <Info label="Ownership" value={statusView.ownership} />
-          <Info label="App ID" value={readConfigValue(binding, "appId")} />
+          <Info label="Config" value={summarizeConfig(binding.channelConfig)} />
           <Info label="Lease" value={displayStatus.leaseHeld ? "held" : "none"} />
         </div>
 
@@ -585,24 +614,40 @@ function describeStatus(status: RuntimeChannelStatus): {
   };
 }
 
-function readConfigValue(binding: ChannelBinding, key: string): string {
-  const value = binding.channelConfig[key];
-  return typeof value === "string" ? value : "";
-}
-
 function Field({
+  className,
   label,
   children,
 }: {
+  className?: string;
   label: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
+    <div className={className ? `space-y-2 ${className}` : "space-y-2"}>
       <Label>{label}</Label>
       {children}
     </div>
   );
+}
+
+function channelLabel(channelType: string): string {
+  return (
+    CHANNEL_OPTIONS.find((channel) => channel.value === channelType)?.label ??
+    channelType
+  );
+}
+
+function stringifyConfig(config: Record<string, unknown> | undefined): string {
+  return JSON.stringify(config ?? {}, null, 2);
+}
+
+function summarizeConfig(config: Record<string, unknown>): string {
+  const keys = Object.keys(config).filter((key) => config[key] !== "");
+  if (keys.length === 0) {
+    return "{}";
+  }
+  return keys.slice(0, 3).join(", ") + (keys.length > 3 ? "..." : "");
 }
 
 function EmptyState() {
