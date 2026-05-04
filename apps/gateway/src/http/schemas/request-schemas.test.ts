@@ -32,7 +32,7 @@ describe("agent request schemas", () => {
     assert.equal(parsed.success, false);
   });
 
-  test("allows partial patch bodies for service-level merged validation", () => {
+  test("accepts partial update bodies", () => {
     const parsed = updateAgentBodySchema.safeParse({ protocol: "acp" });
 
     assert.equal(parsed.success, true);
