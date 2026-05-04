@@ -81,7 +81,6 @@ function isA2AAgentConfig(config: AgentProtocolConfig): config is A2AAgentConfig
 /** Agent transport adapter for one configured JSON-RPC A2A-compatible agent. */
 class A2AAgentTransport implements AgentTransport {
   readonly protocol = "a2a";
-  readonly displayTarget: string;
   private readonly factory = new ClientFactory();
   /** Cache the resolved client to avoid re-fetching the agent card. */
   private readonly clientCache = new Map<
@@ -89,9 +88,7 @@ class A2AAgentTransport implements AgentTransport {
     Awaited<ReturnType<ClientFactory["createFromUrl"]>>
   >();
 
-  constructor(private readonly config: A2AAgentConfig) {
-    this.displayTarget = config.url;
-  }
+  constructor(private readonly config: A2AAgentConfig) {}
 
   async send(request: AgentRequest): Promise<AgentResponse> {
     const timeoutMs = 30_000;

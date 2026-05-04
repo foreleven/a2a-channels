@@ -23,18 +23,16 @@ const binding: ChannelBindingSnapshot = {
 };
 
 function createAgentClient(
-  displayTarget: string,
+  _target: string,
   send: (request: AgentRequest) => Promise<{ text: string }> = async () => ({
     text: "ok",
   }),
 ): AgentClient {
   const transport: AgentTransport = {
     protocol: "a2a",
-    displayTarget,
     send,
   };
   return new AgentClient({
-    displayTarget,
     protocol: "a2a",
     transport,
   });

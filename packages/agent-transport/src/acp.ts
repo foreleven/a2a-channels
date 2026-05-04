@@ -103,12 +103,9 @@ function isACPAgentConfig(config: AgentProtocolConfig): config is ACPAgentConfig
 
 class ACPStdioTransport implements AgentTransport {
   readonly protocol = "acp";
-  readonly displayTarget: string;
   private readonly stdio = new ACPStdioClient();
 
-  constructor(private readonly config: ACPStdioAgentConfig) {
-    this.displayTarget = [config.command, ...(config.args ?? [])].join(" ");
-  }
+  constructor(private readonly config: ACPStdioAgentConfig) {}
 
   send(request: AgentRequest): Promise<AgentResponse> {
     return this.stdio.send(request, this.config);
@@ -125,11 +122,8 @@ class ACPStdioTransport implements AgentTransport {
 
 class ACPRestTransport implements AgentTransport {
   readonly protocol = "acp";
-  readonly displayTarget: string;
 
-  constructor(private readonly config: ACPRestAgentConfig) {
-    this.displayTarget = config.url;
-  }
+  constructor(private readonly config: ACPRestAgentConfig) {}
 
   async send(request: AgentRequest): Promise<AgentResponse> {
     // Normalise base URL: strip trailing slashes (avoid regex to prevent ReDoS)

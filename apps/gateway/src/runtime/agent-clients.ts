@@ -28,7 +28,6 @@ export class AgentClientFactory {
     const transport = factory.create(agent.config);
 
     return new AgentClient({
-      displayTarget: transport.displayTarget,
       protocol: agent.protocol,
       transport,
     });

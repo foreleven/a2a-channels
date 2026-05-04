@@ -20,9 +20,8 @@ const agent: AgentConfigSnapshot = {
 
 const testTransport: AgentTransportFactory = {
   protocol: "a2a",
-  create: (config) => ({
+  create: () => ({
     protocol: "a2a",
-    displayTarget: "url" in config ? config.url : "",
     send: async () => ({ text: "ok" }),
   }),
 };

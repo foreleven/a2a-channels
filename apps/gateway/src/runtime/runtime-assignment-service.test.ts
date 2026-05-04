@@ -25,7 +25,6 @@ const agent: AgentConfigSnapshot = {
   config: { url: "http://agent-1" },
   createdAt: new Date().toISOString(),
 };
-const agentTarget = "http://agent-1";
 
 const binding: ChannelBindingSnapshot = {
   id: "binding-1",
@@ -40,9 +39,8 @@ const binding: ChannelBindingSnapshot = {
 
 const testTransport: AgentTransportFactory = {
   protocol: "a2a",
-  create: (config) => ({
+  create: () => ({
     protocol: "a2a",
-    displayTarget: "url" in config ? config.url : "",
     send: async () => ({ text: "ok" }),
   }),
 };
@@ -166,13 +164,11 @@ describe("RuntimeAssignmentService", () => {
     Reflect.get(connectionManager, "emitConnectionStatus").call(connectionManager, {
       binding,
       status: "connected",
-      agentUrl: agentTarget,
     });
 
     const [status] = service.listConnectionStatuses();
     assert.equal(status?.bindingId, binding.id);
     assert.equal(status?.status, "connected");
-    assert.equal(status?.agentUrl, agentTarget);
   });
 });
 

@@ -65,7 +65,6 @@ export interface MessageOutboundEvent {
   accountId: string | undefined;
   sessionKey: string | undefined;
   replyText: string;
-  agentUrl: string;
 }
 
 export interface ChannelReplyDispatchEvent {

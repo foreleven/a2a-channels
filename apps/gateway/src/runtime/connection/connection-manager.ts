@@ -64,9 +64,9 @@ export class ConnectionManager implements ReplyEventDispatcher {
 
   /** Creates a plugin-host connection and reports status transitions from the host. */
   private async createConnection(binding: ChannelBinding): Promise<Connection> {
-    const target = await this.agentRegistry.getAgentClient(binding.agentId);
+    const agentClient = await this.agentRegistry.getAgentClient(binding.agentId);
     const connection = new Connection({
-      agentClient: target.client,
+      agentClient,
       binding,
       callbacks: {
         emitMessageOutbound: (event) => this.emitMessageOutbound(event),

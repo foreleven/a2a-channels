@@ -65,16 +65,15 @@ export interface OwnershipState {
   /** Marks a binding idle and resets retry state. */
   markIdle(bindingId: string): RuntimeConnectionStatus;
   /** Marks a binding as attempting to connect. */
-  markConnecting(bindingId: string, agentUrl?: string): RuntimeConnectionStatus;
+  markConnecting(bindingId: string): RuntimeConnectionStatus;
   /** Marks a binding connected and clears retry state. */
-  markConnected(bindingId: string, agentUrl?: string): RuntimeConnectionStatus;
+  markConnected(bindingId: string): RuntimeConnectionStatus;
   /** Marks a binding disconnected and returns the next reconnect decision. */
-  markDisconnected(bindingId: string, agentUrl?: string): ReconnectDecision;
+  markDisconnected(bindingId: string): ReconnectDecision;
   /** Marks a binding errored and returns the next reconnect decision. */
   markError(
     bindingId: string,
     error: unknown,
-    agentUrl?: string,
   ): ReconnectDecision;
 }
 
@@ -155,11 +154,10 @@ export class RuntimeOwnershipState implements OwnershipState {
     return owned;
   }
 
-  /** Stores a new status snapshot while preserving the last known agent URL when omitted. */
+  /** Stores a new status snapshot for an owned binding. */
   private setStatus(
     bindingId: string,
     status: RuntimeConnectionStatus["status"],
-    agentUrl?: string,
     error?: unknown,
   ): RuntimeConnectionStatus {
     const owned = this.getOwnedBindingOrThrow(bindingId);
@@ -167,7 +165,6 @@ export class RuntimeOwnershipState implements OwnershipState {
     owned.status = {
       bindingId,
       status,
-      agentUrl: agentUrl ?? owned.status.agentUrl,
       error: error === undefined ? undefined : String(error),
       updatedAt: new Date().toISOString(),
     };
@@ -198,14 +195,13 @@ export class RuntimeOwnershipState implements OwnershipState {
   private advanceReconnect(
     bindingId: string,
     status: "disconnected" | "error",
-    agentUrl?: string,
     error?: unknown,
   ): ReconnectDecision {
     const owned = this.getOwnedBindingOrThrow(bindingId);
 
     const attempt = owned.reconnectAttempt + 1;
     owned.reconnectAttempt = attempt;
-    this.setStatus(bindingId, status, agentUrl, error);
+    this.setStatus(bindingId, status, error);
     return this.reconnectPolicy.next(attempt);
   }
 
@@ -341,34 +337,30 @@ export class RuntimeOwnershipState implements OwnershipState {
   }
 
   /** Marks a binding as connecting and clears stale reconnect timers. */
-  markConnecting(
-    bindingId: string,
-    agentUrl?: string,
-  ): RuntimeConnectionStatus {
+  markConnecting(bindingId: string): RuntimeConnectionStatus {
     this.clearReconnectTimer(bindingId);
-    return this.setStatus(bindingId, "connecting", agentUrl);
+    return this.setStatus(bindingId, "connecting");
   }
 
   /** Marks a binding connected and resets retry attempts after a successful edge. */
-  markConnected(bindingId: string, agentUrl?: string): RuntimeConnectionStatus {
+  markConnected(bindingId: string): RuntimeConnectionStatus {
     this.clearReconnectTimer(bindingId);
     const owned = this.getOwnedBindingOrThrow(bindingId);
     owned.reconnectAttempt = 0;
-    return this.setStatus(bindingId, "connected", agentUrl);
+    return this.setStatus(bindingId, "connected");
   }
 
   /** Marks a graceful disconnect and returns the retry decision for the next attempt. */
-  markDisconnected(bindingId: string, agentUrl?: string): ReconnectDecision {
-    return this.advanceReconnect(bindingId, "disconnected", agentUrl);
+  markDisconnected(bindingId: string): ReconnectDecision {
+    return this.advanceReconnect(bindingId, "disconnected");
   }
 
   /** Marks a connection error and returns the retry decision for the next attempt. */
   markError(
     bindingId: string,
     error: unknown,
-    agentUrl?: string,
   ): ReconnectDecision {
-    return this.advanceReconnect(bindingId, "error", agentUrl, error);
+    return this.advanceReconnect(bindingId, "error", error);
   }
 }
 

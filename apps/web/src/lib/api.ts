@@ -80,7 +80,6 @@ export interface RuntimeChannelStatus {
     | "unknown";
   ownerNodeId?: string;
   ownerDisplayName?: string;
-  agentUrl?: string;
   error?: string;
   updatedAt?: string;
   leaseHeld: boolean;

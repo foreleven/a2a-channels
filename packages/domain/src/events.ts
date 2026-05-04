@@ -93,7 +93,6 @@ export type AgentEvent = AgentRegistered | AgentUpdated | AgentDeleted;
 export interface MessageRelayed {
   readonly eventType: "MessageRelayed.v1";
   readonly bindingId?: string;
-  readonly agentUrl: string;
   readonly sessionKey?: string;
   readonly userMessage: string;
   readonly replyText: string;

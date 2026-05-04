@@ -33,7 +33,6 @@ export interface RuntimeChannelStatusSnapshot {
   status: RuntimeConnectionStatus["status"] | "unknown";
   ownerNodeId?: string;
   ownerDisplayName?: string;
-  agentUrl?: string;
   error?: string;
   updatedAt?: string;
   leaseHeld: boolean;
@@ -120,7 +119,6 @@ export class RuntimeStatusService {
               status: localStatus.status,
               ownerNodeId: this.config.nodeId,
               ownerDisplayName: this.config.nodeDisplayName,
-              agentUrl: localStatus.agentUrl,
               error: localStatus.error,
               updatedAt: localStatus.updatedAt,
               leaseHeld,

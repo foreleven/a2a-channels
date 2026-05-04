@@ -65,7 +65,7 @@ export class RuntimeAssignmentService {
       return;
     }
 
-    const agentChanged = this.hasAgentTargetChanged(agent);
+    const agentChanged = this.hasAgentConfigChanged(agent);
 
     if (agentChanged) {
       await this.applyAgentUpsert(agent, {
@@ -149,7 +149,6 @@ export class RuntimeAssignmentService {
   private handleConnectionStatus({
     binding,
     status,
-    agentUrl,
     error,
   }: ConnectionLifecycleEvent): void {
     if (!this.ownershipState.getOwnedBinding(binding.id)) {
@@ -158,16 +157,13 @@ export class RuntimeAssignmentService {
 
     switch (status) {
       case "connecting":
-        this.ownershipState.markConnecting(binding.id, agentUrl);
+        this.ownershipState.markConnecting(binding.id);
         break;
       case "connected":
-        this.ownershipState.markConnected(binding.id, agentUrl);
+        this.ownershipState.markConnected(binding.id);
         break;
       case "disconnected": {
-        const decision = this.ownershipState.markDisconnected(
-          binding.id,
-          agentUrl,
-        );
+        const decision = this.ownershipState.markDisconnected(binding.id);
         this.scheduleReconnect(binding.id, decision.delayMs);
         break;
       }
@@ -175,7 +171,6 @@ export class RuntimeAssignmentService {
         const decision = this.ownershipState.markError(
           binding.id,
           error ?? new Error("Unknown connection error"),
-          agentUrl,
         );
         this.scheduleReconnect(binding.id, decision.delayMs);
         break;
@@ -213,7 +208,7 @@ export class RuntimeAssignmentService {
   }
 
   /** Reports whether storing this agent changes connection routing. */
-  private hasAgentTargetChanged(agent: AgentConfig): boolean {
+  private hasAgentConfigChanged(agent: AgentConfig): boolean {
     const previousAgent = this.agentRegistry.getAgent(agent.id);
     return (
       !previousAgent ||

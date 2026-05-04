@@ -9,14 +9,12 @@ type ChannelBinding = ChannelBindingSnapshot;
 export interface ConnectionLifecycleEvent {
   binding: ChannelBinding;
   status: ConnectionStatus;
-  agentUrl?: string;
   error?: unknown;
 }
 
 /** Failure event emitted when an inbound channel message cannot reach its agent. */
 export interface AgentCallFailureEvent {
   binding: ChannelBinding;
-  agentUrl: string;
   error: unknown;
 }
 

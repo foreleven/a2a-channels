@@ -50,31 +50,18 @@ export class RuntimeAgentRegistry {
     return new Map(this.agentsById);
   }
 
-  /** Resolves the active client and target label for a binding's agent id. */
-  async getAgentClient(
-    agentId: string,
-  ): Promise<{ client: AgentClient; url: string }> {
+  /** Resolves the active client for a binding's agent id. */
+  async getAgentClient(agentId: string): Promise<AgentClient> {
     const agent = this.agentsById.get(agentId);
     if (!agent) {
       throw new Error(`Agent ${agentId} not found`);
     }
 
-    return {
-      client: this.agentClientRegistry.require(agent),
-      url: describeAgentTarget(agent),
-    };
+    return this.agentClientRegistry.require(agent);
   }
 
   /** Stops every registered agent client during runtime shutdown. */
   async stopAllClients(): Promise<void> {
     await this.agentClientRegistry.stopAll();
   }
-}
-
-function describeAgentTarget(agent: AgentConfigSnapshot): string {
-  const config = agent.config;
-  if ("transport" in config && config.transport === "stdio") {
-    return [config.command, ...(config.args ?? [])].join(" ");
-  }
-  return config.url;
 }

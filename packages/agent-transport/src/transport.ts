@@ -36,17 +36,14 @@ export type ACPAgentConfig = ACPRestAgentConfig | ACPStdioAgentConfig;
 export type AgentProtocolConfig = A2AAgentConfig | ACPAgentConfig;
 
 export interface AgentClientOptions {
-  displayTarget: string;
   protocol: AgentProtocol;
   transport: AgentTransport;
 }
 
 export class AgentClient {
-  readonly displayTarget: string;
   readonly protocol: AgentProtocol;
 
   constructor(private readonly options: AgentClientOptions) {
-    this.displayTarget = options.displayTarget;
     this.protocol = options.protocol;
   }
 
@@ -65,7 +62,6 @@ export class AgentClient {
 
 export interface AgentTransport {
   readonly protocol: AgentProtocol;
-  readonly displayTarget: string;
   send(request: AgentRequest): Promise<AgentResponse>;
   start?(): Promise<void>;
   stop?(): Promise<void>;

@@ -10,7 +10,6 @@ export type ConnectionStatus =
 export interface RuntimeConnectionStatus {
   bindingId: string;
   status: ConnectionStatus;
-  agentUrl?: string;
   error?: string;
   updatedAt: string;
 }
