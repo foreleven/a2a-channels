@@ -10,6 +10,7 @@ import type {
   AgentRequest,
   AgentResponse,
 } from "./transport.js";
+import { buildIsolatedSessionKey } from "./transport.js";
 
 interface CommandSpec {
   command: string;
@@ -117,7 +118,7 @@ class ACPStdioAgentProcess {
   private async sendSerialized(request: AgentRequest): Promise<AgentResponse> {
     await this.initialize();
     const connection = this.requireConnection();
-    const sessionKey = request.sessionKey ?? request.accountId ?? "default";
+    const sessionKey = buildIsolatedSessionKey(request.accountId, request.sessionKey) ?? "default";
     const sessionId = await this.getOrCreateSession(sessionKey);
     const collectedText: string[] = [];
     this.activeTextBuffers.set(sessionId, collectedText);

@@ -16,6 +16,7 @@ import type {
   AgentTransport,
   AgentTransportFactory,
 } from "./transport.js";
+import { buildIsolatedSessionKey } from "./transport.js";
 
 /** Extract the first text reply from an A2A result envelope. */
 function extractText(result: unknown): string {
@@ -112,13 +113,14 @@ class A2AAgentTransport implements AgentTransport {
         client = await this.factory.createFromUrl(agentUrl);
         this.clientCache.set(agentUrl, client);
       }
+      const contextId = buildIsolatedSessionKey(request.accountId, request.sessionKey);
       const payload: MessageSendParams = {
         message: {
           kind: "message",
           messageId: crypto.randomUUID(),
           role: "user",
           parts: [{ kind: "text", text: request.userMessage }],
-          ...(request.sessionKey ? { contextId: request.sessionKey } : {}),
+          ...(contextId ? { contextId } : {}),
           ...(request.accountId
             ? { metadata: { userId: request.accountId } }
             : {}),

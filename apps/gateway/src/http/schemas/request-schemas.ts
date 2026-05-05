@@ -19,10 +19,6 @@ const acpPermissionSchema = z.enum([
 const a2aAgentConfigSchema = z.object({
   url: nonEmptyString,
 }).strict();
-const acpRestAgentConfigSchema = z.object({
-  transport: z.literal("rest"),
-  url: nonEmptyString,
-}).strict();
 const acpStdioAgentConfigSchema = z.object({
   transport: z.literal("stdio"),
   command: nonEmptyString,
@@ -32,7 +28,6 @@ const acpStdioAgentConfigSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 }).strict();
 const agentConfigSchema = z.union([
-  acpRestAgentConfigSchema,
   acpStdioAgentConfigSchema,
   a2aAgentConfigSchema,
 ]);

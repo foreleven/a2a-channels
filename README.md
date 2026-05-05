@@ -257,10 +257,6 @@ agent in `apps/echo-agent` exposes:
 
 ### ACP
 
-For `protocol: "acp"` with `{ "transport": "rest", "url": "..." }`,
-AgentRelay posts to `{config.url}/runs`, polls `{config.url}/runs/{run_id}`
-until the run reaches a terminal state, and returns the first text output part.
-
 For `protocol: "acp"` with `{ "transport": "stdio" }`, AgentRelay starts the
 configured command as a local stdio process and talks to it with the Agent
 Client Protocol. This is intended for adapters such as Zed Codex ACP:

@@ -17,11 +17,6 @@ export interface A2AAgentConfig {
   readonly url: string;
 }
 
-export interface ACPRestAgentConfig {
-  readonly transport: "rest";
-  readonly url: string;
-}
-
 export interface ACPStdioAgentConfig {
   readonly transport: "stdio";
   readonly command: string;
@@ -35,7 +30,7 @@ export interface ACPStdioAgentConfig {
   readonly timeoutMs?: number;
 }
 
-export type ACPAgentConfig = ACPRestAgentConfig | ACPStdioAgentConfig;
+export type ACPAgentConfig = ACPStdioAgentConfig;
 export type AgentProtocolConfig = A2AAgentConfig | ACPAgentConfig;
 
 export interface AgentConfigSnapshot {

@@ -48,7 +48,7 @@ type FormState = {
   name: string;
   url: string;
   protocol: AgentProtocol;
-  transport: "rest" | "stdio";
+  transport: "stdio";
   command: string;
   args: string;
   description: string;
@@ -57,7 +57,7 @@ const EMPTY_FORM: FormState = {
   name: "",
   url: "",
   protocol: DEFAULT_PROTOCOL,
-  transport: "rest",
+  transport: "stdio",
   command: "",
   args: "",
   description: "",
@@ -104,7 +104,7 @@ export default function AgentsPage() {
       name: agent.name,
       url: getConfigUrl(agent.config),
       protocol: agent.protocol,
-      transport: getConfigTransport(agent.config),
+      transport: "stdio",
       command: getConfigCommand(agent.config),
       args: getConfigArgs(agent.config),
       description: agent.description ?? "",
@@ -279,33 +279,6 @@ export default function AgentsPage() {
               </Select>
             </Field>
             {form.protocol === "acp" && (
-              <Field label="Transport">
-                <Select
-                  value={form.transport}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      transport: parseAgentTransport(event.target.value),
-                    })
-                  }
-                >
-                  <option value="rest">REST</option>
-                  <option value="stdio">stdio</option>
-                </Select>
-              </Field>
-            )}
-            {(form.protocol !== "acp" || form.transport !== "stdio") && (
-              <Field label="URL">
-                <Input
-                  value={form.url}
-                  onChange={(event) =>
-                    setForm({ ...form, url: event.target.value })
-                  }
-                  placeholder="http://localhost:3001"
-                />
-              </Field>
-            )}
-            {form.protocol === "acp" && form.transport === "stdio" && (
               <>
                 <Field label="Command">
                   <Input
@@ -326,6 +299,17 @@ export default function AgentsPage() {
                   />
                 </Field>
               </>
+            )}
+            {form.protocol !== "acp" && (
+              <Field label="URL">
+                <Input
+                  value={form.url}
+                  onChange={(event) =>
+                    setForm({ ...form, url: event.target.value })
+                  }
+                  placeholder="http://localhost:3001"
+                />
+              </Field>
             )}
             <Field label="Description">
               <Textarea
@@ -382,20 +366,16 @@ function EmptyState() {
 
 function buildAgentConfig(form: FormState): AgentProtocolConfig {
   if (form.protocol === "a2a") return { url: form.url };
-  if (form.transport === "stdio") {
-    return {
-      transport: "stdio",
-      command: form.command,
-      args: splitArgs(form.args),
-    };
-  }
-
-  return { transport: "rest", url: form.url };
+  return {
+    transport: "stdio",
+    command: form.command,
+    args: splitArgs(form.args),
+  };
 }
 
 function canSave(form: FormState): boolean {
   if (!form.name.trim()) return false;
-  if (form.protocol === "acp" && form.transport === "stdio") {
+  if (form.protocol === "acp") {
     return Boolean(form.command.trim());
   }
 
@@ -404,7 +384,7 @@ function canSave(form: FormState): boolean {
 
 function describeAgentTarget(agent: AgentConfig): string {
   const config = agent.config;
-  if ("transport" in config && config.transport === "stdio") {
+  if ("transport" in config) {
     return buildCommandLine(config.command, getConfigArgs(config));
   }
   return config.url;
@@ -414,24 +394,16 @@ function getConfigUrl(config: AgentProtocolConfig): string {
   return "url" in config ? config.url : "";
 }
 
-function getConfigTransport(config: AgentProtocolConfig): "rest" | "stdio" {
-  return "transport" in config ? config.transport : "rest";
-}
-
 function getConfigTransportLabel(config: AgentProtocolConfig): string {
   return "transport" in config ? config.transport : "";
 }
 
 function getConfigCommand(config: AgentProtocolConfig): string {
-  return "transport" in config && config.transport === "stdio"
-    ? config.command
-    : "";
+  return "transport" in config ? config.command : "";
 }
 
 function getConfigArgs(config: AgentProtocolConfig): string {
-  return "transport" in config && config.transport === "stdio"
-    ? (config.args ?? []).join(" ")
-    : "";
+  return "transport" in config ? (config.args ?? []).join(" ") : "";
 }
 
 function splitArgs(value: string): string[] {
@@ -447,8 +419,4 @@ function buildCommandLine(command: string, args: string): string {
 
 function parseAgentProtocol(value: string): AgentProtocol {
   return value === "acp" ? "acp" : "a2a";
-}
-
-function parseAgentTransport(value: string): "rest" | "stdio" {
-  return value === "stdio" ? "stdio" : "rest";
 }

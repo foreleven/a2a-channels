@@ -52,13 +52,14 @@ describe("AgentService", () => {
 
     const updated = await service.update(aggregate.id, {
       protocol: "acp",
-      config: { transport: "rest", url: "http://localhost:8000" },
+      config: { transport: "stdio", command: "npx", args: ["@codex/agent"] },
     });
 
     assert.equal(updated?.protocol, "acp");
     assert.deepEqual(updated?.config, {
-      transport: "rest",
-      url: "http://localhost:8000",
+      transport: "stdio",
+      command: "npx",
+      args: ["@codex/agent"],
     });
   });
 });

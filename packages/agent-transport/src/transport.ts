@@ -14,11 +14,6 @@ export interface A2AAgentConfig {
   readonly url: string;
 }
 
-export interface ACPRestAgentConfig {
-  readonly transport: "rest";
-  readonly url: string;
-}
-
 export interface ACPStdioAgentConfig {
   readonly transport: "stdio";
   readonly command: string;
@@ -32,12 +27,30 @@ export interface ACPStdioAgentConfig {
   readonly timeoutMs?: number;
 }
 
-export type ACPAgentConfig = ACPRestAgentConfig | ACPStdioAgentConfig;
+export type ACPAgentConfig = ACPStdioAgentConfig;
 export type AgentProtocolConfig = A2AAgentConfig | ACPAgentConfig;
 
 export interface AgentClientOptions {
   protocol: AgentProtocol;
   transport: AgentTransport;
+}
+
+/**
+ * Builds a session/context identifier that incorporates the account ID so that
+ * different accounts are always isolated to separate sessions, even when the
+ * channel-level session key happens to be the same across accounts.
+ *
+ * When no accountId is present the raw sessionKey is returned unchanged so
+ * that callers without account context continue to work as before.
+ */
+export function buildIsolatedSessionKey(
+  accountId: string | undefined,
+  sessionKey: string | undefined,
+): string | undefined {
+  if (accountId) {
+    return `${accountId}:${sessionKey ?? "default"}`;
+  }
+  return sessionKey;
 }
 
 export class AgentClient {

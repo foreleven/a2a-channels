@@ -110,9 +110,6 @@ function isA2AAgentConfig(value: unknown): value is AgentProtocolConfig {
 
 function isACPAgentConfig(value: unknown): value is ACPAgentConfig {
   if (!isObject(value)) return false;
-  if (value.transport === "rest") {
-    return typeof value.url === "string";
-  }
   if (value.transport === "stdio") {
     return (
       typeof value.command === "string" &&

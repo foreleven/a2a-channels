@@ -208,7 +208,6 @@
             <label>Protocol</label>
             <select id="ag-protocol">
               <option value="a2a">A2A (Agent-to-Agent)</option>
-              <option value="acp">ACP (Agent Communication Protocol)</option>
             </select>
           </div>
           <div>
@@ -317,7 +316,7 @@
         body: JSON.stringify({
           name: document.getElementById('ag-name').value,
           protocol,
-          config: protocol === 'acp' ? { transport: 'rest', url } : { url },
+          config: { url },
           description: document.getElementById('ag-desc').value || undefined,
         }),
       });
