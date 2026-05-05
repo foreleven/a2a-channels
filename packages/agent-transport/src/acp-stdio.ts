@@ -149,7 +149,13 @@ class ACPStdioAgentProcess {
     if (this.initializePromise) return this.initializePromise;
 
     this.initializePromise = (async () => {
-      await mkdir(this.command.cwd, { recursive: true });
+      try {
+        await mkdir(this.command.cwd, { recursive: true });
+      } catch (err) {
+        throw new Error(
+          `[acp stdio] failed to create working directory "${this.command.cwd}": ${String(err)}`,
+        );
+      }
       this.startChild();
       const connection = this.requireConnection();
       await withTimeout(

@@ -49,6 +49,10 @@ export interface AgentClientOptions {
  *
  * When no accountId is present the raw sessionKey is returned unchanged so
  * that callers without account context continue to work as before.
+ *
+ * @note This function is used by the A2A transport for session-level account
+ * isolation.  ACP stdio uses a separate mechanism (per-account child
+ * processes with dedicated cwd) and does not call this function.
  */
 export function buildIsolatedSessionKey(
   accountId: string | undefined,
