@@ -12,6 +12,7 @@ import { parseJsonBody, z } from "../utils/schema.js";
 const registerBodySchema = z.object({
   username: z.string().min(1),
   password: z.string().min(6),
+  externalId: z.string().min(1).optional(),
 });
 
 const loginBodySchema = z.object({
@@ -43,6 +44,7 @@ export class AccountRoutes {
         const account = await this.accountService.register(
           parsed.data.username,
           parsed.data.password,
+          parsed.data.externalId,
         );
         return c.json(account, 201);
       } catch (err) {

@@ -14,6 +14,7 @@ import { AccountStateRepository } from "../infra/account-repo.js";
 export interface AccountSnapshot {
   id: string;
   username: string;
+  externalId: string | null;
   createdAt: string;
 }
 
@@ -140,6 +141,7 @@ export class AccountService {
   async register(
     username: string,
     password: string,
+    externalId?: string | null,
   ): Promise<AccountSnapshot> {
     const trimmed = username.trim();
     if (!trimmed) {
@@ -158,6 +160,7 @@ export class AccountService {
       id: randomUUID(),
       username: trimmed,
       passwordHash,
+      externalId: externalId ?? null,
     });
 
     return this.toSnapshot(row);
@@ -192,6 +195,11 @@ export class AccountService {
     return this.toSnapshot(row);
   }
 
+  async getByExternalId(externalId: string): Promise<AccountSnapshot | null> {
+    const row = await this.repo.findByExternalId(externalId);
+    return row ? this.toSnapshot(row) : null;
+  }
+
   async getById(id: string): Promise<AccountSnapshot | null> {
     const row = await this.repo.findById(id);
     return row ? this.toSnapshot(row) : null;
@@ -200,11 +208,13 @@ export class AccountService {
   private toSnapshot(row: {
     id: string;
     username: string;
+    externalId: string | null;
     createdAt: Date;
   }): AccountSnapshot {
     return {
       id: row.id,
       username: row.username,
+      externalId: row.externalId,
       createdAt: row.createdAt.toISOString(),
     };
   }
