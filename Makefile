@@ -9,6 +9,9 @@ install:
 gateway-db-push:
 	DB_PATH="$(or $(DB_PATH),$(default_db_path))" pnpm --dir apps/gateway db:push
 
+gateway-db-gen:
+	DB_PATH="$(or $(DB_PATH),$(default_db_path))" pnpm --dir apps/gateway db:generate
+
 gateway-test-db-push:
 	DB_PATH="$(test_db_path)" pnpm --dir apps/gateway db:push
 

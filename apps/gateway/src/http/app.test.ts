@@ -46,6 +46,18 @@ function createHttpContainer(): Container {
 const authHeaders = { Authorization: `Bearer ${FAKE_TOKEN}` };
 
 describe("GatewayApp", () => {
+  test("exposes an unauthenticated health endpoint", async () => {
+    const app = createHttpContainer().get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request("/api/health");
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      status: "ok",
+      service: "a2a-channels-gateway",
+    });
+  });
+
   test("exposes runtime status read APIs", async () => {
     const container = createHttpContainer();
     const channelService = {

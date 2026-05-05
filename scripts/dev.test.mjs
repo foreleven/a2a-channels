@@ -18,6 +18,7 @@ describe("dev orchestrator", () => {
   test("starts web only after gateway is reachable", async () => {
     const started = [];
     const children = [];
+    const requestedUrls = [];
     let fetchAttempts = 0;
 
     const orchestrator = createDevOrchestrator({
@@ -27,7 +28,8 @@ describe("dev orchestrator", () => {
         started.push([command, ...args].join(" "));
         return child;
       },
-      fetchImpl: async () => {
+      fetchImpl: async (url) => {
+        requestedUrls.push(url);
         fetchAttempts += 1;
         if (fetchAttempts < 3) {
           throw new Error("not ready");
@@ -45,6 +47,11 @@ describe("dev orchestrator", () => {
       "make gateway",
       "pnpm run echo-agent",
       "pnpm run web",
+    ]);
+    assert.deepEqual(requestedUrls, [
+      "http://localhost:7890/api/health",
+      "http://localhost:7890/api/health",
+      "http://localhost:7890/api/health",
     ]);
     assert.equal(fetchAttempts, 3);
     assert.equal(children.some((child) => child.killed), false);

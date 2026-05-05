@@ -35,7 +35,7 @@ export function createDevOrchestrator(options = {}) {
   }
 
   async function waitForGateway() {
-    const url = new URL("/api/agents", gatewayUrl).href;
+    const url = new URL("/api/health", gatewayUrl).href;
     let lastError;
 
     for (let attempt = 1; attempt <= gatewayWait.maxAttempts; attempt += 1) {
