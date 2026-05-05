@@ -1,10 +1,10 @@
-import type { OAuthAccount } from "../generated/prisma/index.js";
+import type { AccountCredentials } from "../generated/prisma/index.js";
 import { injectable } from "inversify";
 
 import { prisma } from "../store/prisma.js";
 
-export type OAuthAccountRow = Pick<
-  OAuthAccount,
+export type AccountCredentialsRow = Pick<
+  AccountCredentials,
   | "id"
   | "accountId"
   | "provider"
@@ -15,7 +15,7 @@ export type OAuthAccountRow = Pick<
   | "createdAt"
 >;
 
-const OAUTH_SELECT = {
+const CREDENTIALS_SELECT = {
   id: true,
   accountId: true,
   provider: true,
@@ -26,16 +26,16 @@ const OAUTH_SELECT = {
   createdAt: true,
 } as const;
 
-/** Prisma-backed persistence adapter for OAuthAccount records. */
+/** Prisma-backed persistence adapter for AccountCredentials records. */
 @injectable()
-export class OAuthAccountStateRepository {
+export class AccountCredentialsStateRepository {
   async findByProviderAccount(
     provider: string,
     providerAccountId: string,
-  ): Promise<OAuthAccountRow | null> {
-    return prisma.oAuthAccount.findUnique({
+  ): Promise<AccountCredentialsRow | null> {
+    return prisma.accountCredentials.findUnique({
       where: { provider_providerAccountId: { provider, providerAccountId } },
-      select: OAUTH_SELECT,
+      select: CREDENTIALS_SELECT,
     });
   }
 
@@ -47,8 +47,8 @@ export class OAuthAccountStateRepository {
     accessToken?: string | null;
     refreshToken?: string | null;
     expiresAt?: Date | null;
-  }): Promise<OAuthAccountRow> {
-    return prisma.oAuthAccount.create({
+  }): Promise<AccountCredentialsRow> {
+    return prisma.accountCredentials.create({
       data: {
         id: data.id,
         accountId: data.accountId,
@@ -58,7 +58,7 @@ export class OAuthAccountStateRepository {
         refreshToken: data.refreshToken ?? null,
         expiresAt: data.expiresAt ?? null,
       },
-      select: OAUTH_SELECT,
+      select: CREDENTIALS_SELECT,
     });
   }
 
@@ -70,7 +70,7 @@ export class OAuthAccountStateRepository {
       expiresAt?: Date | null;
     },
   ): Promise<void> {
-    await prisma.oAuthAccount.update({
+    await prisma.accountCredentials.update({
       where: { id },
       data: {
         accessToken: tokens.accessToken,

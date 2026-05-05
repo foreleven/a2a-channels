@@ -17,12 +17,12 @@ model Account {
   createdAt    DateTime       @default(now()) @map("created_at")
   updatedAt    DateTime       @updatedAt @map("updated_at")
 
-  oauthAccounts OAuthAccount[]
+  credentials AccountCredentials[]
 
   @@map("accounts")
 }
 
-model OAuthAccount {
+model AccountCredentials {
   id                String    @id @default(uuid())
   accountId         String    @map("account_id")
   provider          String
@@ -36,7 +36,7 @@ model OAuthAccount {
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([provider, providerAccountId])
-  @@map("oauth_accounts")
+  @@map("account_credentials")
 }
 
 model ChannelBinding {

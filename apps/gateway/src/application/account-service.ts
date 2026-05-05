@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import { inject, injectable } from "inversify";
 
 import { AccountStateRepository } from "../infra/account-repo.js";
-import { OAuthAccountStateRepository } from "../infra/oauth-account-repo.js";
+import { AccountCredentialsStateRepository } from "../infra/account-credentials-repo.js";
 
 export interface AccountSnapshot {
   id: string;
@@ -140,8 +140,8 @@ export class AccountService {
   constructor(
     @inject(AccountStateRepository)
     private readonly repo: AccountStateRepository,
-    @inject(OAuthAccountStateRepository)
-    private readonly oauthRepo: OAuthAccountStateRepository,
+    @inject(AccountCredentialsStateRepository)
+    private readonly oauthRepo: AccountCredentialsStateRepository,
   ) {}
 
   async register(
@@ -196,8 +196,8 @@ export class AccountService {
 
   /**
    * Find or create an account linked to the given OAuth provider identity.
-   * If a matching OAuthAccount exists the tokens are refreshed; otherwise a
-   * new Account (with no local password) and a new OAuthAccount record are
+   * If a matching AccountCredentials exists the tokens are refreshed; otherwise a
+   * new Account (with no local password) and a new AccountCredentials record are
    * created.  Returns a signed gateway token for the resolved account.
    */
   async loginOrRegisterWithOAuth(data: {
