@@ -58,10 +58,8 @@ export class AccountRoutes {
         if (err instanceof UsernameTakenError) {
           return c.json({ error: err.message }, 409);
         }
-        if (err instanceof Error) {
-          return c.json({ error: err.message }, 400);
-        }
-        throw err;
+        console.error("[auth] unexpected error during registration", err);
+        return c.json({ error: "Internal server error" }, 500);
       }
     });
 

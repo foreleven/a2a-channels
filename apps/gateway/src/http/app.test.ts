@@ -7,19 +7,43 @@ import {
   AgentService,
   ReferencedAgentError,
 } from "../application/agent-service.js";
+import { AccountService } from "../application/account-service.js";
 import type { ChannelBindingSnapshot } from "../application/channel-binding-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { RuntimeStatusService } from "../application/runtime-status-service.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
 import { GatewayApp, GatewayWebDir, HonoGatewayApp } from "./app.js";
 
+const FAKE_TOKEN = "test-token";
+const FAKE_ACCOUNT = {
+  id: "account-1",
+  username: "testuser",
+  createdAt: "2026-04-21T00:00:00.000Z",
+};
+const mockAccountService = {
+  register: async () => FAKE_ACCOUNT,
+  login: async () => ({ account: FAKE_ACCOUNT, token: FAKE_TOKEN }),
+  verifyToken: async (token: string) =>
+    token === FAKE_TOKEN ? FAKE_ACCOUNT : null,
+  getById: async () => FAKE_ACCOUNT,
+  loginOrRegisterWithOAuth: async () => ({
+    account: FAKE_ACCOUNT,
+    token: FAKE_TOKEN,
+  }),
+};
+
 function createHttpContainer(): Container {
   const container = buildGatewayContainer({
     corsOrigin: "http://localhost:3000",
   });
   container.rebindSync(GatewayWebDir).toConstantValue("/tmp/does-not-exist");
+  container
+    .rebindSync(AccountService)
+    .toConstantValue(mockAccountService as unknown as AccountService);
   return container;
 }
+
+const authHeaders = { Authorization: `Bearer ${FAKE_TOKEN}` };
 
 describe("GatewayApp", () => {
   test("exposes runtime status read APIs", async () => {
@@ -111,13 +135,17 @@ describe("GatewayApp", () => {
 
     const app = container.get<HonoGatewayApp>(GatewayApp);
 
-    const channelsResponse = await app.request("/api/channels");
+    const channelsResponse = await app.request("/api/channels", {
+      headers: authHeaders,
+    });
     assert.equal(channelsResponse.status, 200);
     assert.deepEqual(await channelsResponse.json(), [
       { id: "binding-1", name: "Binding" },
     ]);
 
-    const agentsResponse = await app.request("/api/agents");
+    const agentsResponse = await app.request("/api/agents", {
+      headers: authHeaders,
+    });
     assert.equal(agentsResponse.status, 200);
     assert.deepEqual(await agentsResponse.json(), [
       {
@@ -129,7 +157,9 @@ describe("GatewayApp", () => {
       },
     ]);
 
-    const runtimeNodesResponse = await app.request("/api/runtime/nodes");
+    const runtimeNodesResponse = await app.request("/api/runtime/nodes", {
+      headers: authHeaders,
+    });
     assert.equal(runtimeNodesResponse.status, 200);
     assert.deepEqual(await runtimeNodesResponse.json(), [
       {
@@ -145,6 +175,7 @@ describe("GatewayApp", () => {
 
     const runtimeConnectionsResponse = await app.request(
       "/api/runtime/connections",
+      { headers: authHeaders },
     );
     assert.equal(runtimeConnectionsResponse.status, 200);
     assert.deepEqual(await runtimeConnectionsResponse.json(), [
@@ -160,7 +191,9 @@ describe("GatewayApp", () => {
       },
     ]);
 
-    const runtimeStatusResponse = await app.request("/api/runtime/status");
+    const runtimeStatusResponse = await app.request("/api/runtime/status", {
+      headers: authHeaders,
+    });
     assert.equal(runtimeStatusResponse.status, 200);
     const runtimeStatusPayload = (await runtimeStatusResponse.json()) as {
       mode: string;
@@ -199,7 +232,7 @@ describe("GatewayApp", () => {
     const invalidChannelBody = await app.request("/api/channels", {
       method: "POST",
       body: "{",
-      headers: { "content-type": "application/json" },
+      headers: { ...authHeaders, "content-type": "application/json" },
     });
     assert.equal(invalidChannelBody.status, 400);
     assert.deepEqual(await invalidChannelBody.json(), {
@@ -209,7 +242,7 @@ describe("GatewayApp", () => {
     const missingAgentFields = await app.request("/api/agents", {
       method: "POST",
       body: JSON.stringify({ name: "Echo" }),
-      headers: { "content-type": "application/json" },
+      headers: { ...authHeaders, "content-type": "application/json" },
     });
     assert.equal(missingAgentFields.status, 400);
     assert.deepEqual(await missingAgentFields.json(), {
@@ -229,7 +262,7 @@ describe("GatewayApp", () => {
         agentId: "agent-1",
         channelConfig: "not-an-object",
       }),
-      headers: { "content-type": "application/json" },
+      headers: { ...authHeaders, "content-type": "application/json" },
     });
     assert.equal(invalidChannelPayload.status, 400);
     assert.deepEqual(await invalidChannelPayload.json(), {
@@ -245,7 +278,7 @@ describe("GatewayApp", () => {
     const invalidAgentPatch = await app.request("/api/agents/agent-1", {
       method: "PATCH",
       body: JSON.stringify({ protocol: 42 }),
-      headers: { "content-type": "application/json" },
+      headers: { ...authHeaders, "content-type": "application/json" },
     });
     assert.equal(invalidAgentPatch.status, 400);
     assert.deepEqual(await invalidAgentPatch.json(), {
@@ -260,6 +293,7 @@ describe("GatewayApp", () => {
 
     const deleteReferencedAgent = await app.request("/api/agents/agent-1", {
       method: "DELETE",
+      headers: authHeaders,
     });
     assert.equal(deleteReferencedAgent.status, 409);
     assert.deepEqual(await deleteReferencedAgent.json(), {

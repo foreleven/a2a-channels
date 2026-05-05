@@ -114,26 +114,48 @@ function verifyTokenString(
   if (sigBuf.length !== expectedBuf.length) return null;
   if (!timingSafeEqual(sigBuf, expectedBuf)) return null;
 
-  let payload: TokenPayload;
+  let payload: unknown;
   try {
-    payload = JSON.parse(
-      Buffer.from(encoded, "base64url").toString(),
-    ) as TokenPayload;
+    payload = JSON.parse(Buffer.from(encoded, "base64url").toString());
   } catch {
     return null;
   }
 
-  // Reject expired tokens.
-  if (typeof payload.exp === "number" && Date.now() > payload.exp) {
+  if (
+    typeof payload !== "object" ||
+    payload === null
+  ) {
     return null;
   }
 
-  return payload;
+  const obj = payload as Record<string, unknown>;
+  if (typeof obj["accountId"] !== "string" || !obj["accountId"] || typeof obj["exp"] !== "number") {
+    return null;
+  }
+
+  const typed = payload as TokenPayload;
+
+  // Reject expired tokens.
+  if (Date.now() > typed.exp) {
+    return null;
+  }
+
+  return typed;
 }
 
 // ---------------------------------------------------------------------------
 // AccountService
 // ---------------------------------------------------------------------------
+
+/** Duck-typed check for Prisma P2002 unique-constraint errors. */
+function isPrismaUniqueConstraintError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: unknown }).code === "P2002"
+  );
+}
 
 @injectable()
 export class AccountService {
@@ -161,13 +183,19 @@ export class AccountService {
     }
 
     const passwordHash = await this.hashPassword(password);
-    const row = await this.repo.create({
-      id: randomUUID(),
-      username: trimmed,
-      passwordHash,
-    });
-
-    return this.toSnapshot(row);
+    try {
+      const row = await this.repo.create({
+        id: randomUUID(),
+        username: trimmed,
+        passwordHash,
+      });
+      return this.toSnapshot(row);
+    } catch (err) {
+      if (isPrismaUniqueConstraintError(err)) {
+        throw new UsernameTakenError(trimmed);
+      }
+      throw err;
+    }
   }
 
   async login(username: string, password: string): Promise<LoginResult> {
