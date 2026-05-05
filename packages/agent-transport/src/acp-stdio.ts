@@ -4,7 +4,7 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
@@ -332,7 +332,11 @@ function parseCommandSpec(
   const acpBasePath = process.env["ACP_BASE_PATH"];
   const cwd =
     acpBasePath && config.name && accountId
-      ? join(acpBasePath, config.name, accountId)
+      ? join(
+          acpBasePath,
+          sanitizePathSegment(config.name),
+          sanitizePathSegment(accountId),
+        )
       : (config.cwd ?? process.env["CODEX_ACP_CWD"] ?? process.cwd());
 
   const permission =
@@ -364,4 +368,12 @@ function readPositiveIntegerValue(value: unknown, fallback: number): number {
   const parsed =
     typeof value === "number" ? value : Number.parseInt(String(value), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Strips directory separators and parent-directory components from a segment
+ * that will be used as part of a filesystem path, preventing path traversal.
+ */
+function sanitizePathSegment(segment: string): string {
+  return basename(segment);
 }

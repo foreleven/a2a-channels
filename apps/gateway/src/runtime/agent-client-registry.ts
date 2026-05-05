@@ -29,6 +29,7 @@ export class AgentClientRegistry {
     if (
       previous &&
       previous.protocol === agent.protocol &&
+      previous.name === agent.name &&
       JSON.stringify(previous.config) === JSON.stringify(agent.config) &&
       previousClient
     ) {

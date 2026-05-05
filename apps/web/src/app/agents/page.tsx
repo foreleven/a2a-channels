@@ -48,7 +48,6 @@ type FormState = {
   name: string;
   url: string;
   protocol: AgentProtocol;
-  transport: "stdio";
   command: string;
   args: string;
   description: string;
@@ -57,7 +56,6 @@ const EMPTY_FORM: FormState = {
   name: "",
   url: "",
   protocol: DEFAULT_PROTOCOL,
-  transport: "stdio",
   command: "",
   args: "",
   description: "",
@@ -104,7 +102,6 @@ export default function AgentsPage() {
       name: agent.name,
       url: getConfigUrl(agent.config),
       protocol: agent.protocol,
-      transport: "stdio",
       command: getConfigCommand(agent.config),
       args: getConfigArgs(agent.config),
       description: agent.description ?? "",

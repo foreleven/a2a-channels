@@ -52,17 +52,18 @@ export class AgentClientFactory {
 }
 
 /**
- * For ACP stdio agents, merges the agent's display name into the transport
- * config so the process isolation layer can derive per-account working
- * directories as `${ACP_BASE_PATH}/{name}/{accountId}`.
+ * For ACP stdio agents, merges the agent's ID into the transport config so the
+ * process isolation layer can derive per-account working directories as
+ * `${ACP_BASE_PATH}/{agentId}/{accountId}`.
  *
- * If the persisted config already carries a `name` value it takes precedence
- * over the agent's display name, allowing an operator to choose a different
- * workspace directory name without renaming the agent.
+ * Using the agent's stable ID (rather than its display name) ensures workspace
+ * directories remain unique even when two agents share the same name.  If the
+ * persisted config already carries a `name` value it takes precedence, allowing
+ * an operator to choose an explicit workspace directory name.
  */
 function injectAgentName(agent: AgentConfigSnapshot): typeof agent.config {
   if (agent.protocol !== "acp") return agent.config;
   const config = agent.config as ACPStdioAgentConfig;
   if (config.name) return config;
-  return { ...config, name: agent.name };
+  return { ...config, name: agent.id };
 }

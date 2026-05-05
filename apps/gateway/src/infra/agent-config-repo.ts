@@ -95,6 +95,11 @@ function parseAgentConfig(
     if (protocol === "acp" && isACPAgentConfig(parsed)) {
       return parsed;
     }
+    // Warn about unrecognised configs (e.g. previously persisted ACP REST rows)
+    // so operators know they need to re-configure the agent.
+    console.warn(
+      `[agent-config-repo] agent config for protocol "${protocolValue}" did not match any known schema; falling back to inert default. Stored value: ${value}`,
+    );
   } catch {
     // Fall through to an inert local default for corrupt rows.
   }
