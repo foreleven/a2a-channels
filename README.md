@@ -278,8 +278,8 @@ Install `codex-acp` from a release or use the npm command above. The process
 inherits the gateway environment, so provide `OPENAI_API_KEY`,
 `CODEX_API_KEY`, or an authenticated Codex setup before routing messages to it.
 `config.cwd` controls the ACP session working directory and defaults to
-`CODEX_ACP_CWD` or the gateway process directory. Tool permission requests are
-rejected by default; set `config.permission` or `CODEX_ACP_PERMISSION` to
+`ACP_STDIO_CWD` or the gateway process directory. Tool permission requests are
+rejected by default; set `config.permission` or `ACP_STDIO_PERMISSION` to
 `allow_once` only when the gateway process is allowed to grant tool execution
 for inbound channel messages.
 

@@ -1,5 +1,5 @@
 /**
- * ACP stdio client for local Agent Client Protocol processes such as Codex.
+ * ACP stdio transport for local Agent Client Protocol processes.
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -11,6 +11,7 @@ import type {
   ACPStdioAgentConfig,
   AgentRequest,
   AgentResponse,
+  AgentTransport,
 } from "./transport.js";
 
 interface CommandSpec {
@@ -23,45 +24,94 @@ interface CommandSpec {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 
-/** Process pool for ACP-compatible stdio agents. */
-export class ACPStdioClient {
-  private readonly processes = new Map<string, ACPStdioAgentProcess>();
+/** Agent transport implementation backed by ACP-compatible stdio processes. */
+export class ACPStdioTransport implements AgentTransport {
+  readonly protocol = "acp";
+  private readonly processPool: ACPStdioAgentProcessPool;
 
-  async send(
-    request: AgentRequest,
-    config: ACPStdioAgentConfig,
-  ): Promise<AgentResponse> {
-    const command = parseCommandSpec(config, request.accountId);
-    const key = processPoolKey(command);
-    let process = this.processes.get(key);
-    if (!process) {
-      process = new ACPStdioAgentProcess(command);
-      this.processes.set(key, process);
+  constructor(config: ACPStdioAgentConfig) {
+    this.processPool = new ACPStdioAgentProcessPool(config);
+  }
+
+  send(request: AgentRequest): Promise<AgentResponse> {
+    return this.processPool.send(request);
+  }
+
+  start(): Promise<void> {
+    return this.processPool.start();
+  }
+
+  stop(): Promise<void> {
+    return this.processPool.stop();
+  }
+}
+
+class ACPStdioAgentProcessPool {
+  private readonly workers = new Map<string, ACPStdioAccountWorker>();
+  private stopping = false;
+
+  constructor(private readonly config: ACPStdioAgentConfig) {}
+
+  async send(request: AgentRequest): Promise<AgentResponse> {
+    if (this.stopping) {
+      return { text: "(agent unavailable: ACP stdio transport is stopping)" };
     }
 
+    const worker = this.getOrCreateWorker(request.accountId);
+
     try {
-      return await process.send(request);
+      return await worker.send(request);
     } catch (error) {
+      if (this.workers.get(request.accountId) === worker) {
+        this.workers.delete(request.accountId);
+      }
+      await worker.stop();
       console.error("[acp stdio] agent request failed:", String(error));
       return { text: `(agent unavailable: ${String(error)})` };
     }
   }
 
-  async start(config: ACPStdioAgentConfig): Promise<void> {
-    // Cannot pre-warm a per-account process without knowing the accountId.
-    if (hasPerAccountIsolation(config)) return;
-    const command = parseCommandSpec(config, undefined);
-    const key = processPoolKey(command);
-    if (!this.processes.has(key)) {
-      this.processes.set(key, new ACPStdioAgentProcess(command));
-    }
+  async start(): Promise<void> {
+    // Account-scoped workers are created lazily because accountId is request context.
   }
 
-  async stop(_config: ACPStdioAgentConfig): Promise<void> {
-    // Stop every process in this client's pool (one pool per agent config).
-    const allProcesses = Array.from(this.processes.values());
-    this.processes.clear();
-    await Promise.all(allProcesses.map((p) => p.stop()));
+  async stop(): Promise<void> {
+    this.stopping = true;
+    const allWorkers = Array.from(this.workers.values());
+    this.workers.clear();
+    await Promise.all(allWorkers.map((worker) => worker.stop()));
+  }
+
+  private getOrCreateWorker(accountId: string): ACPStdioAccountWorker {
+    let worker = this.workers.get(accountId);
+    if (!worker) {
+      worker = new ACPStdioAccountWorker(
+        accountId,
+        parseCommandSpec(this.config, accountId),
+      );
+      this.workers.set(accountId, worker);
+    }
+
+    return worker;
+  }
+}
+
+class ACPStdioAccountWorker {
+  private readonly process: ACPStdioAgentProcess;
+
+  constructor(
+    readonly accountId: string,
+    command: CommandSpec,
+  ) {
+    this.process = new ACPStdioAgentProcess(command);
+  }
+
+  send(request: AgentRequest): Promise<AgentResponse> {
+    return this.process.send(request);
+  }
+
+  stop(): Promise<void> {
+    return this.process.stop();
   }
 }
 
@@ -80,6 +130,10 @@ class ACPStdioAgentProcess {
       this.activeTextBuffers,
       command.permission,
     );
+  }
+
+  start(): Promise<void> {
+    return this.initialize();
   }
 
   send(request: AgentRequest): Promise<AgentResponse> {
@@ -324,7 +378,7 @@ function hasPerAccountIsolation(config: ACPStdioAgentConfig): boolean {
 
 function parseCommandSpec(
   config: ACPStdioAgentConfig,
-  accountId: string | undefined,
+  accountId: string,
 ): CommandSpec {
   const command = config.command.trim();
   const args = [...(config.args ?? [])];
@@ -337,12 +391,12 @@ function parseCommandSpec(
           sanitizePathSegment(config.name),
           sanitizePathSegment(accountId),
         )
-      : (config.cwd ?? process.env["CODEX_ACP_CWD"] ?? process.cwd());
+      : (config.cwd ?? process.env["ACP_STDIO_CWD"] ?? process.cwd());
 
   const permission =
-    config.permission ?? process.env["CODEX_ACP_PERMISSION"] ?? "reject_once";
+    config.permission ?? process.env["ACP_STDIO_PERMISSION"] ?? "reject_once";
   const timeoutMs = readPositiveIntegerValue(
-    config.timeoutMs ?? process.env["CODEX_ACP_REQUEST_TIMEOUT_MS"],
+    config.timeoutMs ?? process.env["ACP_STDIO_REQUEST_TIMEOUT_MS"],
     DEFAULT_REQUEST_TIMEOUT_MS,
   );
 
@@ -351,15 +405,6 @@ function parseCommandSpec(
   }
 
   throw new Error("ACP stdio config requires command");
-}
-
-/** Stable process pool key derived from the command identity and cwd. */
-function processPoolKey(command: CommandSpec): string {
-  return JSON.stringify({
-    command: command.command,
-    args: command.args,
-    cwd: command.cwd,
-  });
 }
 
 function readPositiveIntegerValue(value: unknown, fallback: number): number {

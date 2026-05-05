@@ -184,7 +184,7 @@ export class ConnectionManager implements ReplyEventDispatcher {
       (ctx["ChannelType"] as string | undefined) ??
       (ctx["Channel"] as string | undefined) ??
       (ctx["Provider"] as string | undefined);
-    const accountId = ctx["AccountId"] as string | undefined;
+    const accountId = normalizeAccountId(ctx["AccountId"]);
     const sessionKey = ctx["SessionKey"] as string | undefined;
 
     return {
@@ -220,12 +220,18 @@ export class ConnectionManager implements ReplyEventDispatcher {
 
   private connectionLookupKey(
     channelType: string | undefined,
-    accountId: string | undefined,
+    accountId: string,
   ): string {
     const canonicalChannelType = channelTypeRegistry.canonicalize(
       channelType ?? "feishu",
     );
 
-    return `${canonicalChannelType}:${accountId ?? "default"}`;
+    return `${canonicalChannelType}:${accountId}`;
   }
+}
+
+function normalizeAccountId(accountId: unknown): string {
+  return typeof accountId === "string" && accountId.trim()
+    ? accountId
+    : "default";
 }

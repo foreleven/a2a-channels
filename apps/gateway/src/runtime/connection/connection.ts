@@ -95,7 +95,7 @@ export class Connection {
 
   matchesChannelAccount(
     channelType: string | undefined,
-    accountId: string | undefined,
+    accountId: string,
   ): boolean {
     const bindingChannelType = channelTypeRegistry.canonicalize(
       this.binding.channelType,
@@ -107,7 +107,7 @@ export class Connection {
     return (
       this.binding.enabled &&
       bindingChannelType === incomingChannelType &&
-      this.binding.accountId === (accountId ?? "default")
+      this.binding.accountId === accountId
     );
   }
 

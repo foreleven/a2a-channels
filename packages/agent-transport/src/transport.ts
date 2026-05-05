@@ -1,7 +1,7 @@
 export interface AgentRequest {
   userMessage: string;
   sessionKey?: string;
-  accountId?: string;
+  accountId: string;
 }
 
 export interface AgentResponse {

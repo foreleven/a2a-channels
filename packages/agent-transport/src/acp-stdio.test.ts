@@ -79,11 +79,42 @@ test("ACPTransport calls an ACP stdio agent through the SDK client", async () =>
 
   try {
     const response = await client.send({
-        userMessage: "hello",
-        sessionKey: "ctx",
+      userMessage: "hello",
+      accountId: "default",
+      sessionKey: "ctx",
     });
 
     assert.deepEqual(response, { text: "echo:hello" });
+  } finally {
+    await client.stop?.();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ACPTransport start waits for account-scoped request context", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "acp-stdio-start-test-"));
+  const agentPath = join(tempDir, "agent.mjs");
+  const cwd = join(tempDir, "agent-cwd");
+
+  await writeFile(agentPath, ECHO_AGENT_SCRIPT, "utf8");
+
+  const transport = new ACPTransport();
+  const config = {
+    transport: "stdio" as const,
+    command: "node",
+    args: [agentPath],
+    cwd,
+  };
+  const client = transport.create(config);
+
+  try {
+    await client.start?.();
+
+    const entries = await readdir(tempDir);
+    assert.ok(
+      !entries.includes("agent-cwd"),
+      "start should not create an account-scoped worker without accountId",
+    );
   } finally {
     await client.stop?.();
     await rm(tempDir, { recursive: true, force: true });
@@ -109,8 +140,16 @@ test("ACPTransport spawns separate processes per accountId when ACP_BASE_PATH an
   const client = transport.create(config);
 
   try {
-    await client.send({ userMessage: "hello", accountId: "user-1", sessionKey: "s1" });
-    await client.send({ userMessage: "world", accountId: "user-2", sessionKey: "s2" });
+    await client.send({
+      userMessage: "hello",
+      accountId: "user-1",
+      sessionKey: "s1",
+    });
+    await client.send({
+      userMessage: "world",
+      accountId: "user-2",
+      sessionKey: "s2",
+    });
 
     // Each account should have its own subdirectory under basePath/name/
     const entries = await readdir(join(basePath, "my-agent"));
@@ -126,4 +165,3 @@ test("ACPTransport spawns separate processes per accountId when ACP_BASE_PATH an
     await rm(basePath, { recursive: true, force: true });
   }
 });
-
