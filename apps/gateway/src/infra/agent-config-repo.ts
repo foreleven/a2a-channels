@@ -117,6 +117,7 @@ function isACPAgentConfig(value: unknown): value is ACPAgentConfig {
         (Array.isArray(value.args) &&
           value.args.every((arg) => typeof arg === "string"))) &&
       (value.cwd === undefined || typeof value.cwd === "string") &&
+      (value.name === undefined || typeof value.name === "string") &&
       (value.permission === undefined ||
         value.permission === "allow_once" ||
         value.permission === "allow_always" ||

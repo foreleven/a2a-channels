@@ -1,5 +1,6 @@
 import { injectable, multiInject } from "inversify";
 import type {
+  ACPStdioAgentConfig,
   AgentTransportFactory,
 } from "@a2a-channels/agent-transport";
 import { AgentClient, TransportRegistry } from "@a2a-channels/agent-transport";
@@ -25,7 +26,8 @@ export class AgentClientFactory {
   /** Creates an agent client for the configured agent transport. */
   create(agent: AgentConfigSnapshot): AgentClient {
     const factory = this.transportRegistry.resolve(agent.protocol);
-    const transport = factory.create(agent.config);
+    const config = injectAgentName(agent);
+    const transport = factory.create(config);
 
     return new AgentClient({
       protocol: agent.protocol,
@@ -47,4 +49,16 @@ export class AgentClientFactory {
   async stopAll(clients: Iterable<AgentClient>): Promise<void> {
     await Promise.all(Array.from(clients, (client) => this.stop(client)));
   }
+}
+
+/**
+ * For ACP stdio agents, merges the agent's display name into the transport
+ * config so the process isolation layer can derive per-account working
+ * directories as `${ACP_BASE_PATH}/{name}/{accountId}`.
+ */
+function injectAgentName(agent: AgentConfigSnapshot): typeof agent.config {
+  if (agent.protocol !== "acp") return agent.config;
+  const config = agent.config as ACPStdioAgentConfig;
+  if (config.name) return config;
+  return { ...config, name: agent.name };
 }

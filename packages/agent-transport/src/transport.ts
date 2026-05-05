@@ -19,6 +19,13 @@ export interface ACPStdioAgentConfig {
   readonly command: string;
   readonly args?: readonly string[];
   readonly cwd?: string;
+  /**
+   * Short identifier used as the per-agent subdirectory under `ACP_BASE_PATH`
+   * when per-account process isolation is enabled.  Injected at runtime from
+   * the owning agent's display name; does not need to be set in persisted
+   * config.
+   */
+  readonly name?: string;
   readonly permission?:
     | "allow_once"
     | "allow_always"

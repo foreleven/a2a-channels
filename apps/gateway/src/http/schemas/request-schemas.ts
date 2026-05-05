@@ -24,6 +24,7 @@ const acpStdioAgentConfigSchema = z.object({
   command: nonEmptyString,
   args: z.array(z.string()).optional(),
   cwd: z.string().optional(),
+  name: z.string().optional(),
   permission: acpPermissionSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
 }).strict();

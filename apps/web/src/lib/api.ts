@@ -69,6 +69,7 @@ export interface ACPStdioAgentConfig {
   command: string;
   args?: string[];
   cwd?: string;
+  name?: string;
   permission?:
     | "allow_once"
     | "allow_always"
