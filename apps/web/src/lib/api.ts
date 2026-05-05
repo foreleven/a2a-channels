@@ -9,6 +9,32 @@
 const BASE = process.env["NEXT_PUBLIC_GATEWAY_URL"] ?? "";
 
 // ---------------------------------------------------------------------------
+// Auth token storage (browser only)
+// ---------------------------------------------------------------------------
+
+const TOKEN_KEY = "a2a_auth_token";
+
+export function getAuthToken(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearAuthToken(): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// ---------------------------------------------------------------------------
 // Shared DTOs returned by the gateway API.
 // ---------------------------------------------------------------------------
 
@@ -99,12 +125,66 @@ export interface ChannelQrLoginWaitResult {
   channelConfig?: Record<string, unknown>;
 }
 
+export interface AccountInfo {
+  id: string;
+  username: string;
+  createdAt: string;
+}
+
+export interface LoginResult {
+  account: AccountInfo;
+  token: string;
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+export async function register(
+  username: string,
+  password: string,
+): Promise<AccountInfo> {
+  const res = await fetch(`${BASE}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<AccountInfo>;
+}
+
+export async function login(
+  username: string,
+  password: string,
+): Promise<LoginResult> {
+  const res = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<LoginResult>;
+}
+
+export async function getMe(): Promise<AccountInfo | null> {
+  const token = getAuthToken();
+  if (!token) return null;
+  const res = await fetch(`${BASE}/api/auth/me`, {
+    headers: authHeaders(),
+  });
+  if (res.status === 401) return null;
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<AccountInfo>;
+}
+
 // ---------------------------------------------------------------------------
 // Channel bindings
 // ---------------------------------------------------------------------------
 
 export async function listChannels(): Promise<ChannelBinding[]> {
-  const res = await fetch(`${BASE}/api/channels`);
+  const res = await fetch(`${BASE}/api/channels`, {
+    headers: authHeaders(),
+  });
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<ChannelBinding[]>;
 }
@@ -116,7 +196,7 @@ export async function createChannel(
 ): Promise<ChannelBinding> {
   const res = await fetch(`${BASE}/api/channels`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -129,7 +209,7 @@ export async function updateChannel(
 ): Promise<ChannelBinding> {
   const res = await fetch(`${BASE}/api/channels/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -137,7 +217,10 @@ export async function updateChannel(
 }
 
 export async function deleteChannel(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/channels/${id}`, { method: "DELETE" });
+  const res = await fetch(`${BASE}/api/channels/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
   if (!res.ok) throw new Error(await res.text());
 }
 
@@ -149,7 +232,7 @@ export async function startChannelQrLogin(
     `${BASE}/api/channels/${encodeURIComponent(channelType)}/auth/qr/start`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
     },
   );
@@ -165,7 +248,7 @@ export async function waitForChannelQrLogin(
     `${BASE}/api/channels/${encodeURIComponent(channelType)}/auth/qr/wait`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
     },
   );
@@ -178,7 +261,9 @@ export async function waitForChannelQrLogin(
 // ---------------------------------------------------------------------------
 
 export async function listAgents(): Promise<AgentConfig[]> {
-  const res = await fetch(`${BASE}/api/agents`);
+  const res = await fetch(`${BASE}/api/agents`, {
+    headers: authHeaders(),
+  });
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<AgentConfig[]>;
 }
@@ -188,7 +273,7 @@ export async function createAgent(
 ): Promise<AgentConfig> {
   const res = await fetch(`${BASE}/api/agents`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -201,7 +286,7 @@ export async function updateAgent(
 ): Promise<AgentConfig> {
   const res = await fetch(`${BASE}/api/agents/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -209,7 +294,10 @@ export async function updateAgent(
 }
 
 export async function deleteAgent(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/agents/${id}`, { method: "DELETE" });
+  const res = await fetch(`${BASE}/api/agents/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
   if (!res.ok) throw new Error(await res.text());
 }
 
@@ -220,7 +308,9 @@ export async function deleteAgent(id: string): Promise<void> {
 export async function listRuntimeChannelStatuses(): Promise<
   RuntimeChannelStatus[]
 > {
-  const res = await fetch(`${BASE}/api/runtime/connections`);
+  const res = await fetch(`${BASE}/api/runtime/connections`, {
+    headers: authHeaders(),
+  });
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<RuntimeChannelStatus[]>;
 }
