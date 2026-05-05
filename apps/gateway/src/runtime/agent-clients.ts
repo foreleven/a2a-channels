@@ -1,5 +1,6 @@
 import { injectable, multiInject } from "inversify";
 import type {
+  ACPStdioAgentConfig,
   AgentTransportFactory,
 } from "@a2a-channels/agent-transport";
 import { AgentClient, TransportRegistry } from "@a2a-channels/agent-transport";
@@ -25,7 +26,8 @@ export class AgentClientFactory {
   /** Creates an agent client for the configured agent transport. */
   create(agent: AgentConfigSnapshot): AgentClient {
     const factory = this.transportRegistry.resolve(agent.protocol);
-    const transport = factory.create(agent.config);
+    const config = injectAgentName(agent);
+    const transport = factory.create(config);
 
     return new AgentClient({
       protocol: agent.protocol,
@@ -47,4 +49,21 @@ export class AgentClientFactory {
   async stopAll(clients: Iterable<AgentClient>): Promise<void> {
     await Promise.all(Array.from(clients, (client) => this.stop(client)));
   }
+}
+
+/**
+ * For ACP stdio agents, merges the agent's ID into the transport config so the
+ * process isolation layer can derive per-account working directories as
+ * `${ACP_BASE_PATH}/{agentId}/{accountId}`.
+ *
+ * Using the agent's stable ID (rather than its display name) ensures workspace
+ * directories remain unique even when two agents share the same name.  If the
+ * persisted config already carries a `name` value it takes precedence, allowing
+ * an operator to choose an explicit workspace directory name.
+ */
+function injectAgentName(agent: AgentConfigSnapshot): typeof agent.config {
+  if (agent.protocol !== "acp") return agent.config;
+  const config = agent.config as ACPStdioAgentConfig;
+  if (config.name) return config;
+  return { ...config, name: agent.id };
 }

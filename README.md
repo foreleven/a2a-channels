@@ -257,10 +257,6 @@ agent in `apps/echo-agent` exposes:
 
 ### ACP
 
-For `protocol: "acp"` with `{ "transport": "rest", "url": "..." }`,
-AgentRelay posts to `{config.url}/runs`, polls `{config.url}/runs/{run_id}`
-until the run reaches a terminal state, and returns the first text output part.
-
 For `protocol: "acp"` with `{ "transport": "stdio" }`, AgentRelay starts the
 configured command as a local stdio process and talks to it with the Agent
 Client Protocol. This is intended for adapters such as Zed Codex ACP:
@@ -286,6 +282,21 @@ inherits the gateway environment, so provide `OPENAI_API_KEY`,
 rejected by default; set `config.permission` or `CODEX_ACP_PERMISSION` to
 `allow_once` only when the gateway process is allowed to grant tool execution
 for inbound channel messages.
+
+#### Per-account process isolation
+
+When `ACP_BASE_PATH` is set, the gateway creates a separate child process and
+working directory for each account that sends a message to an ACP agent. The
+working directory is derived as:
+
+```
+${ACP_BASE_PATH}/<agentId>/<accountId>
+```
+
+where `<agentId>` is the agent's unique identifier. When `ACP_BASE_PATH` is
+active, `config.cwd` is ignored for account-routed requests; it is still used
+when a request carries no `accountId`. This feature is intended for ACP agents
+that maintain per-user state on disk (e.g. Codex workspace files).
 
 ## Development Commands
 

@@ -95,6 +95,11 @@ function parseAgentConfig(
     if (protocol === "acp" && isACPAgentConfig(parsed)) {
       return parsed;
     }
+    // Warn about unrecognised configs (e.g. previously persisted ACP REST rows)
+    // so operators know they need to re-configure the agent.
+    console.warn(
+      `[agent-config-repo] agent config for protocol "${protocolValue}" did not match any known schema; falling back to inert default. Stored value: ${value}`,
+    );
   } catch {
     // Fall through to an inert local default for corrupt rows.
   }
@@ -110,9 +115,6 @@ function isA2AAgentConfig(value: unknown): value is AgentProtocolConfig {
 
 function isACPAgentConfig(value: unknown): value is ACPAgentConfig {
   if (!isObject(value)) return false;
-  if (value.transport === "rest") {
-    return typeof value.url === "string";
-  }
   if (value.transport === "stdio") {
     return (
       typeof value.command === "string" &&
@@ -120,6 +122,7 @@ function isACPAgentConfig(value: unknown): value is ACPAgentConfig {
         (Array.isArray(value.args) &&
           value.args.every((arg) => typeof arg === "string"))) &&
       (value.cwd === undefined || typeof value.cwd === "string") &&
+      (value.name === undefined || typeof value.name === "string") &&
       (value.permission === undefined ||
         value.permission === "allow_once" ||
         value.permission === "allow_always" ||

@@ -29,6 +29,7 @@ export class AgentClientRegistry {
     if (
       previous &&
       previous.protocol === agent.protocol &&
+      previous.name === agent.name &&
       JSON.stringify(previous.config) === JSON.stringify(agent.config) &&
       previousClient
     ) {
@@ -80,8 +81,5 @@ export class AgentClientRegistry {
 }
 
 function agentClientCacheKey(agent: AgentConfigSnapshot): string {
-  return JSON.stringify({
-    protocol: agent.protocol ?? "a2a",
-    config: agent.config,
-  });
+  return agent.id;
 }

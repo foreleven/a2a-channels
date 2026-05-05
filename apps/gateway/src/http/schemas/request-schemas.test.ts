@@ -7,19 +7,14 @@ import {
 } from "./request-schemas.js";
 
 describe("agent request schemas", () => {
-  test("preserves ACP REST transport while parsing agent config", () => {
+  test("rejects ACP REST transport config", () => {
     const parsed = registerAgentBodySchema.safeParse({
       name: "ACP REST",
       protocol: "acp",
       config: { transport: "rest", url: "http://localhost:8000" },
     });
 
-    assert.equal(parsed.success, true);
-    if (!parsed.success) return;
-    assert.deepEqual(parsed.data.config, {
-      transport: "rest",
-      url: "http://localhost:8000",
-    });
+    assert.equal(parsed.success, false);
   });
 
   test("rejects A2A config carrying ACP transport fields", () => {

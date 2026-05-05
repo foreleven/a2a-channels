@@ -64,16 +64,12 @@ export interface A2AAgentConfig {
   url: string;
 }
 
-export interface ACPRestAgentConfig {
-  transport: "rest";
-  url: string;
-}
-
 export interface ACPStdioAgentConfig {
   transport: "stdio";
   command: string;
   args?: string[];
   cwd?: string;
+  name?: string;
   permission?:
     | "allow_once"
     | "allow_always"
@@ -84,7 +80,6 @@ export interface ACPStdioAgentConfig {
 
 export type AgentProtocolConfig =
   | A2AAgentConfig
-  | ACPRestAgentConfig
   | ACPStdioAgentConfig;
 
 export type RuntimeChannelOwnership =

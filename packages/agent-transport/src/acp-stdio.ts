@@ -3,6 +3,8 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
@@ -29,8 +31,8 @@ export class ACPStdioClient {
     request: AgentRequest,
     config: ACPStdioAgentConfig,
   ): Promise<AgentResponse> {
-    const command = parseCommandSpec(config);
-    const key = JSON.stringify(command);
+    const command = parseCommandSpec(config, request.accountId);
+    const key = processPoolKey(command);
     let process = this.processes.get(key);
     if (!process) {
       process = new ACPStdioAgentProcess(command);
@@ -46,21 +48,20 @@ export class ACPStdioClient {
   }
 
   async start(config: ACPStdioAgentConfig): Promise<void> {
-    const command = parseCommandSpec(config);
-    const key = JSON.stringify(command);
+    // Cannot pre-warm a per-account process without knowing the accountId.
+    if (hasPerAccountIsolation(config)) return;
+    const command = parseCommandSpec(config, undefined);
+    const key = processPoolKey(command);
     if (!this.processes.has(key)) {
       this.processes.set(key, new ACPStdioAgentProcess(command));
     }
   }
 
-  async stop(config: ACPStdioAgentConfig): Promise<void> {
-    const command = parseCommandSpec(config);
-    const key = JSON.stringify(command);
-    const process = this.processes.get(key);
-    if (!process) return;
-
-    this.processes.delete(key);
-    await process.stop();
+  async stop(_config: ACPStdioAgentConfig): Promise<void> {
+    // Stop every process in this client's pool (one pool per agent config).
+    const allProcesses = Array.from(this.processes.values());
+    this.processes.clear();
+    await Promise.all(allProcesses.map((p) => p.stop()));
   }
 }
 
@@ -117,7 +118,8 @@ class ACPStdioAgentProcess {
   private async sendSerialized(request: AgentRequest): Promise<AgentResponse> {
     await this.initialize();
     const connection = this.requireConnection();
-    const sessionKey = request.sessionKey ?? request.accountId ?? "default";
+    // Each account has its own process so no accountId prefix is needed here.
+    const sessionKey = request.sessionKey ?? "default";
     const sessionId = await this.getOrCreateSession(sessionKey);
     const collectedText: string[] = [];
     this.activeTextBuffers.set(sessionId, collectedText);
@@ -147,6 +149,13 @@ class ACPStdioAgentProcess {
     if (this.initializePromise) return this.initializePromise;
 
     this.initializePromise = (async () => {
+      try {
+        await mkdir(this.command.cwd, { recursive: true });
+      } catch (err) {
+        throw new Error(
+          `[acp stdio] failed to create working directory "${this.command.cwd}": ${String(err)}`,
+        );
+      }
       this.startChild();
       const connection = this.requireConnection();
       await withTimeout(
@@ -305,10 +314,31 @@ async function withTimeout<T>(
   }
 }
 
-function parseCommandSpec(config: ACPStdioAgentConfig): CommandSpec {
+/**
+ * Returns `true` when per-account process isolation is active for `config`,
+ * i.e., both `ACP_BASE_PATH` env variable and `config.name` are set.
+ */
+function hasPerAccountIsolation(config: ACPStdioAgentConfig): boolean {
+  return !!process.env["ACP_BASE_PATH"] && !!config.name;
+}
+
+function parseCommandSpec(
+  config: ACPStdioAgentConfig,
+  accountId: string | undefined,
+): CommandSpec {
   const command = config.command.trim();
   const args = [...(config.args ?? [])];
-  const cwd = config.cwd ?? process.env["CODEX_ACP_CWD"] ?? process.cwd();
+
+  const acpBasePath = process.env["ACP_BASE_PATH"];
+  const cwd =
+    acpBasePath && config.name && accountId
+      ? join(
+          acpBasePath,
+          sanitizePathSegment(config.name),
+          sanitizePathSegment(accountId),
+        )
+      : (config.cwd ?? process.env["CODEX_ACP_CWD"] ?? process.cwd());
+
   const permission =
     config.permission ?? process.env["CODEX_ACP_PERMISSION"] ?? "reject_once";
   const timeoutMs = readPositiveIntegerValue(
@@ -323,10 +353,27 @@ function parseCommandSpec(config: ACPStdioAgentConfig): CommandSpec {
   throw new Error("ACP stdio config requires command");
 }
 
+/** Stable process pool key derived from the command identity and cwd. */
+function processPoolKey(command: CommandSpec): string {
+  return JSON.stringify({
+    command: command.command,
+    args: command.args,
+    cwd: command.cwd,
+  });
+}
+
 function readPositiveIntegerValue(value: unknown, fallback: number): number {
   if (!value) return fallback;
 
   const parsed =
     typeof value === "number" ? value : Number.parseInt(String(value), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Strips directory separators and parent-directory components from a segment
+ * that will be used as part of a filesystem path, preventing path traversal.
+ */
+function sanitizePathSegment(segment: string): string {
+  return basename(segment);
 }
