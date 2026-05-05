@@ -12,12 +12,20 @@ import { parseJsonBody, z } from "../utils/schema.js";
 const registerBodySchema = z.object({
   username: z.string().min(1),
   password: z.string().min(6),
-  externalId: z.string().min(1).optional(),
 });
 
 const loginBodySchema = z.object({
   username: z.string().min(1),
   password: z.string().min(1),
+});
+
+const oauthCallbackBodySchema = z.object({
+  provider: z.string().min(1),
+  providerAccountId: z.string().min(1),
+  suggestedUsername: z.string().min(1).optional(),
+  accessToken: z.string().optional(),
+  refreshToken: z.string().optional(),
+  expiresAt: z.string().datetime().optional(),
 });
 
 /**
@@ -44,7 +52,6 @@ export class AccountRoutes {
         const account = await this.accountService.register(
           parsed.data.username,
           parsed.data.password,
-          parsed.data.externalId,
         );
         return c.json(account, 201);
       } catch (err) {
@@ -96,6 +103,24 @@ export class AccountRoutes {
         }
         throw err;
       }
+    });
+
+    app.post("/api/auth/oauth/callback", async (c) => {
+      const parsed = await parseJsonBody(c, oauthCallbackBodySchema);
+      if (!parsed.success) {
+        return parsed.response;
+      }
+
+      const d = parsed.data;
+      const result = await this.accountService.loginOrRegisterWithOAuth({
+        provider: d.provider,
+        providerAccountId: d.providerAccountId,
+        suggestedUsername: d.suggestedUsername,
+        accessToken: d.accessToken ?? null,
+        refreshToken: d.refreshToken ?? null,
+        expiresAt: d.expiresAt ? new Date(d.expiresAt) : null,
+      });
+      return c.json({ account: result.account, token: result.token });
     });
   }
 }

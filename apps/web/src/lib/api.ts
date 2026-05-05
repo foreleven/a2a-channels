@@ -128,7 +128,6 @@ export interface ChannelQrLoginWaitResult {
 export interface AccountInfo {
   id: string;
   username: string;
-  externalId: string | null;
   createdAt: string;
 }
 

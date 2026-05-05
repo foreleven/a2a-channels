@@ -35,6 +35,7 @@ import { ChannelRoutes } from "../http/routes/channels.js";
 import { RuntimeStatusRoutes } from "../http/routes/runtime-status.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { AccountStateRepository } from "../infra/account-repo.js";
+import { OAuthAccountStateRepository } from "../infra/oauth-account-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
@@ -117,6 +118,7 @@ function bindInfrastructure(
   // Infrastructure adapters are the only concrete implementations of domain
   // repository ports. Application services consume the ports below, not Prisma.
   container.bind(AccountStateRepository).toSelf().inSingletonScope();
+  container.bind(OAuthAccountStateRepository).toSelf().inSingletonScope();
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelBindingStateRepository).toSelf().inSingletonScope();
   container.bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();

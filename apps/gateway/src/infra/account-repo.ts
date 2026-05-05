@@ -5,14 +5,13 @@ import { prisma } from "../store/prisma.js";
 
 export type AccountRow = Pick<
   Account,
-  "id" | "username" | "passwordHash" | "externalId" | "createdAt"
+  "id" | "username" | "passwordHash" | "createdAt"
 >;
 
 const ACCOUNT_SELECT = {
   id: true,
   username: true,
   passwordHash: true,
-  externalId: true,
   createdAt: true,
 } as const;
 
@@ -33,25 +32,16 @@ export class AccountStateRepository {
     });
   }
 
-  async findByExternalId(externalId: string): Promise<AccountRow | null> {
-    return prisma.account.findUnique({
-      where: { externalId },
-      select: ACCOUNT_SELECT,
-    });
-  }
-
   async create(data: {
     id: string;
     username: string;
-    passwordHash: string;
-    externalId?: string | null;
+    passwordHash?: string | null;
   }): Promise<AccountRow> {
     return prisma.account.create({
       data: {
         id: data.id,
         username: data.username,
-        passwordHash: data.passwordHash,
-        externalId: data.externalId ?? null,
+        passwordHash: data.passwordHash ?? null,
       },
       select: ACCOUNT_SELECT,
     });
