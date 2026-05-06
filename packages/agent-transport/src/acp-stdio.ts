@@ -440,8 +440,9 @@ function buildACPPromptBlocks(request: AgentRequest): acp.ContentBlock[] {
     }
   }
 
-  // Ensure at least one text block if there are no other blocks.
-  if (blocks.length === 0) {
+  // Ensure at least one content block is present. Fall back to a text block
+  // only if the user message is non-empty; an empty prompt should not be sent.
+  if (blocks.length === 0 && request.userMessage.trim()) {
     blocks.push({ type: "text", text: request.userMessage });
   }
 
