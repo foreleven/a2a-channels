@@ -105,7 +105,7 @@ export class ChannelReplyDelivery {
           continue;
         }
 
-        if (chunk.text !== undefined) lastText = chunk.text;
+        if (chunk.text.trim()) lastText = chunk.text;
         if (chunk.files?.length) lastFiles = chunk.files;
 
         if (chunk.kind === "partial") {
@@ -164,7 +164,7 @@ export class ChannelReplyDelivery {
         continue;
       }
 
-      if (chunk.text !== undefined) lastText = chunk.text;
+      if (chunk.text.trim()) lastText = chunk.text;
       if (chunk.files?.length) lastFiles = chunk.files;
 
       if (chunk.kind === "partial") {
