@@ -122,7 +122,7 @@ export class Connection {
       return undefined;
     }
 
-    if (!event.userMessage.trim()) {
+    if (!event.userMessage.trim() && !event.files?.length) {
       return this.replyDelivery.deliver(event.event, null);
     }
 
@@ -135,19 +135,20 @@ export class Connection {
   /** Sends inbound channel text to the bound agent and emits outbound telemetry. */
   async handleMessage(
     event: MessageInboundEvent,
-  ): Promise<{ text: string } | null> {
-    const { accountId, channelType, sessionKey, userMessage } = event;
+  ): Promise<{ text: string; files?: import("@agent-relay/agent-transport").AgentFile[] } | null> {
+    const { accountId, channelType, sessionKey, userMessage, files } = event;
 
-    if (!userMessage.trim()) {
+    if (!userMessage.trim() && !files?.length) {
       return null;
     }
 
-    let result: { text: string } | null;
+    let result: { text: string; files?: import("@agent-relay/agent-transport").AgentFile[] } | null;
     try {
       result = await this.options.agentClient.send({
         userMessage,
         sessionKey,
         accountId,
+        ...(files?.length ? { files } : {}),
       });
     } catch (error) {
       this.options.callbacks?.onAgentCallFailed?.({
@@ -173,7 +174,7 @@ export class Connection {
   async *handleMessageStream(
     event: MessageInboundEvent,
   ): AsyncIterable<AgentResponseStreamEvent> {
-    const { accountId, channelType, sessionKey, userMessage } = event;
+    const { accountId, channelType, sessionKey, userMessage, files } = event;
     let sawFinal = false;
     let lastText = "";
 
@@ -182,6 +183,7 @@ export class Connection {
         userMessage,
         sessionKey,
         accountId,
+        ...(files?.length ? { files } : {}),
       })) {
         if (chunk.text) {
           lastText = chunk.text;

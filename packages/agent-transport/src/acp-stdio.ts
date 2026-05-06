@@ -9,6 +9,7 @@ import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
   ACPStdioAgentConfig,
+  AgentFile,
   AgentRequest,
   AgentResponse,
   AgentTransport,
@@ -137,6 +138,7 @@ class ACPStdioAgentProcess {
   private initializePromise: Promise<void> | null = null;
   private readonly sessions = new Map<string, string>();
   private readonly activeTextBuffers = new Map<string, string[]>();
+  private readonly activeFileBuffers = new Map<string, AgentFile[]>();
   private readonly client: ACPStdioClientCallbacks;
   private turnQueue = Promise.resolve();
   private stopping = false;
@@ -144,6 +146,7 @@ class ACPStdioAgentProcess {
   constructor(private readonly command: CommandSpec) {
     this.client = new ACPStdioClientCallbacks(
       this.activeTextBuffers,
+      this.activeFileBuffers,
       command.permission,
     );
   }
@@ -169,6 +172,7 @@ class ACPStdioAgentProcess {
     this.initializePromise = null;
     this.sessions.clear();
     this.activeTextBuffers.clear();
+    this.activeFileBuffers.clear();
 
     if (!child || child.exitCode !== null) return;
 
@@ -191,14 +195,14 @@ class ACPStdioAgentProcess {
     // Each account has its own process so no accountId prefix is needed here.
     const sessionId = await this.getOrCreateSession(request.sessionKey);
     const collectedText: string[] = [];
+    const collectedFiles: AgentFile[] = [];
     this.activeTextBuffers.set(sessionId, collectedText);
+    this.activeFileBuffers.set(sessionId, collectedFiles);
 
     try {
+      const promptBlocks = buildACPPromptBlocks(request);
       const response = await withTimeout(
-        connection.prompt({
-          sessionId,
-          prompt: [{ type: "text", text: request.userMessage }],
-        }),
+        connection.prompt({ sessionId, prompt: promptBlocks }),
         this.command.timeoutMs,
         'ACP request "session/prompt"',
       );
@@ -208,9 +212,13 @@ class ACPStdioAgentProcess {
       }
 
       const text = collectedText.join("").trim();
-      return { text: text || "(no response from agent)" };
+      return {
+        text: text || "(no response from agent)",
+        ...(collectedFiles.length ? { files: collectedFiles } : {}),
+      };
     } finally {
       this.activeTextBuffers.delete(sessionId);
+      this.activeFileBuffers.delete(sessionId);
     }
   }
 
@@ -315,12 +323,14 @@ class ACPStdioAgentProcess {
     this.initializePromise = null;
     this.sessions.clear();
     this.activeTextBuffers.clear();
+    this.activeFileBuffers.clear();
   }
 }
 
 class ACPStdioClientCallbacks implements acp.Client {
   constructor(
     private readonly activeTextBuffers: Map<string, string[]>,
+    private readonly activeFileBuffers: Map<string, AgentFile[]>,
     private readonly permission: string,
   ) {}
 
@@ -349,17 +359,93 @@ class ACPStdioClientCallbacks implements acp.Client {
   }
 
   async sessionUpdate(params: acp.SessionNotification): Promise<void> {
-    const buffer = this.activeTextBuffers.get(params.sessionId);
-    if (!buffer) return;
+    if (params.update.sessionUpdate !== "agent_message_chunk") return;
 
-    const text = extractAgentMessageText(params.update);
-    if (text) buffer.push(text);
+    const textBuffer = this.activeTextBuffers.get(params.sessionId);
+    const fileBuffer = this.activeFileBuffers.get(params.sessionId);
+
+    const content = params.update.content;
+    if (content.type === "text") {
+      if (textBuffer) textBuffer.push(content.text);
+    } else if (content.type === "image") {
+      if (fileBuffer && content.data && content.mimeType) {
+        fileBuffer.push({
+          data: content.data,
+          mimeType: content.mimeType,
+          ...(content.uri ? { url: content.uri } : {}),
+        });
+      }
+    } else if (content.type === "audio") {
+      if (fileBuffer && content.data && content.mimeType) {
+        fileBuffer.push({
+          data: content.data,
+          mimeType: content.mimeType,
+        });
+      }
+    }
   }
 }
 
-function extractAgentMessageText(update: acp.SessionUpdate): string {
-  if (update.sessionUpdate !== "agent_message_chunk") return "";
-  return update.content.type === "text" ? update.content.text : "";
+/** Build the ACP prompt content block array from an AgentRequest. */
+function buildACPPromptBlocks(request: AgentRequest): acp.ContentBlock[] {
+  const blocks: acp.ContentBlock[] = [];
+
+  if (request.userMessage.trim()) {
+    blocks.push({ type: "text", text: request.userMessage });
+  }
+
+  for (const f of request.files ?? []) {
+    if (!f.mimeType) continue;
+
+    if (f.mimeType.startsWith("image/")) {
+      if (f.data) {
+        blocks.push({
+          type: "image",
+          data: f.data,
+          mimeType: f.mimeType,
+          ...(f.url ? { uri: f.url } : {}),
+        });
+      } else if (f.url) {
+        // No inline data: send as a resource link so the agent can fetch it.
+        blocks.push({
+          type: "resource_link",
+          uri: f.url,
+          name: f.name ?? f.url,
+          mimeType: f.mimeType,
+        });
+      }
+    } else if (f.mimeType.startsWith("audio/")) {
+      if (f.data) {
+        blocks.push({
+          type: "audio",
+          data: f.data,
+          mimeType: f.mimeType,
+        });
+      } else if (f.url) {
+        blocks.push({
+          type: "resource_link",
+          uri: f.url,
+          name: f.name ?? f.url,
+          mimeType: f.mimeType,
+        });
+      }
+    } else if (f.url) {
+      // Non-image/audio files: send as resource_link
+      blocks.push({
+        type: "resource_link",
+        uri: f.url,
+        name: f.name ?? f.url,
+        mimeType: f.mimeType,
+      });
+    }
+  }
+
+  // Ensure at least one text block if there are no other blocks.
+  if (blocks.length === 0) {
+    blocks.push({ type: "text", text: request.userMessage });
+  }
+
+  return blocks;
 }
 
 async function withTimeout<T>(

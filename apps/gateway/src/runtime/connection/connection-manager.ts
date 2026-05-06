@@ -16,6 +16,7 @@ import {
   OpenClawPluginRuntime,
   type ReplyEventDispatcher,
 } from "@agent-relay/openclaw-compat";
+import type { AgentFile } from "@agent-relay/agent-transport";
 import { inject, injectable } from "inversify";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 
@@ -198,6 +199,7 @@ export class ConnectionManager implements ReplyEventDispatcher {
         channelType,
         ctx,
       });
+    const files = buildFilesFromContext(ctx);
 
     return {
       accountId,
@@ -206,6 +208,7 @@ export class ConnectionManager implements ReplyEventDispatcher {
       sessionKey,
       userMessage,
       replyToId: ctx.ReplyToId,
+      ...(files.length ? { files } : {}),
     };
   }
 
@@ -296,4 +299,42 @@ function buildFallbackSessionKey({
 
 function readNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * Extract file attachments from an inbound channel context.
+ *
+ * Channel plugins populate MediaUrls/MediaUrl (and corresponding MediaTypes)
+ * when the inbound message contains image or other media attachments.
+ */
+function buildFilesFromContext(ctx: ChannelReplyEvent["ctx"]): AgentFile[] {
+  const urls = readStringArray(ctx.MediaUrls) ?? (
+    ctx.MediaUrl && typeof ctx.MediaUrl === "string"
+      ? [ctx.MediaUrl]
+      : []
+  );
+
+  if (!urls.length) return [];
+
+  const types = readStringArray(ctx.MediaTypes);
+
+  return urls
+    .map((url, i): AgentFile | null => {
+      const mimeType = types?.[i] ?? (
+        typeof ctx.MediaType === "string" && i === 0 ? ctx.MediaType : undefined
+      );
+      const trimmed = url.trim();
+      if (!trimmed) return null;
+      return {
+        url: trimmed,
+        ...(mimeType ? { mimeType } : {}),
+      };
+    })
+    .filter((f): f is AgentFile => f !== null);
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((v): v is string => typeof v === "string");
+  return strings.length ? strings : undefined;
 }
