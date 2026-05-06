@@ -293,6 +293,7 @@ export function buildChannelCompat(
           type: "channel.reply.buffered.dispatch",
           ctx: params.ctx,
           dispatcherOptions: params.dispatcherOptions,
+          replyOptions: params.replyOptions,
         });
       },
 

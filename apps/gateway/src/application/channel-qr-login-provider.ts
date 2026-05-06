@@ -124,6 +124,10 @@ export class FeishuQrLoginProvider implements ChannelQrLoginProvider {
         appId: result.appId,
         appSecret: result.appSecret,
         allowFrom: result.openId ? [result.openId] : ["*"],
+        streaming: true,
+        groupPolicy: "open",
+        requireMention: true,
+        replyInThread: "enabled",
       },
     };
   }

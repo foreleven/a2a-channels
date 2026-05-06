@@ -1,4 +1,7 @@
-import type { AgentClient } from "@agent-relay/agent-transport";
+import type {
+  AgentClient,
+  AgentResponseStreamEvent,
+} from "@agent-relay/agent-transport";
 import type { ChannelBindingSnapshot } from "@agent-relay/domain";
 import { OpenClawPluginHost } from "@agent-relay/openclaw-compat";
 import type {
@@ -119,8 +122,14 @@ export class Connection {
       return undefined;
     }
 
-    const response = await this.handleMessage(event);
-    return this.replyDelivery.deliver(event.replyEvent, response);
+    if (!event.userMessage.trim()) {
+      return this.replyDelivery.deliver(event.event, null);
+    }
+
+    return this.replyDelivery.deliverStream(
+      event.event,
+      this.handleMessageStream(event),
+    );
   }
 
   /** Sends inbound channel text to the bound agent and emits outbound telemetry. */
@@ -158,6 +167,52 @@ export class Connection {
     }
 
     return result;
+  }
+
+  /** Streams inbound channel text to the bound agent and emits final outbound telemetry. */
+  async *handleMessageStream(
+    event: MessageInboundEvent,
+  ): AsyncIterable<AgentResponseStreamEvent> {
+    const { accountId, channelType, sessionKey, userMessage } = event;
+    let sawFinal = false;
+    let lastText = "";
+
+    try {
+      for await (const chunk of this.options.agentClient.stream({
+        userMessage,
+        sessionKey,
+        accountId,
+      })) {
+        if (chunk.text) {
+          lastText = chunk.text;
+        }
+        if (chunk.kind === "final") {
+          sawFinal = true;
+          this.options.callbacks?.emitMessageOutbound?.({
+            accountId,
+            channelType,
+            sessionKey,
+            replyText: chunk.text,
+          });
+        }
+        yield chunk;
+      }
+
+      if (!sawFinal && lastText) {
+        this.options.callbacks?.emitMessageOutbound?.({
+          accountId,
+          channelType,
+          sessionKey,
+          replyText: lastText,
+        });
+      }
+    } catch (error) {
+      this.options.callbacks?.onAgentCallFailed?.({
+        binding: this.binding,
+        error,
+      });
+      yield { kind: "final", text: "(agent temporarily unavailable)" };
+    }
   }
 
   private maybeReportConnected(status: ChannelBindingStatusUpdate): void {

@@ -17,6 +17,7 @@ import {
   type ReplyEventDispatcher,
 } from "@agent-relay/openclaw-compat";
 import { inject, injectable } from "inversify";
+import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 
 import { channelTypeRegistry } from "../channel-type-registry.js";
 import { RuntimeAgentRegistry } from "../runtime-agent-registry.js";
@@ -65,7 +66,9 @@ export class ConnectionManager implements ReplyEventDispatcher {
 
   /** Creates a plugin-host connection and reports status transitions from the host. */
   private async createConnection(binding: ChannelBinding): Promise<Connection> {
-    const agentClient = await this.agentRegistry.getAgentClient(binding.agentId);
+    const agentClient = await this.agentRegistry.getAgentClient(
+      binding.agentId,
+    );
     const connection = new Connection({
       agentClient,
       binding,
@@ -162,10 +165,10 @@ export class ConnectionManager implements ReplyEventDispatcher {
       `[runtime] no active connection for channelType=${message.channelType} accountId=${message.accountId}; message dropped`,
     );
 
-    if (message.replyEvent.type === "channel.reply.dispatch") {
-      message.replyEvent.dispatcher.markComplete();
+    if (message.event.type === "channel.reply.dispatch") {
+      message.event.dispatcher.markComplete();
       try {
-        await message.replyEvent.dispatcher.waitForIdle();
+        await message.event.dispatcher.waitForIdle();
       } catch {
         // Ignore draining errors when no connection handled the message.
       }
@@ -174,19 +177,22 @@ export class ConnectionManager implements ReplyEventDispatcher {
     return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
   }
 
-  private buildMessageInboundEvent(event: ChannelReplyEvent): MessageInboundEvent {
-    const ctx = event.ctx as Record<string, unknown>;
+  private buildMessageInboundEvent(
+    event: ChannelReplyEvent,
+  ): MessageInboundEvent {
+    const ctx = event.ctx;
     const userMessage =
-      (ctx["BodyForAgent"] as string | undefined) ??
-      (ctx["Body"] as string | undefined) ??
-      (ctx["RawBody"] as string | undefined) ??
+      readNonEmptyString(ctx.BodyForAgent) ??
+      readNonEmptyString(ctx.Body) ??
+      readNonEmptyString(ctx.RawBody) ??
       "";
-    const channelType =
-      (ctx["ChannelType"] as string | undefined) ??
-      (ctx["Channel"] as string | undefined) ??
-      (ctx["Provider"] as string | undefined);
-    const accountId = normalizeAccountId(ctx["AccountId"]);
-    const sessionKey = normalizeSessionKey(ctx["SessionKey"]) ??
+    const channelType = normalizeChannelType(ctx);
+    const accountId = normalizeAccountId(ctx.AccountId);
+    const sessionKey =
+      // Prefer Feishu thread roots for stable A2A context IDs.
+      normalizeSessionKey(ctx.RootMessageId) ??
+      normalizeSessionKey(ctx.SenderId) ??
+      normalizeSessionKey(ctx.SessionKey) ??
       buildFallbackSessionKey({
         accountId,
         channelType,
@@ -196,9 +202,10 @@ export class ConnectionManager implements ReplyEventDispatcher {
     return {
       accountId,
       channelType,
-      replyEvent: event,
+      event,
       sessionKey,
       userMessage,
+      replyToId: ctx.ReplyToId,
     };
   }
 
@@ -248,6 +255,14 @@ function normalizeSessionKey(sessionKey: unknown): string | undefined {
     : undefined;
 }
 
+function normalizeChannelType(ctx: ChannelReplyEvent["ctx"]): string {
+  return normalizeLowercaseStringOrEmpty(
+    readNonEmptyString(ctx.Surface) ??
+      readNonEmptyString(ctx.Provider) ??
+      "unknown",
+  );
+}
+
 function buildFallbackSessionKey({
   accountId,
   channelType,
@@ -255,16 +270,16 @@ function buildFallbackSessionKey({
 }: {
   accountId: string;
   channelType: string | undefined;
-  ctx: Record<string, unknown>;
+  ctx: ChannelReplyEvent["ctx"];
 }): string {
   const peer =
-    readNonEmptyString(ctx["OriginatingTo"]) ??
-    readNonEmptyString(ctx["To"]) ??
-    readNonEmptyString(ctx["From"]);
+    readNonEmptyString(ctx.OriginatingTo) ??
+    readNonEmptyString(ctx.To) ??
+    readNonEmptyString(ctx.From);
   const discriminator =
     peer ??
-    readNonEmptyString(ctx["MessageSid"]) ??
-    readNonEmptyString(ctx["RawBody"]) ??
+    readNonEmptyString(ctx.MessageSid) ??
+    readNonEmptyString(ctx.RawBody) ??
     randomUUID();
   const hash = createHash("md5")
     .update(

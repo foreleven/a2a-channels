@@ -57,7 +57,8 @@ export interface MessageInboundEvent {
   accountId: string;
   sessionKey: string;
   userMessage: string;
-  replyEvent: ChannelReplyEvent;
+  event: ChannelReplyEvent;
+  replyToId?: string;
 }
 
 export interface MessageOutboundEvent {
@@ -79,6 +80,7 @@ export interface ChannelReplyBufferedDispatchEvent {
   type: "channel.reply.buffered.dispatch";
   ctx: ChannelReplyBufferedDispatchParams["ctx"];
   dispatcherOptions: ChannelReplyBufferedDispatchParams["dispatcherOptions"];
+  replyOptions?: ChannelReplyBufferedDispatchParams["replyOptions"];
 }
 
 export type ChannelReplyEvent =

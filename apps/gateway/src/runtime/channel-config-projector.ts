@@ -2,6 +2,7 @@ import type { ChannelBindingSnapshot } from "@agent-relay/domain";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import { channelTypeRegistry } from "./channel-type-registry.js";
+import { projectRuntimeChannelConfig } from "./channels/index.js";
 
 type ChannelBinding = ChannelBindingSnapshot;
 type OpenClawChannels = NonNullable<OpenClawConfig["channels"]>;
@@ -37,10 +38,16 @@ export class GenericChannelConfigProjector implements ChannelConfigProjector {
 
   /** Adds gateway-owned metadata while preserving plugin-owned account fields. */
   private buildAccountConfig(binding: ChannelBinding): Record<string, unknown> {
-    return {
+    const channelKey = channelTypeRegistry.canonicalize(binding.channelType);
+    const config = {
       ...binding.channelConfig,
       bindingId: binding.id,
       enabled: true,
     };
+
+    return projectRuntimeChannelConfig(
+      channelKey as keyof OpenClawChannels,
+      config,
+    );
   }
 }

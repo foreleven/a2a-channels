@@ -8,6 +8,13 @@ export interface AgentResponse {
   text: string;
 }
 
+export type AgentResponseStreamEventKind = "partial" | "block" | "final";
+
+export interface AgentResponseStreamEvent {
+  kind: AgentResponseStreamEventKind;
+  text: string;
+}
+
 export type AgentProtocol = "a2a" | "acp";
 
 export interface A2AAgentConfig {
@@ -46,6 +53,14 @@ export class AgentClient {
     return this.options.transport.send(request);
   }
 
+  stream(request: AgentRequest): AsyncIterable<AgentResponseStreamEvent> {
+    if (this.options.transport.stream) {
+      return this.options.transport.stream(request);
+    }
+
+    return this.streamFinalResponse(request);
+  }
+
   async start(): Promise<void> {
     await this.options.transport.start?.();
   }
@@ -53,11 +68,19 @@ export class AgentClient {
   async stop(): Promise<void> {
     await this.options.transport.stop?.();
   }
+
+  private async *streamFinalResponse(
+    request: AgentRequest,
+  ): AsyncIterable<AgentResponseStreamEvent> {
+    const response = await this.send(request);
+    yield { kind: "final", text: response.text };
+  }
 }
 
 export interface AgentTransport {
   readonly protocol: AgentProtocol;
   send(request: AgentRequest): Promise<AgentResponse>;
+  stream?(request: AgentRequest): AsyncIterable<AgentResponseStreamEvent>;
   start?(): Promise<void>;
   stop?(): Promise<void>;
 }

@@ -121,11 +121,11 @@ export function NewChannelBindingPage({
   }, []);
 
   const updateConfigValue = useCallback(
-    (key: string, value: string) => {
+    (key: string, value: string | boolean) => {
       setForm((current) => {
         const currentConfig = parseConfig(current.channelConfigJson);
         const nextValue =
-          key === "allowFrom"
+          key === "allowFrom" && typeof value === "string"
             ? value
                 .split(",")
                 .map((item) => item.trim())
@@ -522,7 +522,7 @@ function ChannelConfigFields({
 }: {
   channelType: string;
   config: Record<string, unknown>;
-  onChange(key: string, value: string): void;
+  onChange(key: string, value: string | boolean): void;
 }) {
   const fields = CHANNEL_CONFIG_FIELDS[channelType] ?? [];
   if (fields.length === 0) {
@@ -533,11 +533,40 @@ function ChannelConfigFields({
     <div className="grid gap-4 sm:grid-cols-2">
       {fields.map((field) => (
         <FormField key={field.key} label={field.label}>
-          <Input
-            onChange={(event) => onChange(field.key, event.target.value)}
-            type={field.secret ? "password" : "text"}
-            value={fieldValue(config[field.key])}
-          />
+          {field.type === "boolean" ? (
+            <div className="flex h-10 items-center gap-2">
+              <Checkbox
+                checked={config[field.key] === true}
+                onCheckedChange={(checked) =>
+                  onChange(field.key, checked === true)
+                }
+              />
+            </div>
+          ) : field.type === "select" && field.options ? (
+            <Select
+              onValueChange={(value) => onChange(field.key, value)}
+              value={fieldValue(config[field.key])}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {field.options.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              onChange={(event) => onChange(field.key, event.target.value)}
+              type={field.secret || field.type === "secret" ? "password" : "text"}
+              value={fieldValue(config[field.key])}
+            />
+          )}
           {field.help && (
             <FieldDescription>{field.help}</FieldDescription>
           )}

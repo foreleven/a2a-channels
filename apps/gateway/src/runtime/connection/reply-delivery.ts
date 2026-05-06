@@ -1,3 +1,4 @@
+import type { AgentResponseStreamEvent } from "@agent-relay/agent-transport";
 import type { ChannelReplyEvent } from "@agent-relay/openclaw-compat";
 
 export type ReplyDeliveryResult = {
@@ -19,6 +20,18 @@ export class ChannelReplyDelivery {
     return this.deliverBufferedEvent(event, response);
   }
 
+  /** Streams agent events into the channel-specific OpenClaw delivery surface. */
+  async deliverStream(
+    event: ChannelReplyEvent,
+    stream: AsyncIterable<AgentResponseStreamEvent>,
+  ): Promise<ReplyDeliveryResult> {
+    if (event.type === "channel.reply.dispatch") {
+      return this.deliverDispatchStream(event, stream);
+    }
+
+    return this.deliverBufferedStream(event, stream);
+  }
+
   /** Completes dispatcher-based reply events after optionally sending final text. */
   private async deliverDispatchEvent(
     event: Extract<ChannelReplyEvent, { type: "channel.reply.dispatch" }>,
@@ -33,8 +46,8 @@ export class ChannelReplyDelivery {
     }
 
     event.dispatcher.sendFinalReply({ text: response.text });
-    await event.dispatcher.waitForIdle();
     event.dispatcher.markComplete();
+    await event.dispatcher.waitForIdle();
     return {
       queuedFinal: false,
       counts: { tool: 0, block: 0, final: 1 },
@@ -69,5 +82,96 @@ export class ChannelReplyDelivery {
         counts: { tool: 0, block: 0, final: 0 },
       };
     }
+  }
+
+  private async deliverDispatchStream(
+    event: Extract<ChannelReplyEvent, { type: "channel.reply.dispatch" }>,
+    stream: AsyncIterable<AgentResponseStreamEvent>,
+  ): Promise<ReplyDeliveryResult> {
+    const counts = { tool: 0, block: 0, final: 0 };
+    let lastText = "";
+    let sentFinal = false;
+
+    try {
+      for await (const chunk of stream) {
+        if (!chunk.text.trim()) {
+          continue;
+        }
+
+        lastText = chunk.text;
+        if (chunk.kind === "partial") {
+          await event.replyOptions?.onPartialReply?.({ text: chunk.text });
+          continue;
+        }
+
+        if (chunk.kind === "block") {
+          event.dispatcher.sendBlockReply({ text: chunk.text });
+          counts.block += 1;
+          continue;
+        }
+
+        event.dispatcher.sendFinalReply({ text: chunk.text });
+        counts.final += 1;
+        sentFinal = true;
+      }
+
+      if (!sentFinal && lastText) {
+        event.dispatcher.sendFinalReply({ text: lastText });
+        counts.final += 1;
+      }
+
+      event.dispatcher.markComplete();
+      await event.dispatcher.waitForIdle();
+      return { queuedFinal: false, counts };
+    } catch (error) {
+      event.dispatcher.markComplete();
+      throw error;
+    }
+  }
+
+  private async deliverBufferedStream(
+    event: Exclude<ChannelReplyEvent, { type: "channel.reply.dispatch" }>,
+    stream: AsyncIterable<AgentResponseStreamEvent>,
+  ): Promise<ReplyDeliveryResult> {
+    const counts = { tool: 0, block: 0, final: 0 };
+    let lastText = "";
+    let sentFinal = false;
+
+    for await (const chunk of stream) {
+      if (!chunk.text.trim()) {
+        continue;
+      }
+
+      lastText = chunk.text;
+      if (chunk.kind === "partial") {
+        await event.replyOptions?.onPartialReply?.({ text: chunk.text });
+        continue;
+      }
+
+      const kind = chunk.kind === "block" ? "block" : "final";
+      try {
+        await event.dispatcherOptions.deliver({ text: chunk.text }, { kind });
+        counts[kind] += 1;
+        if (kind === "final") {
+          sentFinal = true;
+        }
+      } catch (error) {
+        event.dispatcherOptions.onError?.(error, { kind });
+      }
+    }
+
+    if (!sentFinal && lastText) {
+      try {
+        await event.dispatcherOptions.deliver(
+          { text: lastText },
+          { kind: "final" },
+        );
+        counts.final += 1;
+      } catch (error) {
+        event.dispatcherOptions.onError?.(error, { kind: "final" });
+      }
+    }
+
+    return { queuedFinal: false, counts };
   }
 }

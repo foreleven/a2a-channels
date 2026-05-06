@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   AgentClient,
   type AgentRequest,
+  type AgentResponseStreamEvent,
   type AgentTransport,
 } from "@agent-relay/agent-transport";
 import type { ChannelBindingSnapshot } from "@agent-relay/domain";
@@ -27,15 +28,25 @@ function createAgentClient(
   send: (request: AgentRequest) => Promise<{ text: string }> = async () => ({
     text: "ok",
   }),
+  stream?: (request: AgentRequest) => AsyncIterable<AgentResponseStreamEvent>,
 ): AgentClient {
   const transport: AgentTransport = {
     protocol: "a2a",
     send,
+    ...(stream ? { stream } : {}),
   };
   return new AgentClient({
     protocol: "a2a",
     transport,
   });
+}
+
+async function* streamEvents(
+  events: AgentResponseStreamEvent[],
+): AsyncIterable<AgentResponseStreamEvent> {
+  for (const event of events) {
+    yield event;
+  }
 }
 
 describe("Connection", () => {
@@ -83,7 +94,7 @@ describe("Connection", () => {
     const response = await connection.handleInbound({
       accountId: "default",
       channelType: "feishu",
-      replyEvent: {
+      event: {
         type: "channel.reply.buffered.dispatch",
         ctx: {} as never,
         dispatcherOptions: {
@@ -118,7 +129,7 @@ describe("Connection", () => {
     const response = await connection.handleInbound({
       accountId: "911b9b000589-im-bot",
       channelType: "openclaw-weixin",
-      replyEvent: {
+      event: {
         type: "channel.reply.buffered.dispatch",
         ctx: {} as never,
         dispatcherOptions: {
@@ -135,20 +146,143 @@ describe("Connection", () => {
       counts: { tool: 0, block: 0, final: 1 },
     });
   });
+
+  test("delivers streamed buffered blocks before the final reply", async () => {
+    const delivered: Array<{ text: string; kind: string }> = [];
+    const connection = new Connection({
+      agentClient: createAgentClient(
+        "http://agent-1",
+        async () => ({ text: "unused" }),
+        () =>
+          streamEvents([
+            { kind: "block", text: "first block" },
+            { kind: "block", text: "second block" },
+            { kind: "final", text: "complete reply" },
+          ]),
+      ),
+      binding,
+    });
+
+    const response = await connection.handleInbound({
+      accountId: "default",
+      channelType: "feishu",
+      event: {
+        type: "channel.reply.buffered.dispatch",
+        ctx: {} as never,
+        dispatcherOptions: {
+          deliver: async (payload, info) => {
+            delivered.push({
+              text: payload.text ?? "",
+              kind: info.kind,
+            });
+          },
+        },
+      },
+      sessionKey: "session-1",
+      userMessage: "hello",
+    });
+
+    assert.deepEqual(delivered, [
+      { text: "first block", kind: "block" },
+      { text: "second block", kind: "block" },
+      { text: "complete reply", kind: "final" },
+    ]);
+    assert.deepEqual(response, {
+      queuedFinal: false,
+      counts: { tool: 0, block: 2, final: 1 },
+    });
+  });
+
+  test("streams dispatch partial updates through Feishu reply options", async () => {
+    const partials: string[] = [];
+    const blocks: Array<{ text: string }> = [];
+    const finals: Array<{ text: string }> = [];
+    const sequence: string[] = [];
+    let markedComplete = false;
+    let waitedForIdle = false;
+    const connection = new Connection({
+      agentClient: createAgentClient(
+        "http://agent-1",
+        async () => ({ text: "unused" }),
+        () =>
+          streamEvents([
+            { kind: "partial", text: "hello" },
+            { kind: "block", text: "hello block" },
+            { kind: "partial", text: "hello world" },
+            { kind: "final", text: "hello world" },
+          ]),
+      ),
+      binding,
+    });
+
+    const response = await connection.handleInbound({
+      accountId: "default",
+      channelType: "feishu",
+      event: {
+        type: "channel.reply.dispatch",
+        ctx: {
+          ReplyToId: "om_parent",
+        } as never,
+        cfg: {} as never,
+        dispatcher: {
+          markComplete: () => {
+            sequence.push("markComplete");
+            markedComplete = true;
+          },
+          sendBlockReply: (payload: { text: string }) => {
+            sequence.push("sendBlockReply");
+            blocks.push(payload);
+          },
+          sendFinalReply: (payload: { text: string }) => {
+            sequence.push("sendFinalReply");
+            finals.push(payload);
+          },
+          waitForIdle: async () => {
+            sequence.push("waitForIdle");
+            waitedForIdle = true;
+          },
+        } as never,
+        replyOptions: {
+          onPartialReply: async (payload: { text: string }) => {
+            partials.push(payload.text);
+          },
+        } as never,
+      },
+      sessionKey: "session-1",
+      userMessage: "hello",
+    });
+
+    assert.deepEqual(partials, ["hello", "hello world"]);
+    assert.deepEqual(blocks, [{ text: "hello block" }]);
+    assert.deepEqual(finals, [{ text: "hello world" }]);
+    assert.deepEqual(sequence, [
+      "sendBlockReply",
+      "sendFinalReply",
+      "markComplete",
+      "waitForIdle",
+    ]);
+    assert.equal(markedComplete, true);
+    assert.equal(waitedForIdle, true);
+    assert.deepEqual(response, {
+      queuedFinal: false,
+      counts: { tool: 0, block: 1, final: 1 },
+    });
+  });
 });
 
 describe("ConnectionManager", () => {
   test("routes runtime reply events to its matching connection", async () => {
     const sentMessages: string[] = [];
-    const agentClient = createAgentClient(
-      "http://agent-1",
-      async (request) => {
-        sentMessages.push(request.userMessage);
-        return { text: `echo: ${request.userMessage}` };
-      },
-    );
+    const agentClient = createAgentClient("http://agent-1", async (request) => {
+      sentMessages.push(request.userMessage);
+      return { text: `echo: ${request.userMessage}` };
+    });
     const runtime = createRuntime();
-    const manager = new ConnectionManager(null as never, runtime, null as never);
+    const manager = new ConnectionManager(
+      null as never,
+      runtime,
+      null as never,
+    );
     const connection = new Connection({
       agentClient,
       binding,
@@ -160,7 +294,7 @@ describe("ConnectionManager", () => {
       type: "channel.reply.buffered.dispatch",
       ctx: {
         BodyForAgent: "hello",
-        ChannelType: "feishu",
+        Surface: "feishu",
         AccountId: "default",
         SessionKey: "session-1",
       } as never,
@@ -178,15 +312,16 @@ describe("ConnectionManager", () => {
 
   test("routes by channel account without probing unrelated connections", async () => {
     const sentMessages: string[] = [];
-    const agentClient = createAgentClient(
-      "http://agent-1",
-      async (request) => {
-        sentMessages.push(request.userMessage);
-        return { text: `echo: ${request.userMessage}` };
-      },
-    );
+    const agentClient = createAgentClient("http://agent-1", async (request) => {
+      sentMessages.push(request.userMessage);
+      return { text: `echo: ${request.userMessage}` };
+    });
     const runtime = createRuntime();
-    const manager = new ConnectionManager(null as never, runtime, null as never);
+    const manager = new ConnectionManager(
+      null as never,
+      runtime,
+      null as never,
+    );
     const matchingConnection = new Connection({
       agentClient,
       binding,
@@ -210,7 +345,7 @@ describe("ConnectionManager", () => {
       type: "channel.reply.buffered.dispatch",
       ctx: {
         BodyForAgent: "hello",
-        ChannelType: "feishu",
+        Surface: "feishu",
         AccountId: "default",
         SessionKey: "session-1",
       } as never,
@@ -228,15 +363,16 @@ describe("ConnectionManager", () => {
 
   test("routes runtime reply events across channel type aliases", async () => {
     const sentMessages: string[] = [];
-    const agentClient = createAgentClient(
-      "http://agent-1",
-      async (request) => {
-        sentMessages.push(request.userMessage);
-        return { text: `echo: ${request.userMessage}` };
-      },
-    );
+    const agentClient = createAgentClient("http://agent-1", async (request) => {
+      sentMessages.push(request.userMessage);
+      return { text: `echo: ${request.userMessage}` };
+    });
     const runtime = createRuntime();
-    const manager = new ConnectionManager(null as never, runtime, null as never);
+    const manager = new ConnectionManager(
+      null as never,
+      runtime,
+      null as never,
+    );
     const connection = new Connection({
       agentClient,
       binding: {
@@ -252,7 +388,7 @@ describe("ConnectionManager", () => {
       type: "channel.reply.buffered.dispatch",
       ctx: {
         BodyForAgent: "hello",
-        ChannelType: "openclaw-weixin",
+        Surface: "openclaw-weixin",
         AccountId: "911b9b000589-im-bot",
         SessionKey: "session-1",
       } as never,
@@ -270,15 +406,16 @@ describe("ConnectionManager", () => {
 
   test("generates stable compact fallback session keys for missing channel session key", async () => {
     const sessionKeys: string[] = [];
-    const agentClient = createAgentClient(
-      "http://agent-1",
-      async (request) => {
-        sessionKeys.push(request.sessionKey);
-        return { text: `echo: ${request.userMessage}` };
-      },
-    );
+    const agentClient = createAgentClient("http://agent-1", async (request) => {
+      sessionKeys.push(request.sessionKey);
+      return { text: `echo: ${request.userMessage}` };
+    });
     const runtime = createRuntime();
-    const manager = new ConnectionManager(null as never, runtime, null as never);
+    const manager = new ConnectionManager(
+      null as never,
+      runtime,
+      null as never,
+    );
     const connection = new Connection({
       agentClient,
       binding,
@@ -291,7 +428,7 @@ describe("ConnectionManager", () => {
         type: "channel.reply.buffered.dispatch",
         ctx: {
           BodyForAgent: body,
-          ChannelType: "feishu",
+          Surface: "feishu",
           AccountId: "default",
           From: "user-1",
           To: "bot-1",
@@ -317,7 +454,7 @@ describe("ConnectionManager", () => {
       type: "channel.reply.dispatch",
       ctx: {
         BodyForAgent: "hello",
-        ChannelType: "feishu",
+        Surface: "feishu",
         AccountId: "other-account",
         SessionKey: "session-1",
       } as never,

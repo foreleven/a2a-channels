@@ -13,6 +13,7 @@ import type {
   AgentProtocolConfig,
   AgentRequest,
   AgentResponse,
+  AgentResponseStreamEvent,
   AgentTransport,
   AgentTransportFactory,
 } from "./transport.js";
@@ -56,6 +57,13 @@ function extractText(result: unknown): string {
       }
     }
     return texts.join("\n").trim();
+  }
+
+  if (rec["kind"] === "artifact-update") {
+    return extractText({
+      kind: "task",
+      artifacts: [rec["artifact"]],
+    });
   }
 
   return "";
@@ -112,18 +120,7 @@ class A2AAgentTransport implements AgentTransport {
         client = await this.factory.createFromUrl(agentUrl);
         this.clientCache.set(agentUrl, client);
       }
-      const contextId = request.sessionKey;
-      const payload: MessageSendParams = {
-        message: {
-          kind: "message",
-          messageId: crypto.randomUUID(),
-          role: "user",
-          parts: [{ kind: "text", text: request.userMessage }],
-          ...(contextId ? { contextId } : {}),
-          metadata: { userId: request.accountId },
-        },
-      };
-      const result = await client.sendMessage(payload, {
+      const result = await client.sendMessage(this.buildPayload(request), {
         signal: abortController.signal,
       });
       const text = extractText(result);
@@ -137,5 +134,97 @@ class A2AAgentTransport implements AgentTransport {
         clearTimeout(timeoutHandle);
       }
     }
+  }
+
+  async *stream(request: AgentRequest): AsyncIterable<AgentResponseStreamEvent> {
+    const timeoutMs = 120_000;
+    const abortController = new AbortController();
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let finalText = "";
+    let yielded = false;
+    let yieldedFinal = false;
+
+    try {
+      timeoutHandle = setTimeout(() => {
+        abortController.abort(
+          new Error(`A2A stream timed out after ${timeoutMs}ms`),
+        );
+      }, timeoutMs);
+
+      const agentUrl = this.config.url;
+      let client = this.clientCache.get(agentUrl);
+      if (!client) {
+        client = await this.factory.createFromUrl(agentUrl);
+        this.clientCache.set(agentUrl, client);
+      }
+
+      const stream = client.sendMessageStream(this.buildPayload(request), {
+        signal: abortController.signal,
+      });
+
+      for await (const event of stream) {
+        const text = extractText(event);
+        if (!text) {
+          continue;
+        }
+
+        if (event.kind === "artifact-update") {
+          yielded = true;
+          finalText = event.append ? `${finalText}${text}` : text;
+          yield {
+            kind: event.lastChunk ? "final" : "block",
+            text: event.lastChunk ? finalText : text,
+          };
+          if (event.lastChunk) {
+            yieldedFinal = true;
+          }
+          continue;
+        }
+
+        finalText = text;
+        yielded = true;
+        if (event.kind === "message") {
+          yieldedFinal = true;
+          yield { kind: "final", text };
+        } else {
+          yield { kind: "partial", text };
+        }
+      }
+
+      if (!yielded) {
+        const response = await this.send(request);
+        yield { kind: "final", text: response.text };
+        return;
+      }
+
+      if (finalText && !yieldedFinal) {
+        yield { kind: "final", text: finalText };
+      }
+    } catch (error) {
+      if (yielded && finalText && !yieldedFinal) {
+        yield { kind: "final", text: finalText };
+        return;
+      }
+
+      throw error;
+    } finally {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  }
+
+  private buildPayload(request: AgentRequest): MessageSendParams {
+    const contextId = request.sessionKey;
+    return {
+      message: {
+        kind: "message",
+        messageId: crypto.randomUUID(),
+        role: "user",
+        parts: [{ kind: "text", text: request.userMessage }],
+        ...(contextId ? { contextId } : {}),
+        metadata: { userId: request.accountId },
+      },
+    };
   }
 }
