@@ -121,7 +121,7 @@ test("ACPTransport start waits for account-scoped request context", async () => 
   }
 });
 
-test("ACPTransport spawns separate processes per accountId when ACP_BASE_PATH and name are set", async () => {
+test("ACPTransport spawns separate processes per accountId when ACP_BASE_PATH and agentName are set", async () => {
   const basePath = await mkdtemp(join(tmpdir(), "acp-base-"));
   const agentPath = join(basePath, "agent.mjs");
 
@@ -135,9 +135,8 @@ test("ACPTransport spawns separate processes per accountId when ACP_BASE_PATH an
     transport: "stdio" as const,
     command: "node",
     args: [agentPath],
-    name: "my-agent",
   };
-  const client = transport.create(config);
+  const client = transport.create(config, { agentName: "my-agent" });
 
   try {
     await client.send({
@@ -155,6 +154,40 @@ test("ACPTransport spawns separate processes per accountId when ACP_BASE_PATH an
     const entries = await readdir(join(basePath, "my-agent"));
     assert.ok(entries.includes("user-1"), "user-1 cwd directory should be created");
     assert.ok(entries.includes("user-2"), "user-2 cwd directory should be created");
+  } finally {
+    await client.stop?.();
+    if (originalBasePath === undefined) {
+      delete process.env["ACP_BASE_PATH"];
+    } else {
+      process.env["ACP_BASE_PATH"] = originalBasePath;
+    }
+    await rm(basePath, { recursive: true, force: true });
+  }
+});
+
+test("ACPTransport rejects unsafe agentName values for isolated workspaces", async () => {
+  const basePath = await mkdtemp(join(tmpdir(), "acp-base-"));
+  const agentPath = join(basePath, "agent.mjs");
+
+  await writeFile(agentPath, ECHO_AGENT_SCRIPT, "utf8");
+
+  const originalBasePath = process.env["ACP_BASE_PATH"];
+  process.env["ACP_BASE_PATH"] = basePath;
+
+  const transport = new ACPTransport();
+  const client = transport.create(
+    { transport: "stdio", command: "node", args: [agentPath] },
+    { agentName: "../agent" },
+  );
+
+  try {
+    await assert.rejects(() =>
+      client.send({
+        userMessage: "hello",
+        accountId: "user-1",
+        sessionKey: "s1",
+      }),
+    );
   } finally {
     await client.stop?.();
     if (originalBasePath === undefined) {

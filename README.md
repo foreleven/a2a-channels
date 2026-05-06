@@ -187,7 +187,7 @@ Example:
 
 ```json
 {
-  "name": "Echo Agent",
+  "name": "echo-agent",
   "protocol": "a2a",
   "config": {
     "url": "http://localhost:3001"
@@ -195,6 +195,9 @@ Example:
   "description": "Local test agent"
 }
 ```
+
+Agent names are also used as ACP workspace folder names, so they must be a
+single folder-safe segment containing only letters, numbers, `.`, `_`, and `-`.
 
 Supported protocols are registered through transport adapters. The current
 gateway binds `a2a` and `acp`.

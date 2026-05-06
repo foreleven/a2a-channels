@@ -31,12 +31,26 @@ import {
   stringifyConfig,
   supportsQrLogin,
 } from "@/lib/channel-binding-form";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Field as ShadcnField,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 type QrState = {
@@ -273,11 +287,9 @@ export function NewChannelBindingPage({
       </div>
 
       {error && (
-        <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="p-4 text-sm text-destructive">
-            {error}
-          </CardContent>
-        </Card>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <div className="grid min-h-[620px] gap-5 lg:grid-cols-[280px_1fr]">
@@ -287,7 +299,7 @@ export function NewChannelBindingPage({
               Channel
             </p>
           </div>
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             {CHANNEL_OPTIONS.map((channel) => (
               <Link
                 className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${
@@ -326,7 +338,7 @@ export function NewChannelBindingPage({
               )}
             </div>
           </CardHeader>
-          <CardContent className="space-y-6 p-5">
+          <CardContent className="flex flex-col gap-6 p-5">
             {supportsQrLogin(form.channelType) && (
               <QrLoginPanel
                 channelLabel={channelLabel(form.channelType)}
@@ -340,8 +352,8 @@ export function NewChannelBindingPage({
 
             <ChannelGuidePanel guide={guide} />
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Name">
+            <FieldGroup className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Name">
                 <Input
                   onChange={(event) =>
                     setForm({ ...form, name: event.target.value })
@@ -349,38 +361,37 @@ export function NewChannelBindingPage({
                   placeholder={`${channelLabel(form.channelType)} Bot`}
                   value={form.name}
                 />
-              </Field>
-              <Field label="Agent">
+              </FormField>
+              <FormField label="Agent">
                 <Select
                   disabled={loading}
-                  onChange={(event) =>
-                    setForm({ ...form, agentId: event.target.value })
-                  }
+                  onValueChange={(agentId) => setForm({ ...form, agentId })}
                   value={form.agentId}
                 >
-                  <option value="" disabled>
-                    Select an agent
-                  </option>
-                  {agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name}
-                    </option>
-                  ))}
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select an agent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {agents.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {agent.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
                 </Select>
-              </Field>
-              <Field label="Enabled">
-                <label className="flex h-9 items-center gap-2 rounded-md border border-input px-3 text-sm">
-                  <input
-                    checked={form.enabled}
-                    onChange={(event) =>
-                      setForm({ ...form, enabled: event.target.checked })
-                    }
-                    type="checkbox"
-                  />
-                  Enabled
-                </label>
-              </Field>
-            </div>
+              </FormField>
+              <ShadcnField orientation="horizontal">
+                <Checkbox
+                  checked={form.enabled}
+                  onCheckedChange={(checked) =>
+                    setForm({ ...form, enabled: checked === true })
+                  }
+                />
+                <FieldLabel>Enabled</FieldLabel>
+              </ShadcnField>
+            </FieldGroup>
 
             <ChannelConfigFields
               channelType={form.channelType}
@@ -388,7 +399,7 @@ export function NewChannelBindingPage({
               onChange={updateConfigValue}
             />
 
-            <Field label="Advanced Config JSON">
+            <FormField label="Advanced Config JSON">
               <Textarea
                 className="min-h-36 font-mono text-xs"
                 onChange={(event) =>
@@ -397,7 +408,7 @@ export function NewChannelBindingPage({
                 spellCheck={false}
                 value={form.channelConfigJson}
               />
-            </Field>
+            </FormField>
           </CardContent>
         </Card>
       </div>
@@ -521,22 +532,22 @@ function ChannelConfigFields({
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {fields.map((field) => (
-        <Field key={field.key} label={field.label}>
+        <FormField key={field.key} label={field.label}>
           <Input
             onChange={(event) => onChange(field.key, event.target.value)}
             type={field.secret ? "password" : "text"}
             value={fieldValue(config[field.key])}
           />
           {field.help && (
-            <p className="text-xs text-muted-foreground">{field.help}</p>
+            <FieldDescription>{field.help}</FieldDescription>
           )}
-        </Field>
+        </FormField>
       ))}
     </div>
   );
 }
 
-function Field({
+function FormField({
   className,
   label,
   children,
@@ -546,10 +557,10 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className={className ? `space-y-2 ${className}` : "space-y-2"}>
-      <Label>{label}</Label>
+    <ShadcnField className={className}>
+      <FieldLabel>{label}</FieldLabel>
       {children}
-    </div>
+    </ShadcnField>
   );
 }
 

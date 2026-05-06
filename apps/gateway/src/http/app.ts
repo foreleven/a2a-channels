@@ -9,7 +9,7 @@ import { AccountRoutes } from "./routes/accounts.js";
 import { AgentRoutes } from "./routes/agents.js";
 import { ChannelRoutes } from "./routes/channels.js";
 import { RuntimeStatusRoutes } from "./routes/runtime-status.js";
-import { extractBearerToken } from "./routes/accounts.js";
+import { extractAuthToken } from "./routes/accounts.js";
 
 export interface GatewayApp {
   fetch(request: Request, env: unknown): Promise<unknown> | unknown;
@@ -66,6 +66,7 @@ export class HonoGatewayApp implements GatewayApp {
         origin: this.config.corsOrigin,
         allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allowHeaders: ["Content-Type", "Authorization"],
+        credentials: true,
       }),
     );
 
@@ -91,7 +92,7 @@ export class HonoGatewayApp implements GatewayApp {
       ) {
         return next();
       }
-      const token = extractBearerToken(c.req.header("Authorization"));
+      const token = extractAuthToken(c.req.raw.headers);
       if (!token) {
         return c.json({ error: "Unauthorized" }, 401);
       }

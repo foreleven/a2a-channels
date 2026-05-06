@@ -9,6 +9,9 @@ import {
 } from "../../application/account-service.js";
 import { parseJsonBody, z } from "../utils/schema.js";
 
+export const AUTH_COOKIE_NAME = "a2a_auth_token";
+const AUTH_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+
 const registerBodySchema = z.object({
   username: z.string().min(1),
   password: z.string().min(6),
@@ -49,11 +52,16 @@ export class AccountRoutes {
       }
 
       try {
-        const account = await this.accountService.register(
+        const result = await this.accountService.registerAndLogin(
           parsed.data.username,
           parsed.data.password,
         );
-        return c.json(account, 201);
+        const response = c.json(
+          { account: result.account, token: result.token },
+          201,
+        );
+        setAuthCookie(response, result.token, c.req.url);
+        return response;
       } catch (err) {
         if (err instanceof UsernameTakenError) {
           return c.json({ error: err.message }, 409);
@@ -74,7 +82,12 @@ export class AccountRoutes {
           parsed.data.username,
           parsed.data.password,
         );
-        return c.json({ account: result.account, token: result.token });
+        const response = c.json({
+          account: result.account,
+          token: result.token,
+        });
+        setAuthCookie(response, result.token, c.req.url);
+        return response;
       } catch (err) {
         if (err instanceof InvalidCredentialsError) {
           return c.json({ error: err.message }, 401);
@@ -84,7 +97,7 @@ export class AccountRoutes {
     });
 
     app.get("/api/auth/me", async (c) => {
-      const token = extractBearerToken(c.req.header("Authorization"));
+      const token = extractAuthToken(c.req.raw.headers);
       if (!token) {
         return c.json({ error: "Unauthorized" }, 401);
       }
@@ -118,9 +131,84 @@ export class AccountRoutes {
         refreshToken: d.refreshToken ?? null,
         expiresAt: d.expiresAt ? new Date(d.expiresAt) : null,
       });
-      return c.json({ account: result.account, token: result.token });
+      const response = c.json({
+        account: result.account,
+        token: result.token,
+      });
+      setAuthCookie(response, result.token, c.req.url);
+      return response;
+    });
+
+    app.post("/api/auth/logout", (c) => {
+      const response = c.json({ ok: true });
+      clearAuthCookie(response, c.req.url);
+      return response;
     });
   }
+}
+
+function setAuthCookie(
+  response: Response,
+  token: string,
+  requestUrl: string,
+): void {
+  response.headers.append(
+    "Set-Cookie",
+    [
+      `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
+      "Path=/",
+      `Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}`,
+      "HttpOnly",
+      "SameSite=Lax",
+      shouldUseSecureCookie(requestUrl) ? "Secure" : null,
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join("; "),
+  );
+}
+
+function clearAuthCookie(response: Response, requestUrl: string): void {
+  response.headers.append(
+    "Set-Cookie",
+    [
+      `${AUTH_COOKIE_NAME}=`,
+      "Path=/",
+      "Max-Age=0",
+      "HttpOnly",
+      "SameSite=Lax",
+      shouldUseSecureCookie(requestUrl) ? "Secure" : null,
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join("; "),
+  );
+}
+
+function shouldUseSecureCookie(requestUrl: string): boolean {
+  return new URL(requestUrl).protocol === "https:";
+}
+
+export function extractAuthToken(headers: Headers): string | null {
+  return (
+    extractBearerToken(headers.get("Authorization") ?? undefined) ??
+    extractCookieToken(headers.get("Cookie") ?? undefined)
+  );
+}
+
+function extractCookieToken(cookieHeader: string | undefined): string | null {
+  if (!cookieHeader) return null;
+  const cookies = cookieHeader.split(";");
+  for (const cookie of cookies) {
+    const [rawName, ...rawValueParts] = cookie.trim().split("=");
+    if (rawName !== AUTH_COOKIE_NAME) continue;
+    const rawValue = rawValueParts.join("=");
+    if (!rawValue) return null;
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+  return null;
 }
 
 /** Extracts the bearer token from an Authorization header value. */

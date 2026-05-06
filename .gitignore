@@ -41,3 +41,4 @@ db/
 apps/gateway/src/generated/
 .claude/
 .pnpm-store/
+.playwright-mcp/

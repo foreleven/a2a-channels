@@ -22,6 +22,7 @@ const FAKE_ACCOUNT = {
 };
 const mockAccountService = {
   register: async () => FAKE_ACCOUNT,
+  registerAndLogin: async () => ({ account: FAKE_ACCOUNT, token: FAKE_TOKEN }),
   login: async () => ({ account: FAKE_ACCOUNT, token: FAKE_TOKEN }),
   verifyToken: async (token: string) =>
     token === FAKE_TOKEN ? FAKE_ACCOUNT : null,
@@ -44,6 +45,7 @@ function createHttpContainer(): Container {
 }
 
 const authHeaders = { Authorization: `Bearer ${FAKE_TOKEN}` };
+const authCookieHeaders = { Cookie: `a2a_auth_token=${FAKE_TOKEN}` };
 
 describe("GatewayApp", () => {
   test("exposes an unauthenticated health endpoint", async () => {
@@ -56,6 +58,99 @@ describe("GatewayApp", () => {
       status: "ok",
       service: "a2a-channels-gateway",
     });
+  });
+
+  test("requires authentication for protected APIs", async () => {
+    const app = createHttpContainer().get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request("/api/channels");
+
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: "Unauthorized" });
+  });
+
+  test("sets a session cookie when logging in", async () => {
+    const app = createHttpContainer().get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "testuser", password: "secret123" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      account: FAKE_ACCOUNT,
+      token: FAKE_TOKEN,
+    });
+    const cookie = response.headers.get("set-cookie") ?? "";
+    assert.match(cookie, /a2a_auth_token=test-token/);
+    assert.match(cookie, /HttpOnly/);
+    assert.match(cookie, /SameSite=Lax/);
+    assert.match(cookie, /Max-Age=2592000/);
+  });
+
+  test("sets a session cookie when registering", async () => {
+    const app = createHttpContainer().get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ username: "newuser", password: "secret123" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    assert.equal(response.status, 201);
+    assert.deepEqual(await response.json(), {
+      account: FAKE_ACCOUNT,
+      token: FAKE_TOKEN,
+    });
+    assert.match(response.headers.get("set-cookie") ?? "", /a2a_auth_token=test-token/);
+  });
+
+  test("sets a session cookie after OAuth callback", async () => {
+    const app = createHttpContainer().get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request("/api/auth/oauth/callback", {
+      method: "POST",
+      body: JSON.stringify({
+        provider: "github",
+        providerAccountId: "user-1",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      account: FAKE_ACCOUNT,
+      token: FAKE_TOKEN,
+    });
+    assert.match(response.headers.get("set-cookie") ?? "", /a2a_auth_token=test-token/);
+  });
+
+  test("accepts cookie auth for /api/auth/me", async () => {
+    const app = createHttpContainer().get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request("/api/auth/me", {
+      headers: authCookieHeaders,
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), FAKE_ACCOUNT);
+  });
+
+  test("clears the session cookie when logging out", async () => {
+    const app = createHttpContainer().get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request("/api/auth/logout", {
+      method: "POST",
+      headers: authCookieHeaders,
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true });
+    const cookie = response.headers.get("set-cookie") ?? "";
+    assert.match(cookie, /a2a_auth_token=/);
+    assert.match(cookie, /Max-Age=0/);
   });
 
   test("exposes runtime status read APIs", async () => {
@@ -211,6 +306,11 @@ describe("GatewayApp", () => {
       mode: string;
     };
     assert.equal(runtimeStatusPayload.mode, "local");
+
+    const cookieChannelsResponse = await app.request("/api/channels", {
+      headers: authCookieHeaders,
+    });
+    assert.equal(cookieChannelsResponse.status, 200);
   });
 
   test("preserves existing mutation error handling", async () => {

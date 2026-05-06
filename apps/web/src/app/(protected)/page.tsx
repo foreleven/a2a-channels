@@ -15,6 +15,7 @@ import {
 import type { DashboardSnapshot } from "@/lib/dashboard";
 import { DashboardEventStream, DashboardSnapshotFactory } from "@/lib/dashboard";
 import { listAgents, listChannels } from "@/lib/api";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +25,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 
 export default function DashboardPage() {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
@@ -126,12 +133,12 @@ export default function DashboardPage() {
       </div>
 
       {error && (
-        <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex items-center gap-3 p-4 text-sm text-destructive">
-            <Unplug className="size-4" />
+        <Alert variant="destructive">
+          <Unplug />
+          <AlertDescription>
             {error}
-          </CardContent>
-        </Card>
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -169,7 +176,7 @@ export default function DashboardPage() {
               Latest channel-to-agent routes known to the gateway.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="flex flex-col gap-3">
             {snapshot && snapshot.recentBindings.length > 0 ? (
               snapshot.recentBindings.map((binding) => (
                 <div
@@ -212,10 +219,10 @@ export default function DashboardPage() {
               Binding count grouped by channel provider.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="flex flex-col gap-3">
             {snapshot && snapshot.channelTypes.length > 0 ? (
               snapshot.channelTypes.map((type) => (
-                <div key={type.name} className="space-y-2">
+                <div key={type.name} className="flex flex-col gap-2">
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium capitalize">{type.name}</span>
                     <span className="text-muted-foreground">{type.count}</span>
@@ -280,9 +287,11 @@ function EmptyPanel({
   description: string;
 }) {
   return (
-    <div className="rounded-md border border-dashed border-border p-6 text-center">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-    </div>
+    <Empty className="border p-6 md:p-6">
+      <EmptyHeader>
+        <EmptyTitle className="text-sm">{title}</EmptyTitle>
+        <EmptyDescription>{description}</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   );
 }

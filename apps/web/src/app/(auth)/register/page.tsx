@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { RadioTower } from "lucide-react";
 
-import { register, login, setAuthToken } from "@/lib/api";
+import { register } from "@/lib/api";
 import { extractApiErrorMessage } from "@/lib/api-error";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -29,11 +30,9 @@ export default function RegisterPage() {
     setLoading(true);
     setError(null);
     try {
-      // Register, then immediately log in to obtain a token.
       await register(username, password);
-      const result = await login(username, password);
-      setAuthToken(result.token);
       router.push("/");
+      router.refresh();
     } catch (err) {
       setError(extractApiErrorMessage(err));
     } finally {
@@ -43,7 +42,7 @@ export default function RegisterPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-6">
+      <div className="flex w-full max-w-sm flex-col gap-6">
         <div className="flex flex-col items-center gap-2 text-center">
           <span className="flex size-12 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <RadioTower className="size-6" />
@@ -59,14 +58,15 @@ export default function RegisterPage() {
             <CardTitle className="text-lg">Create Account</CardTitle>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit}>
+              <FieldGroup className="gap-4">
               {error && (
-                <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </p>
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
+              <Field>
+                <FieldLabel htmlFor="username">Username</FieldLabel>
                 <Input
                   autoComplete="username"
                   id="username"
@@ -75,9 +75,9 @@ export default function RegisterPage() {
                   required
                   value={username}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="password">Password</FieldLabel>
                 <Input
                   autoComplete="new-password"
                   id="password"
@@ -88,9 +88,9 @@ export default function RegisterPage() {
                   type="password"
                   value={password}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirm">Confirm Password</Label>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="confirm">Confirm Password</FieldLabel>
                 <Input
                   autoComplete="new-password"
                   id="confirm"
@@ -100,10 +100,11 @@ export default function RegisterPage() {
                   type="password"
                   value={confirm}
                 />
-              </div>
+              </Field>
               <Button className="w-full" disabled={loading} type="submit">
                 {loading ? "Creating account…" : "Create Account"}
               </Button>
+              </FieldGroup>
             </form>
           </CardContent>
         </Card>

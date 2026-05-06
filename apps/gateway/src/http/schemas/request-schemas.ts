@@ -6,9 +6,14 @@ import type {
   RegisterAgentData,
   UpdateAgentData,
 } from "../../application/agent-service.js";
+import { isValidAgentName } from "@a2a-channels/domain";
 import { z } from "../utils/schema.js";
 
 const nonEmptyString = z.string().min(1);
+const agentNameSchema = nonEmptyString.refine(isValidAgentName, {
+  message:
+    "Agent name must be a folder-safe name using only letters, numbers, dots, underscores, and hyphens",
+});
 const agentProtocolSchema = z.enum(["a2a", "acp"]);
 const acpPermissionSchema = z.enum([
   "allow_once",
@@ -24,7 +29,6 @@ const acpStdioAgentConfigSchema = z.object({
   command: nonEmptyString,
   args: z.array(z.string()).optional(),
   cwd: z.string().optional(),
-  name: z.string().optional(),
   permission: acpPermissionSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
 }).strict();
@@ -97,7 +101,7 @@ export const waitForChannelQrLoginBodySchema = z.object({
 
 export const registerAgentBodySchema: z.ZodType<RegisterAgentData> = z
   .object({
-    name: nonEmptyString,
+    name: agentNameSchema,
     protocol: agentProtocolSchema.default("a2a"),
     config: agentConfigSchema,
     description: z.string().optional(),
@@ -106,7 +110,7 @@ export const registerAgentBodySchema: z.ZodType<RegisterAgentData> = z
 
 export const updateAgentBodySchema: z.ZodType<UpdateAgentData> = z
   .object({
-    name: z.string().optional(),
+    name: agentNameSchema.optional(),
     protocol: agentProtocolSchema.optional(),
     config: agentConfigSchema.optional(),
     description: z.string().optional(),

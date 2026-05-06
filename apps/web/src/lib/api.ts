@@ -1,38 +1,12 @@
 /**
  * Typed API client for the A2A Channels Gateway REST API.
  *
- * In development, Next.js rewrites `/api/*` to the gateway (see next.config.ts),
- * so requests use a relative base path by default.
- * Set NEXT_PUBLIC_GATEWAY_URL to an absolute URL in production deployments.
+ * Browser requests must stay same-origin so the gateway session cookie is set
+ * on the Web app origin where Next proxy can read it. Next.js rewrites `/api/*`
+ * to the gateway (see next.config.ts).
  */
 
-const BASE = process.env["NEXT_PUBLIC_GATEWAY_URL"] ?? "";
-
-// ---------------------------------------------------------------------------
-// Auth token storage (browser only)
-// ---------------------------------------------------------------------------
-
-const TOKEN_KEY = "a2a_auth_token";
-
-export function getAuthToken(): string | null {
-  if (typeof localStorage === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setAuthToken(token: string): void {
-  if (typeof localStorage === "undefined") return;
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearAuthToken(): void {
-  if (typeof localStorage === "undefined") return;
-  localStorage.removeItem(TOKEN_KEY);
-}
-
-function authHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+const BASE = "";
 
 // ---------------------------------------------------------------------------
 // Shared DTOs returned by the gateway API.
@@ -69,7 +43,6 @@ export interface ACPStdioAgentConfig {
   command: string;
   args?: string[];
   cwd?: string;
-  name?: string;
   permission?:
     | "allow_once"
     | "allow_always"
@@ -131,6 +104,10 @@ export interface LoginResult {
   token: string;
 }
 
+function withCredentials(init?: RequestInit): RequestInit {
+  return { ...init, credentials: "include" };
+}
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -138,38 +115,41 @@ export interface LoginResult {
 export async function register(
   username: string,
   password: string,
-): Promise<AccountInfo> {
-  const res = await fetch(`${BASE}/api/auth/register`, {
+): Promise<LoginResult> {
+  const res = await fetch(`${BASE}/api/auth/register`, withCredentials({
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
-  });
+  }));
   if (!res.ok) throw new Error(await res.text());
-  return res.json() as Promise<AccountInfo>;
+  return res.json() as Promise<LoginResult>;
 }
 
 export async function login(
   username: string,
   password: string,
 ): Promise<LoginResult> {
-  const res = await fetch(`${BASE}/api/auth/login`, {
+  const res = await fetch(`${BASE}/api/auth/login`, withCredentials({
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
-  });
+  }));
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<LoginResult>;
 }
 
 export async function getMe(): Promise<AccountInfo | null> {
-  const token = getAuthToken();
-  if (!token) return null;
-  const res = await fetch(`${BASE}/api/auth/me`, {
-    headers: authHeaders(),
-  });
+  const res = await fetch(`${BASE}/api/auth/me`, withCredentials());
   if (res.status === 401) return null;
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<AccountInfo>;
+}
+
+export async function logout(): Promise<void> {
+  const res = await fetch(`${BASE}/api/auth/logout`, withCredentials({
+    method: "POST",
+  }));
+  if (!res.ok) throw new Error(await res.text());
 }
 
 // ---------------------------------------------------------------------------
@@ -177,9 +157,7 @@ export async function getMe(): Promise<AccountInfo | null> {
 // ---------------------------------------------------------------------------
 
 export async function listChannels(): Promise<ChannelBinding[]> {
-  const res = await fetch(`${BASE}/api/channels`, {
-    headers: authHeaders(),
-  });
+  const res = await fetch(`${BASE}/api/channels`, withCredentials());
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<ChannelBinding[]>;
 }
@@ -189,11 +167,11 @@ export async function createChannel(
     accountId?: string;
   },
 ): Promise<ChannelBinding> {
-  const res = await fetch(`${BASE}/api/channels`, {
+  const res = await fetch(`${BASE}/api/channels`, withCredentials({
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-  });
+  }));
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<ChannelBinding>;
 }
@@ -202,20 +180,19 @@ export async function updateChannel(
   id: string,
   data: Partial<Omit<ChannelBinding, "id" | "createdAt">>,
 ): Promise<ChannelBinding> {
-  const res = await fetch(`${BASE}/api/channels/${id}`, {
+  const res = await fetch(`${BASE}/api/channels/${id}`, withCredentials({
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-  });
+  }));
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<ChannelBinding>;
 }
 
 export async function deleteChannel(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/channels/${id}`, {
+  const res = await fetch(`${BASE}/api/channels/${id}`, withCredentials({
     method: "DELETE",
-    headers: authHeaders(),
-  });
+  }));
   if (!res.ok) throw new Error(await res.text());
 }
 
@@ -225,11 +202,11 @@ export async function startChannelQrLogin(
 ): Promise<ChannelQrLoginStartResult> {
   const res = await fetch(
     `${BASE}/api/channels/${encodeURIComponent(channelType)}/auth/qr/start`,
-    {
+    withCredentials({
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
-    },
+    }),
   );
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<ChannelQrLoginStartResult>;
@@ -241,11 +218,11 @@ export async function waitForChannelQrLogin(
 ): Promise<ChannelQrLoginWaitResult> {
   const res = await fetch(
     `${BASE}/api/channels/${encodeURIComponent(channelType)}/auth/qr/wait`,
-    {
+    withCredentials({
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
-    },
+    }),
   );
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<ChannelQrLoginWaitResult>;
@@ -256,9 +233,7 @@ export async function waitForChannelQrLogin(
 // ---------------------------------------------------------------------------
 
 export async function listAgents(): Promise<AgentConfig[]> {
-  const res = await fetch(`${BASE}/api/agents`, {
-    headers: authHeaders(),
-  });
+  const res = await fetch(`${BASE}/api/agents`, withCredentials());
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<AgentConfig[]>;
 }
@@ -266,11 +241,11 @@ export async function listAgents(): Promise<AgentConfig[]> {
 export async function createAgent(
   data: Omit<AgentConfig, "id" | "createdAt">,
 ): Promise<AgentConfig> {
-  const res = await fetch(`${BASE}/api/agents`, {
+  const res = await fetch(`${BASE}/api/agents`, withCredentials({
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-  });
+  }));
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<AgentConfig>;
 }
@@ -279,20 +254,19 @@ export async function updateAgent(
   id: string,
   data: Partial<Omit<AgentConfig, "id" | "createdAt">>,
 ): Promise<AgentConfig> {
-  const res = await fetch(`${BASE}/api/agents/${id}`, {
+  const res = await fetch(`${BASE}/api/agents/${id}`, withCredentials({
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-  });
+  }));
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<AgentConfig>;
 }
 
 export async function deleteAgent(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/agents/${id}`, {
+  const res = await fetch(`${BASE}/api/agents/${id}`, withCredentials({
     method: "DELETE",
-    headers: authHeaders(),
-  });
+  }));
   if (!res.ok) throw new Error(await res.text());
 }
 
@@ -303,9 +277,10 @@ export async function deleteAgent(id: string): Promise<void> {
 export async function listRuntimeChannelStatuses(): Promise<
   RuntimeChannelStatus[]
 > {
-  const res = await fetch(`${BASE}/api/runtime/connections`, {
-    headers: authHeaders(),
-  });
+  const res = await fetch(
+    `${BASE}/api/runtime/connections`,
+    withCredentials(),
+  );
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<RuntimeChannelStatus[]>;
 }

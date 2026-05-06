@@ -12,7 +12,7 @@ import { AgentClientFactory } from "./agent-clients.js";
 
 const agent: AgentConfigSnapshot = {
   id: "agent-1",
-  name: "Agent One",
+  name: "agent-one",
   protocol: "a2a",
   config: { url: "http://agent-1" },
   createdAt: new Date().toISOString(),

@@ -31,6 +31,7 @@ import {
   summarizeConfig,
 } from "@/lib/channel-binding-form";
 import { ChannelStatusEventStream } from "@/lib/channel-status";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,9 +48,30 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
+  Field as ShadcnField,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
 const formMapper = new ChannelFormMapper();
@@ -190,11 +212,9 @@ export default function ChannelsPage() {
       </div>
 
       {error && (
-        <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="p-4 text-sm text-destructive">
-            {error}
-          </CardContent>
-        </Card>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <section className="flex flex-col gap-4">
@@ -213,8 +233,9 @@ export default function ChannelsPage() {
 
         {loading ? (
           <Card>
-            <CardContent className="p-5 text-sm text-muted-foreground">
-              Loading...
+            <CardContent className="flex flex-col gap-3 p-5">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
             </CardContent>
           </Card>
         ) : channels.length === 0 ? (
@@ -236,7 +257,12 @@ export default function ChannelsPage() {
         )}
       </section>
 
-      <Dialog open={Boolean(editingId)}>
+      <Dialog
+        open={Boolean(editingId)}
+        onOpenChange={(open) => {
+          if (!open) setEditingId(null);
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
@@ -246,8 +272,8 @@ export default function ChannelsPage() {
               Store plugin-owned account settings as the OpenClaw channel config.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Name">
+          <FieldGroup className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Name">
               <Input
                 value={form.name}
                 onChange={(event) =>
@@ -255,20 +281,27 @@ export default function ChannelsPage() {
                 }
                 placeholder="Support Bot"
               />
-            </Field>
-            <Field label="Channel Type">
+            </FormField>
+            <FormField label="Channel Type">
               <Select
                 value={form.channelType}
-                onChange={(event) => updateChannelType(event.target.value)}
+                onValueChange={updateChannelType}
               >
-                {CHANNEL_OPTIONS.map((channel) => (
-                  <option key={channel.value} value={channel.value}>
-                    {channel.label}
-                  </option>
-                ))}
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a channel" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {CHANNEL_OPTIONS.map((channel) => (
+                      <SelectItem key={channel.value} value={channel.value}>
+                        {channel.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
               </Select>
-            </Field>
-            <Field label="Account ID">
+            </FormField>
+            <FormField label="Account ID">
               <Input
                 value={form.accountId}
                 onChange={(event) =>
@@ -276,25 +309,27 @@ export default function ChannelsPage() {
                 }
                 placeholder="default"
               />
-            </Field>
-            <Field label="Agent">
+            </FormField>
+            <FormField label="Agent">
               <Select
                 value={form.agentId}
-                onChange={(event) =>
-                  setForm({ ...form, agentId: event.target.value })
-                }
+                onValueChange={(agentId) => setForm({ ...form, agentId })}
               >
-                <option value="" disabled>
-                  Select an agent
-                </option>
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                  </option>
-                ))}
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select an agent" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {agents.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
               </Select>
-            </Field>
-            <Field className="sm:col-span-2" label="Channel Config">
+            </FormField>
+            <FormField className="sm:col-span-2" label="Channel Config">
               <Textarea
                 className="min-h-44 font-mono text-xs"
                 value={form.channelConfigJson}
@@ -303,19 +338,19 @@ export default function ChannelsPage() {
                 }
                 spellCheck={false}
               />
-            </Field>
-          </div>
-          <label className="mt-4 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+            </FormField>
+          </FieldGroup>
+          <ShadcnField className="mt-4" orientation="horizontal">
+            <Checkbox
               checked={form.enabled}
-              onChange={(event) =>
-                setForm({ ...form, enabled: event.target.checked })
+              onCheckedChange={(checked) =>
+                setForm({ ...form, enabled: checked === true })
               }
             />
-            Enabled
-          </label>
-          <div className="mt-6 flex justify-end gap-2">
+            <FieldLabel>Enabled</FieldLabel>
+          </ShadcnField>
+          <Separator className="my-6" />
+          <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setEditingId(null)}>
               Cancel
             </Button>
@@ -342,7 +377,10 @@ function describeAgentTarget(agent: AgentConfig): string {
   if ("transport" in config && config.transport === "stdio") {
     return [config.command, ...(config.args ?? [])].join(" ");
   }
-  return config.url;
+  if ("url" in config) {
+    return config.url;
+  }
+  return agent.protocol;
 }
 
 function ChannelCard({
@@ -378,7 +416,7 @@ function ChannelCard({
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="flex flex-col gap-4">
         <div className="rounded-md border border-border bg-muted/40 p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -529,7 +567,7 @@ function describeStatus(status: RuntimeChannelStatus): {
   };
 }
 
-function Field({
+function FormField({
   className,
   label,
   children,
@@ -539,23 +577,25 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className={className ? `space-y-2 ${className}` : "space-y-2"}>
-      <Label>{label}</Label>
+    <ShadcnField className={className}>
+      <FieldLabel>{label}</FieldLabel>
       {children}
-    </div>
+    </ShadcnField>
   );
 }
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-border p-10 text-center">
-      <div className="mb-3 flex size-10 items-center justify-center rounded-md bg-accent text-accent-foreground">
+    <Empty className="border">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
         <RadioTower className="size-4" />
-      </div>
-      <p className="text-sm font-medium">No channel bindings</p>
-      <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+        </EmptyMedia>
+        <EmptyTitle>No channel bindings</EmptyTitle>
+        <EmptyDescription>
         Create a binding after at least one agent is registered.
-      </p>
-    </div>
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   );
 }

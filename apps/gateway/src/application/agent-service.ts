@@ -7,6 +7,7 @@ import {
   AgentConfigAggregate,
   AgentConfigRepository,
   ChannelBindingRepository,
+  isValidAgentName,
 } from "@a2a-channels/domain";
 import type {
   AgentConfigSnapshot,
@@ -69,6 +70,7 @@ export class AgentService {
   }
 
   async register(data: RegisterAgentData): Promise<AgentConfigSnapshot> {
+    assertAgentName(data.name);
     assertProtocolConfig(data.protocol, data.config);
     const aggregate = AgentConfigAggregate.register({
       id: randomUUID(),
@@ -88,6 +90,7 @@ export class AgentService {
     }
 
     const current = aggregate.snapshot();
+    assertAgentName(changes.name ?? current.name);
     const nextProtocol = changes.protocol ?? current.protocol;
     const nextConfig = changes.config ?? current.config;
     assertProtocolConfig(nextProtocol, nextConfig);
@@ -123,6 +126,14 @@ export class AgentService {
       .catch((err) =>
         console.error("[agent-service] failed to broadcast AgentChanged:", err),
       );
+  }
+}
+
+function assertAgentName(name: string): void {
+  if (!isValidAgentName(name)) {
+    throw new InvalidAgentConfigError(
+      "Agent name must be a folder-safe name using only letters, numbers, dots, underscores, and hyphens",
+    );
   }
 }
 

@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { RadioTower } from "lucide-react";
 
-import { login, setAuthToken } from "@/lib/api";
+import { login } from "@/lib/api";
 import { extractApiErrorMessage } from "@/lib/api-error";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,9 +25,9 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await login(username, password);
-      setAuthToken(result.token);
-      router.push("/");
+      await login(username, password);
+      router.push(safeNextPath(readNextParam()));
+      router.refresh();
     } catch (err) {
       setError(extractApiErrorMessage(err));
     } finally {
@@ -36,7 +37,7 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-6">
+      <div className="flex w-full max-w-sm flex-col gap-6">
         <div className="flex flex-col items-center gap-2 text-center">
           <span className="flex size-12 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <RadioTower className="size-6" />
@@ -52,14 +53,15 @@ export default function LoginPage() {
             <CardTitle className="text-lg">Sign In</CardTitle>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit}>
+              <FieldGroup className="gap-4">
               {error && (
-                <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </p>
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
+              <Field>
+                <FieldLabel htmlFor="username">Username</FieldLabel>
                 <Input
                   autoComplete="username"
                   id="username"
@@ -68,9 +70,9 @@ export default function LoginPage() {
                   required
                   value={username}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="password">Password</FieldLabel>
                 <Input
                   autoComplete="current-password"
                   id="password"
@@ -80,10 +82,11 @@ export default function LoginPage() {
                   type="password"
                   value={password}
                 />
-              </div>
+              </Field>
               <Button className="w-full" disabled={loading} type="submit">
                 {loading ? "Signing in…" : "Sign In"}
               </Button>
+              </FieldGroup>
             </form>
           </CardContent>
         </Card>
@@ -100,4 +103,16 @@ export default function LoginPage() {
       </div>
     </div>
   );
+}
+
+function readNextParam(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("next");
+}
+
+function safeNextPath(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/";
+  }
+  return value;
 }

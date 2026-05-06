@@ -10,6 +10,8 @@ export class GatewayServerClient {
     process.env["NEXT_PUBLIC_GATEWAY_URL"] ??
     "http://localhost:7890";
 
+  constructor(private readonly authCookie?: string | null) {}
+
   async listChannels(): Promise<ChannelBinding[]> {
     return this.get<ChannelBinding[]>("/api/channels");
   }
@@ -25,6 +27,7 @@ export class GatewayServerClient {
   private async get<T>(path: string): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       cache: "no-store",
+      headers: this.authCookie ? { Cookie: this.authCookie } : undefined,
     });
     if (!response.ok) {
       throw new Error(await response.text());

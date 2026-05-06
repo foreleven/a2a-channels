@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 const encoder = new TextEncoder();
 
 export async function GET(request: Request) {
-  const gateway = new GatewayServerClient();
+  const gateway = new GatewayServerClient(request.headers.get("cookie"));
 
   const stream = new ReadableStream({
     async start(controller) {

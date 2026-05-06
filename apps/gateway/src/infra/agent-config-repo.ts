@@ -1,4 +1,5 @@
 import type {
+  A2AAgentConfig,
   ACPAgentConfig,
   AgentConfigRepository,
   AgentConfigSnapshot,
@@ -90,10 +91,17 @@ function parseAgentConfig(
     const parsed = JSON.parse(value) as unknown;
     const protocol = parseAgentProtocol(protocolValue);
     if (protocol === "a2a" && isA2AAgentConfig(parsed)) {
-      return parsed;
+      return { url: parsed.url };
     }
     if (protocol === "acp" && isACPAgentConfig(parsed)) {
-      return parsed;
+      return {
+        transport: "stdio",
+        command: parsed.command,
+        args: parsed.args,
+        cwd: parsed.cwd,
+        permission: parsed.permission,
+        timeoutMs: parsed.timeoutMs,
+      };
     }
     // Warn about unrecognised configs (e.g. previously persisted ACP REST rows)
     // so operators know they need to re-configure the agent.
@@ -109,7 +117,7 @@ function parseAgentConfig(
     : { url: "" };
 }
 
-function isA2AAgentConfig(value: unknown): value is AgentProtocolConfig {
+function isA2AAgentConfig(value: unknown): value is A2AAgentConfig {
   return isObject(value) && typeof value.url === "string";
 }
 
@@ -122,7 +130,6 @@ function isACPAgentConfig(value: unknown): value is ACPAgentConfig {
         (Array.isArray(value.args) &&
           value.args.every((arg) => typeof arg === "string"))) &&
       (value.cwd === undefined || typeof value.cwd === "string") &&
-      (value.name === undefined || typeof value.name === "string") &&
       (value.permission === undefined ||
         value.permission === "allow_once" ||
         value.permission === "allow_always" ||

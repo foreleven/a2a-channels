@@ -22,13 +22,6 @@ export interface ACPStdioAgentConfig {
   readonly command: string;
   readonly args?: readonly string[];
   readonly cwd?: string;
-  /**
-   * Short identifier used as the per-agent subdirectory under `ACP_BASE_PATH`
-   * when per-account process isolation is enabled.  Injected at runtime from
-   * the owning agent's display name; does not need to be set in persisted
-   * config.
-   */
-  readonly name?: string;
   readonly permission?:
     | "allow_once"
     | "allow_always"
@@ -96,6 +89,7 @@ export class AgentConfigAggregate {
     config: AgentProtocolConfig;
     description?: string;
   }): AgentConfigAggregate {
+    assertValidAgentName(data.name);
     const agg = new AgentConfigAggregate();
     agg.raiseEvent({
       eventType: "AgentRegistered.v1",
@@ -119,6 +113,7 @@ export class AgentConfigAggregate {
     if (this.isDeleted) {
       throw new Error(`AgentConfig ${this.id} has been deleted`);
     }
+    assertValidAgentName(changes.name ?? this.name);
     if (Object.keys(changes).length === 0) return;
     this.raiseEvent({
       eventType: "AgentUpdated.v1",
@@ -205,5 +200,23 @@ export class AgentConfigAggregate {
         this.isDeleted = true;
         break;
     }
+  }
+}
+
+const AGENT_FOLDER_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+export function isValidAgentName(value: string): boolean {
+  return (
+    AGENT_FOLDER_NAME_PATTERN.test(value) &&
+    value !== "." &&
+    value !== ".."
+  );
+}
+
+function assertValidAgentName(value: string): void {
+  if (!isValidAgentName(value)) {
+    throw new Error(
+      "Agent name must be a folder-safe name using only letters, numbers, dots, underscores, and hyphens",
+    );
   }
 }

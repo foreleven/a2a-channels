@@ -198,6 +198,17 @@ export class AccountService {
     }
   }
 
+  async registerAndLogin(
+    username: string,
+    password: string,
+  ): Promise<LoginResult> {
+    const account = await this.register(username, password);
+    return {
+      account,
+      token: this.issueToken(account.id),
+    };
+  }
+
   async login(username: string, password: string): Promise<LoginResult> {
     const row = await this.repo.findByUsername(username.trim());
     if (!row) {
@@ -214,12 +225,7 @@ export class AccountService {
       throw new InvalidCredentialsError();
     }
 
-    const token = signToken(
-      { accountId: row.id, iat: Date.now(), exp: Date.now() + TOKEN_TTL_MS },
-      getTokenSecret(),
-    );
-
-    return { account: this.toSnapshot(row), token };
+    return { account: this.toSnapshot(row), token: this.issueToken(row.id) };
   }
 
   /**
@@ -278,12 +284,10 @@ export class AccountService {
       throw new Error(`Account ${accountId} not found after OAuth upsert`);
     }
 
-    const token = signToken(
-      { accountId, iat: Date.now(), exp: Date.now() + TOKEN_TTL_MS },
-      getTokenSecret(),
-    );
-
-    return { account: this.toSnapshot(accountRow), token };
+    return {
+      account: this.toSnapshot(accountRow),
+      token: this.issueToken(accountId),
+    };
   }
 
   async verifyToken(token: string): Promise<AccountSnapshot | null> {
@@ -338,6 +342,13 @@ export class AccountService {
     return `${salt}:${derived.toString("hex")}`;
   }
 
+  private issueToken(accountId: string): string {
+    return signToken(
+      { accountId, iat: Date.now(), exp: Date.now() + TOKEN_TTL_MS },
+      getTokenSecret(),
+    );
+  }
+
   private async verifyPassword(
     password: string,
     stored: string,
@@ -359,4 +370,3 @@ export class AccountService {
     }
   }
 }
-

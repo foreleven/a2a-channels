@@ -12,6 +12,7 @@ import type {
   AgentRequest,
   AgentResponse,
   AgentTransport,
+  AgentTransportContext,
 } from "./transport.js";
 
 interface CommandSpec {
@@ -29,8 +30,11 @@ export class ACPStdioTransport implements AgentTransport {
   readonly protocol = "acp";
   private readonly processPool: ACPStdioAgentProcessPool;
 
-  constructor(config: ACPStdioAgentConfig) {
-    this.processPool = new ACPStdioAgentProcessPool(config);
+  constructor(
+    config: ACPStdioAgentConfig,
+    context?: AgentTransportContext,
+  ) {
+    this.processPool = new ACPStdioAgentProcessPool(config, context);
   }
 
   send(request: AgentRequest): Promise<AgentResponse> {
@@ -50,7 +54,10 @@ class ACPStdioAgentProcessPool {
   private readonly workers = new Map<string, ACPStdioAccountWorker>();
   private stopping = false;
 
-  constructor(private readonly config: ACPStdioAgentConfig) {}
+  constructor(
+    private readonly config: ACPStdioAgentConfig,
+    private readonly context?: AgentTransportContext,
+  ) {}
 
   async send(request: AgentRequest): Promise<AgentResponse> {
     if (this.stopping) {
@@ -87,7 +94,7 @@ class ACPStdioAgentProcessPool {
     if (!worker) {
       worker = new ACPStdioAccountWorker(
         accountId,
-        parseCommandSpec(this.config, accountId),
+        parseCommandSpec(this.config, accountId, this.context),
       );
       this.workers.set(accountId, worker);
     }
@@ -368,27 +375,26 @@ async function withTimeout<T>(
   }
 }
 
-/**
- * Returns `true` when per-account process isolation is active for `config`,
- * i.e., both `ACP_BASE_PATH` env variable and `config.name` are set.
- */
-function hasPerAccountIsolation(config: ACPStdioAgentConfig): boolean {
-  return !!process.env["ACP_BASE_PATH"] && !!config.name;
-}
-
 function parseCommandSpec(
   config: ACPStdioAgentConfig,
   accountId: string,
+  context?: AgentTransportContext,
 ): CommandSpec {
   const command = config.command.trim();
   const args = [...(config.args ?? [])];
 
   const acpBasePath = process.env["ACP_BASE_PATH"];
+  const agentName = context?.agentName;
+  if (acpBasePath && agentName && !isFolderSafePathSegment(agentName)) {
+    throw new Error(
+      "ACP stdio agentName must be a folder-safe name using only letters, numbers, dots, underscores, and hyphens",
+    );
+  }
   const cwd =
-    acpBasePath && config.name && accountId
+    acpBasePath && agentName && accountId
       ? join(
           acpBasePath,
-          sanitizePathSegment(config.name),
+          agentName,
           sanitizePathSegment(accountId),
         )
       : (config.cwd ?? process.env["ACP_STDIO_CWD"] ?? process.cwd());
@@ -421,4 +427,12 @@ function readPositiveIntegerValue(value: unknown, fallback: number): number {
  */
 function sanitizePathSegment(segment: string): string {
   return basename(segment);
+}
+
+function isFolderSafePathSegment(segment: string): boolean {
+  return (
+    /^[A-Za-z0-9._-]+$/.test(segment) &&
+    segment !== "." &&
+    segment !== ".."
+  );
 }

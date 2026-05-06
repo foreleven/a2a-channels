@@ -8,6 +8,7 @@
 
 import type {
   ACPAgentConfig,
+  AgentTransportContext,
   AgentProtocolConfig,
   AgentTransport,
   AgentTransportFactory,
@@ -22,12 +23,15 @@ import { ACPStdioTransport } from "./acp-stdio.js";
 export class ACPTransport implements AgentTransportFactory {
   readonly protocol = "acp";
 
-  create(config: AgentProtocolConfig): AgentTransport {
+  create(
+    config: AgentProtocolConfig,
+    context?: AgentTransportContext,
+  ): AgentTransport {
     if (!isACPAgentConfig(config)) {
       throw new Error("ACP transport requires config.transport");
     }
 
-    return new ACPStdioTransport(config);
+    return new ACPStdioTransport(config, context);
   }
 }
 
