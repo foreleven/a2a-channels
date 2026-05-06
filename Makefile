@@ -1,4 +1,4 @@
-default_db_path := $(CURDIR)/db/a2a-channels.db
+default_db_path := $(CURDIR)/db/agent-relay.db
 test_db_path := /tmp/test-a2a-store.db
 
 .PHONY: install gateway-db-push gateway-test-db-push seed gateway-dev dev gateway echo-agent web start-all test
@@ -33,7 +33,7 @@ echo-agent:
 	node --import tsx/esm apps/echo-agent/src/index.ts
 
 web:
-	pnpm --filter @a2a-channels/web dev
+	pnpm --filter @agent-relay/web dev
 
 start-all:
 	node scripts/dev.mjs

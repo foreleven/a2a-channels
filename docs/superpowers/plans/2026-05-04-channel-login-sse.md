@@ -839,7 +839,7 @@ Create `apps/gateway/src/application/channel-login-service.ts`:
 
 ```ts
 import { inject, injectable } from "inversify";
-import { OpenClawPluginHost } from "@a2a-channels/openclaw-compat";
+import { OpenClawPluginHost } from "@agent-relay/openclaw-compat";
 
 import { ChannelLoginManager } from "../runtime/channel-login/manager.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
@@ -1215,7 +1215,7 @@ export function extractFeishuLoginResult(params: ExtractParams): ChannelLoginRes
 Create `apps/gateway/src/runtime/channel-login/login-child.ts`:
 
 ```ts
-import { OpenClawPluginHost, OpenClawPluginRuntime } from "@a2a-channels/openclaw-compat";
+import { OpenClawPluginHost, OpenClawPluginRuntime } from "@agent-relay/openclaw-compat";
 
 import { registerAllPlugins } from "../../register-plugins.js";
 import { CHANNEL_LOGIN_PROTOCOL_PREFIX, type ChannelLoginEvent, type ChannelLoginStartRequest } from "./types.js";

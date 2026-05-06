@@ -103,7 +103,7 @@ test("RuntimeOwnershipStateToken can point at the injectable ownership singleton
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "ownership"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "ownership"
 ```
 
 Expected:
@@ -205,7 +205,7 @@ export function createRuntimeOwnershipState(
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "ownership"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "ownership"
 ```
 
 Expected:
@@ -269,7 +269,7 @@ test("runtime singleton collaborators resolve through direct singleton bindings"
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "runtime singleton collaborators"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "runtime singleton collaborators"
 ```
 
 Expected:
@@ -351,7 +351,7 @@ bind(RuntimeAssignmentCoordinator).toSelf().inSingletonScope();
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts
 ```
 
 Expected:
@@ -424,7 +424,7 @@ test("RelayRuntime and RuntimeAssignmentCoordinator use the same runnable policy
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeBindingPolicy"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeBindingPolicy"
 ```
 
 Expected:
@@ -440,7 +440,7 @@ Create `apps/gateway/src/runtime/runtime-binding-policy.ts`:
 
 ```ts
 import { injectable } from "inversify";
-import type { ChannelBinding } from "@a2a-channels/core";
+import type { ChannelBinding } from "@agent-relay/core";
 
 @injectable()
 export class RuntimeBindingPolicy {
@@ -496,8 +496,8 @@ bind(RuntimeBindingPolicy).toSelf().inSingletonScope();
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels && pnpm test
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeBindingPolicy|ownership|relay runtime"
+cd /Users/feng/Projects/agent-relay && pnpm test
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeBindingPolicy|ownership|relay runtime"
 ```
 
 Expected:

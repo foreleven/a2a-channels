@@ -1,6 +1,6 @@
 import { inject, injectable } from "inversify";
-import type { AgentClient } from "@a2a-channels/agent-transport";
-import type { AgentConfigSnapshot } from "@a2a-channels/domain";
+import type { AgentClient } from "@agent-relay/agent-transport";
+import type { AgentConfigSnapshot } from "@agent-relay/domain";
 
 import { AgentClientFactory } from "./agent-clients.js";
 

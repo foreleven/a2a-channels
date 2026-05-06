@@ -1,5 +1,5 @@
-import type { ChannelBindingRepository, ChannelBindingSnapshot } from "@a2a-channels/domain";
-import { ChannelBindingAggregate } from "@a2a-channels/domain";
+import type { ChannelBindingRepository, ChannelBindingSnapshot } from "@agent-relay/domain";
+import { ChannelBindingAggregate } from "@agent-relay/domain";
 import { injectable } from "inversify";
 
 import { prisma } from "../store/prisma.js";

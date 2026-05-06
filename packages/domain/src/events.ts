@@ -1,5 +1,5 @@
 /**
- * Domain events for the a2a-channels bounded context.
+ * Domain events for the agent-relay bounded context.
  *
  * All events are immutable plain objects (no classes).  The `eventType`
  * discriminant includes a version suffix (`.v1`) so consumers can perform

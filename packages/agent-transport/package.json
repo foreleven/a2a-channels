@@ -1,7 +1,7 @@
 {
-  "name": "@a2a-channels/agent-transport",
+  "name": "@agent-relay/agent-transport",
   "version": "0.1.0",
-  "description": "A2A and ACP protocol transport adapters for a2a-channels",
+  "description": "A2A and ACP protocol transport adapters for agent-relay",
   "type": "module",
   "main": "src/index.ts",
   "exports": {

@@ -99,7 +99,7 @@ packages/
 ```
 
 The repository is being renamed to AgentRelay, but the current workspace package
-scope is still `@a2a-channels/*`.
+scope is still `@agent-relay/*`.
 
 ## Quick Start
 
@@ -147,7 +147,7 @@ provided Makefile-backed commands.
 | Variable | Default | Description |
 |---|---:|---|
 | `PORT` | `7890` | Gateway HTTP port |
-| `DB_PATH` | `./db/a2a-channels.db` | SQLite database path |
+| `DB_PATH` | `./db/agent-relay.db` | SQLite database path |
 | `CORS_ORIGIN` | `http://localhost:3000` | Allowed browser origin for gateway API calls |
 | `RUNTIME_ADDRESS` | `http://localhost:$PORT` | Address advertised by this runtime node |
 | `NODE_ID` | `RUNTIME_ADDRESS` | Runtime node identity |

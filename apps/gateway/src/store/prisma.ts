@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { PrismaClient } from "../generated/prisma/index.js";
 
 export const DB_PATH =
-  process.env["DB_PATH"] ?? join(process.cwd(), "db/a2a-channels.db");
+  process.env["DB_PATH"] ?? join(process.cwd(), "db/agent-relay.db");
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 

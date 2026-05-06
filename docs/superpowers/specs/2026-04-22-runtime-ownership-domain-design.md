@@ -4,10 +4,10 @@
 
 The current runtime split still leaves the core runtime model scattered across multiple objects:
 
-- [apps/gateway/src/runtime/relay-runtime.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/runtime/relay-runtime.ts) owns binding maps, agent maps, reconnect timers, config rebuilding, ownership transitions, and node snapshot publishing.
-- [apps/gateway/src/runtime/ownership-state.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/runtime/ownership-state.ts) only tracks a narrow status map plus reconnect attempt counts, so it is not the actual runtime domain model.
-- [apps/gateway/src/connection-manager.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/connection-manager.ts) mixes connection lifecycle with reply dispatch and still accepts a `listBindings` dependency that is only used by an unused `syncConnections()` path.
-- `ChannelBindingEvent` is not consumed by runtime state directly. The real consumers are the schedulers in [apps/gateway/src/runtime/local-scheduler.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/runtime/local-scheduler.ts) and [apps/gateway/src/runtime/cluster/leader-scheduler.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/runtime/cluster/leader-scheduler.ts), which trigger `RuntimeAssignmentCoordinator.reconcile()`.
+- [apps/gateway/src/runtime/relay-runtime.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/runtime/relay-runtime.ts) owns binding maps, agent maps, reconnect timers, config rebuilding, ownership transitions, and node snapshot publishing.
+- [apps/gateway/src/runtime/ownership-state.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/runtime/ownership-state.ts) only tracks a narrow status map plus reconnect attempt counts, so it is not the actual runtime domain model.
+- [apps/gateway/src/connection-manager.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/connection-manager.ts) mixes connection lifecycle with reply dispatch and still accepts a `listBindings` dependency that is only used by an unused `syncConnections()` path.
+- `ChannelBindingEvent` is not consumed by runtime state directly. The real consumers are the schedulers in [apps/gateway/src/runtime/local-scheduler.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/runtime/local-scheduler.ts) and [apps/gateway/src/runtime/cluster/leader-scheduler.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/runtime/cluster/leader-scheduler.ts), which trigger `RuntimeAssignmentCoordinator.reconcile()`.
 
 The result is a weak domain boundary: local runtime ownership exists conceptually, but its facts and transitions are split between `RelayRuntime`, `RuntimeOwnershipState`, `RuntimeNodeState`, and `ConnectionManager`.
 
@@ -272,7 +272,7 @@ This is intentional. Changing event consumers or scheduler topology in the same 
 
 ## File-Level Changes
 
-### [apps/gateway/src/runtime/ownership-state.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/runtime/ownership-state.ts)
+### [apps/gateway/src/runtime/ownership-state.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/runtime/ownership-state.ts)
 
 Expand from a status map helper into the full local ownership domain:
 
@@ -281,7 +281,7 @@ Expand from a status map helper into the full local ownership domain:
 - expose assignment/update/release decisions,
 - export binding-status snapshots for node-state projection.
 
-### [apps/gateway/src/runtime/relay-runtime.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/runtime/relay-runtime.ts)
+### [apps/gateway/src/runtime/relay-runtime.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/runtime/relay-runtime.ts)
 
 Shrink to:
 
@@ -303,7 +303,7 @@ Remove:
 
 Some thin translation from ownership-domain results into side effects will still remain.
 
-### [apps/gateway/src/connection-manager.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/connection-manager.ts)
+### [apps/gateway/src/connection-manager.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/connection-manager.ts)
 
 Remove:
 
@@ -317,11 +317,11 @@ Keep:
 - lifecycle callbacks,
 - start/restart/stop helpers.
 
-### [apps/gateway/src/runtime/relay-runtime-assembly-provider.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/runtime/relay-runtime-assembly-provider.ts)
+### [apps/gateway/src/runtime/relay-runtime-assembly-provider.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/runtime/relay-runtime-assembly-provider.ts)
 
 Update assembly contracts so connection management is created without `listBindings`, and keep reply-event handling entirely within runtime assembly boundaries.
 
-### [apps/gateway/src/runtime/runtime-node-state.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/runtime/runtime-node-state.ts)
+### [apps/gateway/src/runtime/runtime-node-state.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/runtime/runtime-node-state.ts)
 
 Adjust the API if necessary so node snapshots can be built from externally supplied binding-status lists instead of maintaining a second mutable binding-status map internally.
 
@@ -339,7 +339,7 @@ The refactor should add or update tests for:
 - runtime assignment flows still starting/stopping connections correctly,
 - runtime node snapshots reflecting ownership-domain state rather than duplicate runtime maps.
 
-Existing store/runtime tests in [apps/gateway/src/store/store.test.ts](/Users/feng/Projects/a2a-channels/apps/gateway/src/store/store.test.ts) are the most likely place to keep coverage first, because this repository already centralizes runtime integration tests there.
+Existing store/runtime tests in [apps/gateway/src/store/store.test.ts](/Users/feng/Projects/agent-relay/apps/gateway/src/store/store.test.ts) are the most likely place to keep coverage first, because this repository already centralizes runtime integration tests there.
 
 ## Migration Sequence
 

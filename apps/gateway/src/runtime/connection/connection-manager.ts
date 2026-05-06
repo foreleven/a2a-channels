@@ -6,7 +6,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
+import type { ChannelBindingSnapshot } from "@agent-relay/domain";
 import {
   type ChannelReplyDispatchResult,
   type ChannelReplyEvent,
@@ -15,7 +15,7 @@ import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
   type ReplyEventDispatcher,
-} from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/openclaw-compat";
 import { inject, injectable } from "inversify";
 
 import { channelTypeRegistry } from "../channel-type-registry.js";

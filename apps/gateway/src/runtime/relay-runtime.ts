@@ -2,7 +2,7 @@ import { inject, injectable } from "inversify";
 import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
-} from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/openclaw-compat";
 
 import { GatewayConfigService } from "../bootstrap/config.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";

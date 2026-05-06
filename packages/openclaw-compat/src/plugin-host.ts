@@ -21,7 +21,7 @@ import type {
   OpenClawPluginApi,
   PluginRuntime,
 } from "openclaw/plugin-sdk";
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
+import type { ChannelBindingSnapshot } from "@agent-relay/domain";
 import type { ChannelLogSink } from "openclaw/plugin-sdk/channel-runtime";
 import type { OpenClawPluginRuntime } from "./plugin-runtime";
 
@@ -304,8 +304,8 @@ export class OpenClawPluginHost {
 
     const api: OpenClawPluginApi = {
       // ---- Identity -------------------------------------------------------
-      id: "a2a-channels-gateway",
-      name: "A2A Channels Gateway",
+      id: "agent-relay-gateway",
+      name: "Agent Relay Gateway",
       version: "0.1.0",
       description: "A2A-backed OpenClaw channel plugin host",
       source: "local",

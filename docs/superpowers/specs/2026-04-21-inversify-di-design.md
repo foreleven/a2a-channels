@@ -1,7 +1,7 @@
 # InversifyJS 依赖注入改造设计
 
 日期：2026-04-21  
-范围：`a2a-channels` monorepo  
+范围：`agent-relay` monorepo
 目标：在不污染 `domain` 的前提下，引入 InversifyJS 作为统一的依赖注入与组合根机制，并借此收敛当前代码结构与整洁架构之间的差距。
 
 ## 1. 背景与目标

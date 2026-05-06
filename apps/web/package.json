@@ -1,5 +1,5 @@
 {
-  "name": "@a2a-channels/web",
+  "name": "@agent-relay/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {

@@ -11,8 +11,8 @@ type PluginRuntimeAgent = PluginRuntime["agent"];
 export function buildAgentCompat(): PluginRuntimeAgent {
   const agentCompat: PluginRuntimeAgent = {
     defaults: { model: "gpt-5.5", provider: "openai" },
-    resolveAgentDir: () => "/tmp/a2a-channels",
-    resolveAgentWorkspaceDir: () => "/tmp/a2a-channels",
+    resolveAgentDir: () => "/tmp/agent-relay",
+    resolveAgentWorkspaceDir: () => "/tmp/agent-relay",
     resolveAgentIdentity: () => ({ agentId: "main", name: "main" }),
     resolveThinkingDefault: () => "off",
     normalizeThinkingLevel: (raw?: string | null) => {
@@ -39,7 +39,7 @@ export function buildAgentCompat(): PluginRuntimeAgent {
     runEmbeddedPiAgent: async () => ({ meta: { durationMs: 0 } }),
     resolveAgentTimeoutMs: () => 30_000,
     ensureAgentWorkspace: async () => ({
-      dir: "/tmp/a2a-channels",
+      dir: "/tmp/agent-relay",
       created: false,
     }),
     session: {

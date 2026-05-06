@@ -169,7 +169,7 @@ export class OpenClawPluginRuntime {
         }),
       },
       state: {
-        resolveStateDir: () => "/tmp/a2a-channels",
+        resolveStateDir: () => "/tmp/agent-relay",
       },
       modelAuth: {
         getApiKeyForModel: async () => ({

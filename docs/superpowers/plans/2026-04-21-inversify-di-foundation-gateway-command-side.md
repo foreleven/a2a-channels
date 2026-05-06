@@ -32,10 +32,10 @@ This plan only implements subsystem 1. Create separate follow-up plans for subsy
   Shared token constants using the `lowercase.package.ClassName` naming convention.
 
 - Modify: `tsconfig.json`
-  Add the `@a2a-channels/di` path alias plus decorator metadata compiler settings.
+  Add the `@agent-relay/di` path alias plus decorator metadata compiler settings.
 
 - Modify: `apps/gateway/package.json`
-  Add `inversify`, `reflect-metadata`, and `@a2a-channels/di`.
+  Add `inversify`, `reflect-metadata`, and `@agent-relay/di`.
 
 - Create: `apps/gateway/src/bootstrap/config.ts`
   Parse environment into a typed `GatewayConfig` object that can be injected.
@@ -93,7 +93,7 @@ This plan only implements subsystem 1. Create separate follow-up plans for subsy
 import { before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { Container } from "inversify";
-import { SYSTEM_TOKENS } from "@a2a-channels/di";
+import { SYSTEM_TOKENS } from "@agent-relay/di";
 
 import { initStore } from "../services/initialization.js";
 import { buildGatewayConfig } from "../bootstrap/config.js";
@@ -119,7 +119,7 @@ describe("buildGatewayContainer", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts
 ```
 
 Expected:
@@ -134,7 +134,7 @@ error: Cannot find module '../bootstrap/container.js'
 ```json
 // packages/di/package.json
 {
-  "name": "@a2a-channels/di",
+  "name": "@agent-relay/di",
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
@@ -170,7 +170,7 @@ export * from "./tokens/system.js";
 // apps/gateway/package.json
 {
   "dependencies": {
-    "@a2a-channels/di": "workspace:*",
+    "@agent-relay/di": "workspace:*",
     "inversify": "^7.7.1",
     "reflect-metadata": "^0.2.2"
   }
@@ -184,7 +184,7 @@ export * from "./tokens/system.js";
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "paths": {
-      "@a2a-channels/di": [
+      "@agent-relay/di": [
         "./packages/di/src/index.ts"
       ]
     }
@@ -211,7 +211,7 @@ export function buildGatewayConfig(overrides: Partial<GatewayConfig> = {}): Gate
 // apps/gateway/src/bootstrap/container.ts
 import "reflect-metadata";
 import { Container } from "inversify";
-import { SYSTEM_TOKENS } from "@a2a-channels/di";
+import { SYSTEM_TOKENS } from "@agent-relay/di";
 
 import type { GatewayConfig } from "./config.js";
 
@@ -225,7 +225,7 @@ export function buildGatewayContainer(config: GatewayConfig): Container {
 Run:
 
 ```bash
-pnpm --dir /Users/feng/Projects/a2a-channels install
+pnpm --dir /Users/feng/Projects/agent-relay install
 ```
 
 - [ ] **Step 4: Run the test and typecheck to verify the DI skeleton works**
@@ -233,8 +233,8 @@ pnpm --dir /Users/feng/Projects/a2a-channels install
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts
-pnpm --dir /Users/feng/Projects/a2a-channels typecheck
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts
+pnpm --dir /Users/feng/Projects/agent-relay typecheck
 ```
 
 Expected:
@@ -283,7 +283,7 @@ test("reuses singleton infra bindings", async () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "singleton infra"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "singleton infra"
 ```
 
 Expected:
@@ -313,7 +313,7 @@ export class DomainEventBus {
 
 // apps/gateway/src/infra/outbox-worker.ts
 import { inject, injectable } from "inversify";
-import { DI_TOKENS } from "@a2a-channels/di";
+import { DI_TOKENS } from "@agent-relay/di";
 
 @injectable()
 export class OutboxWorker {
@@ -344,7 +344,7 @@ export class AgentConfigStateRepository implements AgentConfigRepository {
 ```ts
 // apps/gateway/src/container/modules/infra.ts
 import { ContainerModule } from "inversify";
-import { DI_TOKENS, PORT_TOKENS } from "@a2a-channels/di";
+import { DI_TOKENS, PORT_TOKENS } from "@agent-relay/di";
 
 import { AgentConfigStateRepository } from "../../infra/agent-config-repo.js";
 import { ChannelBindingStateRepository } from "../../infra/channel-binding-repo.js";
@@ -376,7 +376,7 @@ export function buildGatewayContainer(config: GatewayConfig): Container {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "singleton infra"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "singleton infra"
 ```
 
 Expected:
@@ -425,7 +425,7 @@ test("resolves application services backed by injected repositories", async () =
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "application services"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "application services"
 ```
 
 Expected:
@@ -439,7 +439,7 @@ error: No bindings found for service identifier: Symbol(services.ChannelBindingS
 ```ts
 // apps/gateway/src/application/channel-binding-service.ts
 import { inject, injectable } from "inversify";
-import { PORT_TOKENS } from "@a2a-channels/di";
+import { PORT_TOKENS } from "@agent-relay/di";
 
 @injectable()
 export class ChannelBindingService {
@@ -453,7 +453,7 @@ export class ChannelBindingService {
 
 // apps/gateway/src/application/agent-service.ts
 import { inject, injectable } from "inversify";
-import { PORT_TOKENS } from "@a2a-channels/di";
+import { PORT_TOKENS } from "@agent-relay/di";
 
 @injectable()
 export class AgentService {
@@ -469,7 +469,7 @@ export class AgentService {
 ```ts
 // apps/gateway/src/container/modules/application.ts
 import { ContainerModule } from "inversify";
-import { SERVICE_TOKENS } from "@a2a-channels/di";
+import { SERVICE_TOKENS } from "@agent-relay/di";
 
 import { AgentService } from "../../application/agent-service.js";
 import { ChannelBindingService } from "../../application/channel-binding-service.js";
@@ -492,8 +492,8 @@ container.loadSync(infraModule, applicationModule);
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "application services"
-pnpm --dir /Users/feng/Projects/a2a-channels/apps/gateway test
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-container.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "application services"
+pnpm --dir /Users/feng/Projects/agent-relay/apps/gateway test
 ```
 
 Expected:
@@ -557,7 +557,7 @@ describe("buildHttpApp", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-http.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/http/app.test.ts
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-http.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/http/app.test.ts
 ```
 
 Expected:
@@ -571,7 +571,7 @@ error: Cannot find module './app.js'
 ```ts
 // apps/gateway/src/http/routes/channels.ts
 import { Hono } from "hono";
-import { SERVICE_TOKENS } from "@a2a-channels/di";
+import { SERVICE_TOKENS } from "@agent-relay/di";
 import type { Container } from "inversify";
 
 import { ChannelBindingService } from "../../application/channel-binding-service.js";
@@ -638,7 +638,7 @@ export function registerChannelRoutes(app: Hono, container: Container): void {
 ```ts
 // apps/gateway/src/http/routes/agents.ts
 import { Hono } from "hono";
-import { SERVICE_TOKENS } from "@a2a-channels/di";
+import { SERVICE_TOKENS } from "@agent-relay/di";
 import type { Container } from "inversify";
 
 import { AgentService, ReferencedAgentError } from "../../application/agent-service.js";
@@ -701,7 +701,7 @@ export function registerRuntimeRoutes(app: Hono, listConnectionStatuses: () => u
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Container } from "inversify";
-import { SYSTEM_TOKENS } from "@a2a-channels/di";
+import { SYSTEM_TOKENS } from "@agent-relay/di";
 
 import type { GatewayConfig } from "../bootstrap/config.js";
 import { registerAgentRoutes } from "./routes/agents.js";
@@ -747,8 +747,8 @@ const app = buildHttpApp(container, {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-http.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/http/app.test.ts
-pnpm --dir /Users/feng/Projects/a2a-channels typecheck
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-http.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/http/app.test.ts
+pnpm --dir /Users/feng/Projects/agent-relay typecheck
 ```
 
 Expected:
@@ -792,8 +792,8 @@ test("container builds once and can start the outbox worker", async () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-http.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "outbox worker"
-pnpm --dir /Users/feng/Projects/a2a-channels/apps/gateway test
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-http.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts --test-name-pattern "outbox worker"
+pnpm --dir /Users/feng/Projects/agent-relay/apps/gateway test
 ```
 
 Expected:
@@ -827,9 +827,9 @@ process.on("SIGINT", async () => {
 Run:
 
 ```bash
-pnpm --dir /Users/feng/Projects/a2a-channels typecheck
-pnpm --dir /Users/feng/Projects/a2a-channels/apps/gateway test
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-http.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/http/app.test.ts
+pnpm --dir /Users/feng/Projects/agent-relay typecheck
+pnpm --dir /Users/feng/Projects/agent-relay/apps/gateway test
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-http.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/http/app.test.ts
 ```
 
 Expected:

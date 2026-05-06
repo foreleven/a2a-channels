@@ -5,7 +5,7 @@ import {
   type ChannelQrLoginStartResult,
   type ChannelQrLoginWaitParams,
   type ChannelQrLoginWaitResult,
-} from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/openclaw-compat";
 import {
   ChannelQrLoginProviderToken,
   type ChannelQrLoginProvider,

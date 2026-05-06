@@ -75,7 +75,7 @@ export class GatewayServer {
     const serve = options.serve ?? this.defaultServe;
 
     this.logger.info(
-      `🚀 A2A Channels Gateway starting on http://localhost:${this.config.port}`,
+      `🚀 Agent Relay Gateway starting on http://localhost:${this.config.port}`,
     );
 
     try {

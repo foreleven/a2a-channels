@@ -6,7 +6,7 @@ import type {
   RegisterAgentData,
   UpdateAgentData,
 } from "../../application/agent-service.js";
-import { isValidAgentName } from "@a2a-channels/domain";
+import { isValidAgentName } from "@agent-relay/domain";
 import { z } from "../utils/schema.js";
 
 const nonEmptyString = z.string().min(1);

@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { Container } from "inversify";
-import type { AgentTransport } from "@a2a-channels/agent-transport";
+import type { AgentTransport } from "@agent-relay/agent-transport";
 import {
   AgentConfigRepository,
   ChannelBindingRepository,
-} from "@a2a-channels/domain";
+} from "@agent-relay/domain";
 
 import { AgentService } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";

@@ -1,7 +1,7 @@
 {
-  "name": "@a2a-channels/gateway",
+  "name": "@agent-relay/gateway",
   "version": "0.1.0",
-  "description": "A2A Channels Gateway – Hono HTTP server on Node.js",
+  "description": "Agent Relay Gateway – Hono HTTP server on Node.js",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
@@ -13,10 +13,10 @@
     "test": "make -C ../.. test"
   },
   "dependencies": {
-    "@a2a-channels/agent-transport": "workspace:*",
-    "@a2a-channels/domain": "workspace:*",
-    "@a2a-channels/event-store": "workspace:*",
-    "@a2a-channels/openclaw-compat": "workspace:*",
+    "@agent-relay/agent-transport": "workspace:*",
+    "@agent-relay/domain": "workspace:*",
+    "@agent-relay/event-store": "workspace:*",
+    "@agent-relay/openclaw-compat": "workspace:*",
     "@openclaw/discord": "2026.5.2",
     "@openclaw/feishu": "2026.5.2",
     "@openclaw/qqbot": "2026.5.2",

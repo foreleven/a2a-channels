@@ -1,12 +1,12 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { AgentTransportFactory } from "@a2a-channels/agent-transport";
+import type { AgentTransportFactory } from "@agent-relay/agent-transport";
 import type {
   AgentConfigSnapshot,
   ChannelBindingSnapshot,
-} from "@a2a-channels/domain";
-import { OpenClawPluginRuntime } from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/domain";
+import { OpenClawPluginRuntime } from "@agent-relay/openclaw-compat";
 
 import { AgentClientRegistry } from "./agent-client-registry.js";
 import { AgentClientFactory } from "./agent-clients.js";

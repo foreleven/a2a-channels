@@ -27,7 +27,7 @@ End-to-end flow:
 1. A channel provider such as Feishu/Lark delivers inbound messages over the plugin's WebSocket monitor.
 2. `apps/gateway/src/monitor-manager.ts` keeps one long-lived monitor per enabled `ChannelBinding.id`.
 3. `packages/openclaw-compat/src/plugin-runtime.ts` implements the minimal OpenClaw plugin runtime surface that channel plugins actually use.
-4. Instead of invoking an LLM pipeline, the runtime's reply dispatchers call an A2A server through `@a2a-channels/agent-transport` and send the returned text back through the plugin dispatcher.
+4. Instead of invoking an LLM pipeline, the runtime's reply dispatchers call an A2A server through `@agent-relay/agent-transport` and send the returned text back through the plugin dispatcher.
 5. The gateway HTTP API in `apps/gateway/src/index.ts` manages channel bindings and agent configs, and creates/restarts/stops monitors when bindings change.
 6. The Next.js admin UI in `apps/web` talks to the gateway `/api/*` endpoints; a legacy static UI may also be served by the gateway at `/`.
 
@@ -82,7 +82,7 @@ The runtime reuses selected helpers from `openclaw/plugin-sdk/*`, but most nones
 
 The gateway uses a SQLite-backed store by default. Important implications:
 
-- `DB_PATH` controls the database file and defaults to `./a2a-channels.db`.
+- `DB_PATH` controls the database file and defaults to `./agent-relay.db`.
 - `npm run seed` writes the default echo agent at `ECHO_AGENT_URL` or `http://localhost:3001` and optional Feishu bootstrap binding.
 - OpenClaw-compatible config is synthesized from runtime-owned bindings via `RuntimeOpenClawConfigProjection`.
 

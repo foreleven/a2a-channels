@@ -7,7 +7,7 @@ import {
   type ChannelQrLoginStartResult,
   type ChannelQrLoginWaitParams,
   type ChannelQrLoginWaitResult,
-} from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/openclaw-compat";
 import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
 import QRCode from "qrcode";
 

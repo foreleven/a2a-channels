@@ -3,7 +3,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 const dbPath =
-  process.env.DB_PATH ?? path.join(process.cwd(), "db/a2a-channels.db");
+  process.env.DB_PATH ?? path.join(process.cwd(), "db/agent-relay.db");
 
 if (!fs.existsSync(dbPath)) {
   process.exit(0);

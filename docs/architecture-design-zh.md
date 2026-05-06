@@ -1,4 +1,4 @@
-# A2A Channels 当前架构设计（代码现状对比版）
+# Agent Relay 当前架构设计（代码现状对比版）
 
 本文档重写自旧版 `architecture-design-zh.md`，目标是把**当前代码真实架构**说清楚，并明确它与旧文档中“目标态 / Phase 2 设计”的差异。
 
@@ -20,7 +20,7 @@
 
 ## 1. 当前系统目标
 
-A2A Channels Gateway 的核心职责是把外部消息渠道连接到 A2A/ACP Agent：
+Agent Relay Gateway 的核心职责是把外部消息渠道连接到 A2A/ACP Agent：
 
 ```text
 Channel Provider（如 Feishu/Lark）
@@ -41,7 +41,7 @@ Channel Provider（如 Feishu/Lark）
 - Agent 和 Channel Binding 采用 **current-state persistence**，不采用完整 Event Sourcing。
 - Runtime 通过启动和周期 reconcile 从 repository 读取最新 desired state，经过 scheduler / coordinator 变成本节点执行命令。
 - OpenClaw runtime 只作为 channel plugin compatibility layer，不执行 OpenClaw 原生 LLM pipeline。
-- Agent 调用统一通过 `@a2a-channels/agent-transport` 的 A2A/ACP transport。
+- Agent 调用统一通过 `@agent-relay/agent-transport` 的 A2A/ACP transport。
 
 ---
 

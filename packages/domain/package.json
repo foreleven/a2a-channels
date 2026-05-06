@@ -1,7 +1,7 @@
 {
-  "name": "@a2a-channels/domain",
+  "name": "@agent-relay/domain",
   "version": "0.1.0",
-  "description": "Domain model: aggregates, events, value objects, and repository interfaces for a2a-channels",
+  "description": "Domain model: aggregates, events, value objects, and repository interfaces for agent-relay",
   "type": "module",
   "main": "src/index.ts",
   "exports": { ".": "./src/index.ts" }

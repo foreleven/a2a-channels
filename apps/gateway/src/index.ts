@@ -1,5 +1,5 @@
 /**
- * A2A Channels Gateway – main HTTP server.
+ * Agent Relay Gateway – main HTTP server.
  *
  * Composition root: wires together infrastructure, application services,
  * runtime orchestration, and the Hono HTTP surface.

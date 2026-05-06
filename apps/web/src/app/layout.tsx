@@ -5,7 +5,7 @@ import "./globals.css";
 const geist = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "A2A Channels – Admin",
+  title: "Agent Relay – Admin",
   description: "Manage channel bindings and agent configurations",
 };
 

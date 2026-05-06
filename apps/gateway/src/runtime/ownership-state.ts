@@ -1,4 +1,4 @@
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
+import type { ChannelBindingSnapshot } from "@agent-relay/domain";
 import { injectable } from "inversify";
 
 import {

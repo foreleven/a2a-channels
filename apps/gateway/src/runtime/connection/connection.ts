@@ -1,10 +1,10 @@
-import type { AgentClient } from "@a2a-channels/agent-transport";
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
-import { OpenClawPluginHost } from "@a2a-channels/openclaw-compat";
+import type { AgentClient } from "@agent-relay/agent-transport";
+import type { ChannelBindingSnapshot } from "@agent-relay/domain";
+import { OpenClawPluginHost } from "@agent-relay/openclaw-compat";
 import type {
   ChannelBindingStatusUpdate,
   MessageInboundEvent,
-} from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/openclaw-compat";
 
 import { channelTypeRegistry } from "../channel-type-registry.js";
 import type { ConnectionCallbacks } from "./events.js";

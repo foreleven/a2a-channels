@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
+import type { ChannelBindingSnapshot } from "@agent-relay/domain";
 
 import { RuntimeOwnershipState } from "./ownership-state.js";
 import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";

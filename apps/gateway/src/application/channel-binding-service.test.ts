@@ -6,7 +6,7 @@ import {
   type AgentConfigRepository,
   ChannelBindingAggregate,
   type ChannelBindingRepository,
-} from "@a2a-channels/domain";
+} from "@agent-relay/domain";
 
 import type { RuntimeEventBus } from "../runtime/event-transport/runtime-event-bus.js";
 import { ChannelBindingService } from "./channel-binding-service.js";

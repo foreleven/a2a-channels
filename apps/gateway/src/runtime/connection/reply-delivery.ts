@@ -1,4 +1,4 @@
-import type { ChannelReplyEvent } from "@a2a-channels/openclaw-compat";
+import type { ChannelReplyEvent } from "@agent-relay/openclaw-compat";
 
 export type ReplyDeliveryResult = {
   counts: { block: number; final: number; tool: number };

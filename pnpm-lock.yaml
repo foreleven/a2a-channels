@@ -38,16 +38,16 @@ importers:
 
   apps/gateway:
     dependencies:
-      '@a2a-channels/agent-transport':
+      '@agent-relay/agent-transport':
         specifier: workspace:*
         version: link:../../packages/agent-transport
-      '@a2a-channels/domain':
+      '@agent-relay/domain':
         specifier: workspace:*
         version: link:../../packages/domain
-      '@a2a-channels/event-store':
+      '@agent-relay/event-store':
         specifier: workspace:*
         version: link:../../packages/event-store
-      '@a2a-channels/openclaw-compat':
+      '@agent-relay/openclaw-compat':
         specifier: workspace:*
         version: link:../../packages/openclaw-compat
       '@openclaw/discord':
@@ -170,10 +170,10 @@ importers:
 
   packages/openclaw-compat:
     dependencies:
-      '@a2a-channels/agent-transport':
+      '@agent-relay/agent-transport':
         specifier: workspace:*
         version: link:../agent-transport
-      '@a2a-channels/domain':
+      '@agent-relay/domain':
         specifier: workspace:*
         version: link:../domain
       openclaw:

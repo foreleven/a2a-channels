@@ -8,12 +8,12 @@ import {
   AgentConfigRepository,
   ChannelBindingRepository,
   isValidAgentName,
-} from "@a2a-channels/domain";
+} from "@agent-relay/domain";
 import type {
   AgentConfigSnapshot,
   AgentProtocol,
   AgentProtocolConfig,
-} from "@a2a-channels/domain";
+} from "@agent-relay/domain";
 import { inject, injectable } from "inversify";
 
 import {

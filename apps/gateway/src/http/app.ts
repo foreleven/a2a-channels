@@ -81,7 +81,7 @@ export class HonoGatewayApp implements GatewayApp {
     });
 
     app.get("/api/health", (c) =>
-      c.json({ status: "ok", service: "a2a-channels-gateway" }),
+      c.json({ status: "ok", service: "agent-relay-gateway" }),
     );
 
     // Auth middleware: protect all API routes except /api/auth/*.

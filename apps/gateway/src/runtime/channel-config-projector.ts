@@ -1,4 +1,4 @@
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
+import type { ChannelBindingSnapshot } from "@agent-relay/domain";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import { channelTypeRegistry } from "./channel-type-registry.js";

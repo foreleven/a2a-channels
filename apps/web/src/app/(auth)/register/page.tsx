@@ -47,7 +47,7 @@ export default function RegisterPage() {
           <span className="flex size-12 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <RadioTower className="size-6" />
           </span>
-          <h1 className="text-2xl font-semibold">A2A Channels</h1>
+          <h1 className="text-2xl font-semibold">Agent Relay</h1>
           <p className="text-sm text-muted-foreground">
             Create a gateway account
           </p>

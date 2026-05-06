@@ -5,9 +5,9 @@ import {
   AgentClient,
   type AgentRequest,
   type AgentTransport,
-} from "@a2a-channels/agent-transport";
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
-import { OpenClawPluginRuntime } from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/agent-transport";
+import type { ChannelBindingSnapshot } from "@agent-relay/domain";
+import { OpenClawPluginRuntime } from "@agent-relay/openclaw-compat";
 
 import { Connection, ConnectionManager } from "./index.js";
 

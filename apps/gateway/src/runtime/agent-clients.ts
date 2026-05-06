@@ -1,7 +1,7 @@
 import { injectable, multiInject } from "inversify";
-import type { AgentTransportFactory } from "@a2a-channels/agent-transport";
-import { AgentClient, TransportRegistry } from "@a2a-channels/agent-transport";
-import type { AgentConfigSnapshot } from "@a2a-channels/domain";
+import type { AgentTransportFactory } from "@agent-relay/agent-transport";
+import { AgentClient, TransportRegistry } from "@agent-relay/agent-transport";
+import type { AgentConfigSnapshot } from "@agent-relay/domain";
 
 import { AgentTransportToken } from "./transport-tokens.js";
 

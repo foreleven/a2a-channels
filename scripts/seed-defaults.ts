@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import type {
   AgentConfigRepository,
   ChannelBindingRepository,
-} from "@a2a-channels/domain";
+} from "@agent-relay/domain";
 
 import { AgentService } from "../apps/gateway/src/application/agent-service.js";
 import { AccountIdGenerator } from "../apps/gateway/src/application/account-id-generator.js";

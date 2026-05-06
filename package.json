@@ -1,5 +1,5 @@
 {
-  "name": "a2a-channels",
+  "name": "agent-relay",
   "version": "0.1.0",
   "description": "Node.js gateway bridging messaging channel plugins with A2A agents",
   "type": "module",
@@ -10,7 +10,7 @@
     "gateway": "make gateway",
     "seed": "make seed",
     "echo-agent": "node --import tsx/esm apps/echo-agent/src/index.ts",
-    "web": "pnpm --filter @a2a-channels/web dev",
+    "web": "pnpm --filter @agent-relay/web dev",
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc --noEmit",
     "test": "make test"

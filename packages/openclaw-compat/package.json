@@ -1,5 +1,5 @@
 {
-  "name": "@a2a-channels/openclaw-compat",
+  "name": "@agent-relay/openclaw-compat",
   "version": "0.1.0",
   "description": "OpenClaw plugin host and runtime compatibility layer",
   "type": "module",
@@ -8,8 +8,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@a2a-channels/agent-transport": "workspace:*",
-    "@a2a-channels/domain": "workspace:*",
+    "@agent-relay/agent-transport": "workspace:*",
+    "@agent-relay/domain": "workspace:*",
     "openclaw": "^2026.5.2"
   }
 }

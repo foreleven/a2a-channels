@@ -58,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <RadioTower className="size-4" />
           </span>
           <span>
-            <span className="block text-sm font-semibold">A2A Channels</span>
+            <span className="block text-sm font-semibold">Agent Relay</span>
             <span className="block text-xs text-muted-foreground">
               Gateway Admin
             </span>

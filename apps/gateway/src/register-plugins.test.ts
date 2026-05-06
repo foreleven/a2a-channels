@@ -8,7 +8,7 @@ import { describe, test } from "node:test";
 import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
-} from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/openclaw-compat";
 
 import { registerAllPlugins } from "./register-plugins.js";
 import { OpenClawChannelPackageDescriptor } from "./runtime/channel-plugin-descriptor.js";

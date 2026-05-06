@@ -139,7 +139,7 @@ describe("RuntimeOwnershipState", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeOwnershipState"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeOwnershipState"
 ```
 
 Expected:
@@ -178,7 +178,7 @@ export function createReconnectPolicy(options?: {
 }
 
 // apps/gateway/src/runtime/ownership-state.ts
-import type { ChannelBinding, RuntimeConnectionStatus } from "@a2a-channels/core";
+import type { ChannelBinding, RuntimeConnectionStatus } from "@agent-relay/core";
 import { createReconnectPolicy, type ReconnectDecision, type ReconnectPolicy } from "./reconnect-policy.js";
 
 interface OwnedBindingStatus {
@@ -303,7 +303,7 @@ export function createRuntimeOwnershipState(options?: {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeOwnershipState"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeOwnershipState"
 ```
 
 Expected:
@@ -317,7 +317,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 git add apps/gateway/src/runtime/ownership-state.ts apps/gateway/src/runtime/reconnect-policy.ts apps/gateway/src/store/store.test.ts
 git commit -m "feat: add runtime ownership state model"
 ```
@@ -416,7 +416,7 @@ describe("RelayRuntime ownership semantics", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime ownership semantics"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime ownership semantics"
 ```
 
 Expected:
@@ -485,7 +485,7 @@ this.callbacks.onConnectionStatus?.({ binding, status: "error", agentUrl: target
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime ownership semantics"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime ownership semantics"
 ```
 
 Expected:
@@ -499,7 +499,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 git add apps/gateway/src/runtime/relay-runtime.ts apps/gateway/src/connection-manager.ts apps/gateway/src/store/store.test.ts
 git commit -m "refactor: enforce relay runtime ownership state"
 ```
@@ -641,7 +641,7 @@ describe("RelayRuntime reconnect policy", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime reconnect policy"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime reconnect policy"
 ```
 
 Expected:
@@ -703,8 +703,8 @@ desiredBindingIds.add(binding.id);
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime reconnect policy"
-cd /Users/feng/Projects/a2a-channels && pnpm test
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime reconnect policy"
+cd /Users/feng/Projects/agent-relay && pnpm test
 ```
 
 Expected:
@@ -717,7 +717,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 git add apps/gateway/src/runtime/relay-runtime.ts apps/gateway/src/runtime/local-scheduler.ts apps/gateway/src/connection-manager.ts apps/gateway/src/store/store.test.ts
 git commit -m "feat: repair runtime connections with reconnect backoff"
 ```
@@ -789,7 +789,7 @@ describe("Channel binding desired-state invariants", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "Channel binding desired-state invariants"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "Channel binding desired-state invariants"
 ```
 
 Expected:
@@ -856,9 +856,9 @@ enabledKey: toEnabledKey(snapshot),
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && pnpm db:push
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "Channel binding desired-state invariants"
-cd /Users/feng/Projects/a2a-channels && pnpm typecheck
+cd /Users/feng/Projects/agent-relay/apps/gateway && pnpm db:push
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "Channel binding desired-state invariants"
+cd /Users/feng/Projects/agent-relay && pnpm typecheck
 ```
 
 Expected:
@@ -874,7 +874,7 @@ The database is now in sync
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 git add apps/gateway/prisma/schema.prisma apps/gateway/src/infra/channel-binding-repo.ts apps/gateway/src/application/channel-binding-service.ts apps/gateway/src/application/use-cases/create-channel-binding.ts apps/gateway/src/application/use-cases/update-channel-binding.ts apps/gateway/src/store/store.test.ts
 git commit -m "feat: enforce runtime binding invariants in persistence"
 ```
@@ -898,7 +898,7 @@ git commit -m "feat: enforce runtime binding invariants in persistence"
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 rg -n "RuntimeOwnershipState|enabledKey|Phase 1|Phase 2" docs/architecture-design-zh.md docs/relay-runtime.md
 ```
 
@@ -931,7 +931,7 @@ no matches found
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 rg -n "RuntimeOwnershipState|enabledKey|Phase 1|Phase 2" docs/architecture-design-zh.md docs/relay-runtime.md
 ```
 
@@ -945,7 +945,7 @@ docs/relay-runtime.md:...:Phase 1
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 git add docs/architecture-design-zh.md docs/relay-runtime.md
 git commit -m "docs: align runtime architecture with phase one design"
 ```
@@ -984,7 +984,7 @@ describe("OwnershipGate", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "OwnershipGate"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "OwnershipGate"
 ```
 
 Expected:
@@ -1043,7 +1043,7 @@ export function createLocalOwnershipGate(): OwnershipGate {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "OwnershipGate"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "OwnershipGate"
 ```
 
 Expected:
@@ -1057,7 +1057,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 git add apps/gateway/src/runtime/ownership-gate.ts apps/gateway/src/runtime/local-ownership-gate.ts apps/gateway/src/runtime/relay-runtime.ts apps/gateway/src/store/store.test.ts
 git commit -m "feat: add runtime ownership gate abstraction"
 ```
@@ -1091,7 +1091,7 @@ describe("Redis coordination contracts", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "Redis coordination contracts"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "Redis coordination contracts"
 ```
 
 Expected:
@@ -1156,7 +1156,7 @@ export function createRedisOwnershipGate(): OwnershipGate {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "Redis coordination contracts"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "Redis coordination contracts"
 ```
 
 Expected:
@@ -1170,7 +1170,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 git add apps/gateway/src/runtime/cluster/types.ts apps/gateway/src/runtime/cluster/redis-coordination.ts apps/gateway/src/runtime/cluster/redis-ownership-gate.ts apps/gateway/src/store/store.test.ts
 git commit -m "feat: add redis coordination primitives"
 ```
@@ -1212,7 +1212,7 @@ describe("cluster bootstrap wiring", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "cluster bootstrap wiring"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "cluster bootstrap wiring"
 ```
 
 Expected:
@@ -1287,9 +1287,9 @@ export async function loadDesiredStateSnapshot(): Promise<RuntimeStateSnapshot> 
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "cluster bootstrap wiring"
-cd /Users/feng/Projects/a2a-channels && pnpm test
-cd /Users/feng/Projects/a2a-channels && pnpm typecheck
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "cluster bootstrap wiring"
+cd /Users/feng/Projects/agent-relay && pnpm test
+cd /Users/feng/Projects/agent-relay && pnpm typecheck
 ```
 
 Expected:
@@ -1303,7 +1303,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels
+cd /Users/feng/Projects/agent-relay
 git add apps/gateway/src/runtime/cluster/leader-scheduler.ts apps/gateway/src/index.ts apps/gateway/src/runtime/state.ts apps/gateway/src/store/store.test.ts docs/architecture-design-zh.md
 git commit -m "feat: wire cluster runtime bootstrap"
 ```

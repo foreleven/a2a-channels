@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import weixinPlugin from "@openclaw/weixin";
-import type { OpenClawPluginHost } from "@a2a-channels/openclaw-compat";
+import type { OpenClawPluginHost } from "@agent-relay/openclaw-compat";
 import { defineBundledChannelEntry } from "openclaw/plugin-sdk/channel-entry-contract";
 
 import { OpenClawChannelPackageDescriptor } from "./runtime/channel-plugin-descriptor.js";

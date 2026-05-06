@@ -5,8 +5,8 @@ import type {
   AgentConfigSnapshot,
   AgentProtocol,
   AgentProtocolConfig,
-} from "@a2a-channels/domain";
-import { AgentConfigAggregate } from "@a2a-channels/domain";
+} from "@agent-relay/domain";
+import { AgentConfigAggregate } from "@agent-relay/domain";
 import { injectable } from "inversify";
 
 import { prisma } from "../store/prisma.js";

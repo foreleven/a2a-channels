@@ -1,5 +1,5 @@
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
-import type { MessageOutboundEvent } from "@a2a-channels/openclaw-compat";
+import type { ChannelBindingSnapshot } from "@agent-relay/domain";
+import type { MessageOutboundEvent } from "@agent-relay/openclaw-compat";
 
 import type { ConnectionStatus } from "./connection-status.js";
 

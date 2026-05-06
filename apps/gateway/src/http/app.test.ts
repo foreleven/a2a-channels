@@ -56,7 +56,7 @@ describe("GatewayApp", () => {
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
       status: "ok",
-      service: "a2a-channels-gateway",
+      service: "agent-relay-gateway",
     });
   });
 

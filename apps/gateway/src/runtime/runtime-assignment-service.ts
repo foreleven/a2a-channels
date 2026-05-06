@@ -2,7 +2,7 @@ import { inject, injectable } from "inversify";
 import type {
   AgentConfigSnapshot,
   ChannelBindingSnapshot,
-} from "@a2a-channels/domain";
+} from "@agent-relay/domain";
 
 import {
   ConnectionManager,

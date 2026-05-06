@@ -1,5 +1,5 @@
 {
-  "name": "@a2a-channels/echo-agent",
+  "name": "@agent-relay/echo-agent",
   "version": "0.1.0",
   "description": "Example A2A echo agent for end-to-end gateway testing",
   "type": "module",

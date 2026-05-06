@@ -135,7 +135,7 @@ describe("RuntimeOwnershipState", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeOwnershipState"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeOwnershipState"
 ```
 
 Expected:
@@ -340,7 +340,7 @@ Complete the ownership-state implementation with reconnect scheduling and access
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeOwnershipState"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RuntimeOwnershipState"
 ```
 
 Expected:
@@ -395,7 +395,7 @@ test("RelayRuntimeAssemblyProvider builds a connection manager without listBindi
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "connection manager without listBindings"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "connection manager without listBindings"
 ```
 
 Expected:
@@ -507,7 +507,7 @@ connectionManager = this.connectionManagerProvider.create({
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "connection manager without listBindings|binding lifecycle callbacks|agent send failures"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "connection manager without listBindings|binding lifecycle callbacks|agent send failures"
 ```
 
 Expected:
@@ -564,7 +564,7 @@ test("RuntimeNodeState snapshots use externally supplied binding statuses", () =
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "externally supplied binding statuses"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "externally supplied binding statuses"
 ```
 
 Expected:
@@ -640,7 +640,7 @@ Use `snapshot(bindingStatuses)` instead of mutating binding state inside this cl
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "externally supplied binding statuses"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "externally supplied binding statuses"
 ```
 
 Expected:
@@ -708,7 +708,7 @@ test("connection error schedules reconnect through ownership state for the curre
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "owned binding inside ownership state|schedules reconnect through ownership state|refreshing a binding into a non-runnable state"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "owned binding inside ownership state|schedules reconnect through ownership state|refreshing a binding into a non-runnable state"
 ```
 
 Expected:
@@ -892,7 +892,7 @@ private applyOwnedConnectionStatus(
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime|RuntimeOwnershipState"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "RelayRuntime|RuntimeOwnershipState"
 ```
 
 Expected:
@@ -920,7 +920,7 @@ git commit -m "refactor: move runtime binding state into ownership domain"
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels && pnpm test
+cd /Users/feng/Projects/agent-relay && pnpm test
 ```
 
 Expected:
@@ -934,7 +934,7 @@ All tests passed
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels && pnpm typecheck
+cd /Users/feng/Projects/agent-relay && pnpm typecheck
 ```
 
 Expected:
@@ -948,7 +948,7 @@ Found 0 errors
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "LocalScheduler|RuntimeAssignmentCoordinator|RelayRuntime|RuntimeOwnershipState"
+cd /Users/feng/Projects/agent-relay/apps/gateway && DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "LocalScheduler|RuntimeAssignmentCoordinator|RelayRuntime|RuntimeOwnershipState"
 ```
 
 Expected:

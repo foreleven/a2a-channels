@@ -1,5 +1,5 @@
 /**
- * Typed API client for the A2A Channels Gateway REST API.
+ * Typed API client for the Agent Relay Gateway REST API.
  *
  * Browser requests must stay same-origin so the gateway session cookie is set
  * on the Web app origin where Next proxy can read it. Next.js rewrites `/api/*`

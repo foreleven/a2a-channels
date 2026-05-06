@@ -28,22 +28,22 @@
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@a2a-channels/domain": [
+      "@agent-relay/domain": [
         "./packages/domain/src/index.ts"
       ],
-      "@a2a-channels/event-store": [
+      "@agent-relay/event-store": [
         "./packages/event-store/src/index.ts"
       ],
-      "@a2a-channels/agent-transport": [
+      "@agent-relay/agent-transport": [
         "./packages/agent-transport/src/index.ts"
       ],
-      "@a2a-channels/openclaw-compat": [
+      "@agent-relay/openclaw-compat": [
         "./packages/openclaw-compat/src/index.ts"
       ],
-      "@a2a-channels/channel-lark": [
+      "@agent-relay/channel-lark": [
         "./packages/channel-lark/src/index.ts"
       ],
-      "@a2a-channels/store-sqlite": [
+      "@agent-relay/store-sqlite": [
         "./packages/store-sqlite/src/index.ts"
       ]
     }

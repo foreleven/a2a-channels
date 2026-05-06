@@ -7,8 +7,8 @@ import {
   AgentConfigRepository,
   ChannelBindingAggregate,
   ChannelBindingRepository,
-} from "@a2a-channels/domain";
-import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
+} from "@agent-relay/domain";
+import type { ChannelBindingSnapshot } from "@agent-relay/domain";
 import { inject, injectable } from "inversify";
 
 import {

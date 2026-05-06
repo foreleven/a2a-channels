@@ -1,5 +1,5 @@
 /**
- * EventStore contract for a2a-channels.
+ * EventStore contract for agent-relay.
  *
  * An append-only log of domain events, indexed by stream (one stream per
  * aggregate instance) and a global monotonic sequence number (for projections).

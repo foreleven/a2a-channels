@@ -2,7 +2,7 @@ import { inject, injectable } from "inversify";
 import {
   AgentConfigRepository,
   ChannelBindingRepository,
-} from "@a2a-channels/domain";
+} from "@agent-relay/domain";
 
 import { RuntimeAssignmentService } from "./runtime-assignment-service.js";
 import type { RuntimeDirectedCommand } from "./event-transport/types.js";

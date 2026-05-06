@@ -6,15 +6,15 @@ import {
   A2ATransport,
   ACPTransport,
   type AgentTransportFactory,
-} from "@a2a-channels/agent-transport";
+} from "@agent-relay/agent-transport";
 import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
-} from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/openclaw-compat";
 import {
   AgentConfigRepository,
   ChannelBindingRepository,
-} from "@a2a-channels/domain";
+} from "@agent-relay/domain";
 import { AgentService } from "../application/agent-service.js";
 import { AccountIdGenerator } from "../application/account-id-generator.js";
 import { AccountService } from "../application/account-service.js";

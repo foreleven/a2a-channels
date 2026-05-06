@@ -235,7 +235,7 @@ class ACPStdioAgentProcess {
             terminal: false,
           },
           clientInfo: {
-            name: "a2a-channels-gateway",
+            name: "agent-relay-gateway",
             version: "0.1.0",
           },
         }),

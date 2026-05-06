@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import {
   AgentClient,
   type AgentTransportFactory,
-} from "@a2a-channels/agent-transport";
-import type { AgentConfigSnapshot } from "@a2a-channels/domain";
+} from "@agent-relay/agent-transport";
+import type { AgentConfigSnapshot } from "@agent-relay/domain";
 
 import { AgentClientRegistry } from "./agent-client-registry.js";
 import { AgentClientFactory } from "./agent-clients.js";

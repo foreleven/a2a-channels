@@ -162,7 +162,7 @@ describe("RuntimeNodeStateRepository", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/store/store.test.ts --test-name-pattern "runtime config fields|RuntimeNodeStateRepository"
+cd /Users/feng/Projects/agent-relay/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/store/store.test.ts --test-name-pattern "runtime config fields|RuntimeNodeStateRepository"
 ```
 
 Expected:
@@ -299,7 +299,7 @@ bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && pnpm db:generate && pnpm db:push && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/store/store.test.ts --test-name-pattern "runtime config fields|RuntimeNodeStateRepository"
+cd /Users/feng/Projects/agent-relay/apps/gateway && pnpm db:generate && pnpm db:push && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/store/store.test.ts --test-name-pattern "runtime config fields|RuntimeNodeStateRepository"
 ```
 
 Expected:
@@ -312,7 +312,7 @@ ok ... RuntimeNodeStateRepository upsert stores and updates runtime node metadat
 - [x] **Step 5: Commit the runtime node metadata foundation**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels && git add apps/gateway/prisma/schema.prisma apps/gateway/src/bootstrap/config.ts apps/gateway/src/container/modules/infra.ts apps/gateway/src/container/container.test.ts apps/gateway/src/store/store.test.ts apps/gateway/src/infra/runtime-node-repo.ts && git commit -m "feat: add runtime node metadata foundation"
+cd /Users/feng/Projects/agent-relay && git add apps/gateway/prisma/schema.prisma apps/gateway/src/bootstrap/config.ts apps/gateway/src/container/modules/infra.ts apps/gateway/src/container/container.test.ts apps/gateway/src/store/store.test.ts apps/gateway/src/infra/runtime-node-repo.ts && git commit -m "feat: add runtime node metadata foundation"
 ```
 
 ## Task 2: Extract Injectable Runtime Collaborators And Slim RelayRuntime
@@ -364,7 +364,7 @@ describe("RelayRuntime aggregate", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "publishes node lifecycle snapshots"
+cd /Users/feng/Projects/agent-relay/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "publishes node lifecycle snapshots"
 ```
 
 Expected:
@@ -379,7 +379,7 @@ error: Cannot find module '../runtime/runtime-node-state.js'
 ```ts
 // apps/gateway/src/runtime/runtime-node-state.ts
 import { injectable } from "inversify";
-import type { RuntimeConnectionStatus } from "@a2a-channels/core";
+import type { RuntimeConnectionStatus } from "@agent-relay/core";
 import type { GatewayConfig } from "../bootstrap/config.js";
 
 export interface LocalRuntimeSnapshot {
@@ -482,8 +482,8 @@ export class LocalNodeRuntimeStateStore implements NodeRuntimeStateStore {
 ```ts
 // apps/gateway/src/runtime/transport-registry-provider.ts
 import { injectable } from "inversify";
-import { A2ATransport, ACPTransport } from "@a2a-channels/agent-transport";
-import { TransportRegistry } from "@a2a-channels/core";
+import { A2ATransport, ACPTransport } from "@agent-relay/agent-transport";
+import { TransportRegistry } from "@agent-relay/core";
 
 @injectable()
 export class TransportRegistryProvider {
@@ -503,7 +503,7 @@ import { injectable } from "inversify";
 import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
-} from "@a2a-channels/openclaw-compat";
+} from "@agent-relay/openclaw-compat";
 import { registerAllPlugins } from "../register-plugins.js";
 
 @injectable()
@@ -529,7 +529,7 @@ export class PluginHostProvider {
 ```ts
 // apps/gateway/src/runtime/agent-client-registry.ts
 import { inject, injectable } from "inversify";
-import type { AgentClientHandle, AgentConfig } from "@a2a-channels/core";
+import type { AgentClientHandle, AgentConfig } from "@agent-relay/core";
 import { TransportRegistryProvider } from "./transport-registry-provider.js";
 import { createAgentClientHandle, startAgentClients, stopAgentClients } from "./agent-clients.js";
 
@@ -622,7 +622,7 @@ export class RelayRuntime {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "publishes node lifecycle snapshots"
+cd /Users/feng/Projects/agent-relay/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts --test-name-pattern "publishes node lifecycle snapshots"
 ```
 
 Expected:
@@ -634,7 +634,7 @@ ok ... publishes node lifecycle snapshots through an injected state store
 - [x] **Step 5: Commit the runtime collaborator extraction**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels && git add apps/gateway/src/runtime/runtime-node-state.ts apps/gateway/src/runtime/node-runtime-state-store.ts apps/gateway/src/runtime/local-node-runtime-state-store.ts apps/gateway/src/runtime/agent-client-registry.ts apps/gateway/src/runtime/plugin-host-provider.ts apps/gateway/src/runtime/transport-registry-provider.ts apps/gateway/src/runtime/relay-runtime.ts apps/gateway/src/store/store.test.ts && git commit -m "refactor: inject relay runtime collaborators"
+cd /Users/feng/Projects/agent-relay && git add apps/gateway/src/runtime/runtime-node-state.ts apps/gateway/src/runtime/node-runtime-state-store.ts apps/gateway/src/runtime/local-node-runtime-state-store.ts apps/gateway/src/runtime/agent-client-registry.ts apps/gateway/src/runtime/plugin-host-provider.ts apps/gateway/src/runtime/transport-registry-provider.ts apps/gateway/src/runtime/relay-runtime.ts apps/gateway/src/store/store.test.ts && git commit -m "refactor: inject relay runtime collaborators"
 ```
 
 ## Task 3: Add Runtime State Store And Query Projection
@@ -752,7 +752,7 @@ describe("RuntimeClusterStateReader", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/http/app.test.ts src/store/store.test.ts --test-name-pattern "runtime nodes|RuntimeClusterStateReader"
+cd /Users/feng/Projects/agent-relay/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/http/app.test.ts src/store/store.test.ts --test-name-pattern "runtime nodes|RuntimeClusterStateReader"
 ```
 
 Expected:
@@ -768,7 +768,7 @@ error: Cannot find module '../runtime/runtime-cluster-state-reader.js'
 
 ```ts
 // apps/gateway/src/runtime/node-runtime-state-store.ts
-import type { RuntimeConnectionStatus } from "@a2a-channels/core";
+import type { RuntimeConnectionStatus } from "@agent-relay/core";
 import type { LocalRuntimeSnapshot } from "./runtime-node-state.js";
 
 export interface RuntimeNodeListItem {
@@ -802,7 +802,7 @@ export interface NodeRuntimeStateStore {
 ```ts
 // apps/gateway/src/runtime/runtime-cluster-state-reader.ts
 import { inject, injectable } from "inversify";
-import { AgentConfigRepository, ChannelBindingRepository } from "@a2a-channels/domain";
+import { AgentConfigRepository, ChannelBindingRepository } from "@agent-relay/domain";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { NodeRuntimeStateStoreToken, type NodeRuntimeStateStore, type RuntimeConnectionListItem, type RuntimeNodeListItem } from "./node-runtime-state-store.js";
 
@@ -893,7 +893,7 @@ export function registerRuntimeRoutes(app: Hono, runtime: RuntimeStatusSource): 
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/http/app.test.ts src/store/store.test.ts --test-name-pattern "runtime nodes|RuntimeClusterStateReader"
+cd /Users/feng/Projects/agent-relay/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/http/app.test.ts src/store/store.test.ts --test-name-pattern "runtime nodes|RuntimeClusterStateReader"
 ```
 
 Expected:
@@ -906,7 +906,7 @@ ok ... RuntimeClusterStateReader merges DB bindings with local runtime state
 - [x] **Step 5: Commit the runtime query projection layer**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels && git add apps/gateway/src/runtime/node-runtime-state-store.ts apps/gateway/src/runtime/runtime-cluster-state-reader.ts apps/gateway/src/http/routes/runtime.ts apps/gateway/src/http/app.ts apps/gateway/src/http/app.test.ts apps/gateway/src/store/store.test.ts && git commit -m "feat: add runtime state query projection"
+cd /Users/feng/Projects/agent-relay && git add apps/gateway/src/runtime/node-runtime-state-store.ts apps/gateway/src/runtime/runtime-cluster-state-reader.ts apps/gateway/src/http/routes/runtime.ts apps/gateway/src/http/app.ts apps/gateway/src/http/app.test.ts apps/gateway/src/store/store.test.ts && git commit -m "feat: add runtime state query projection"
 ```
 
 ## Task 4: Start HTTP Before Runtime Bootstrap
@@ -967,7 +967,7 @@ describe("startGateway", () => {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/store/store.test.ts --test-name-pattern "runtime bootstrapper|starts HTTP before runtime bootstrap resolves"
+cd /Users/feng/Projects/agent-relay/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/store/store.test.ts --test-name-pattern "runtime bootstrapper|starts HTTP before runtime bootstrap resolves"
 ```
 
 Expected:
@@ -1120,7 +1120,7 @@ await startGateway({
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/store/store.test.ts --test-name-pattern "runtime bootstrapper|starts HTTP before runtime bootstrap resolves"
+cd /Users/feng/Projects/agent-relay/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/container/container.test.ts src/store/store.test.ts --test-name-pattern "runtime bootstrapper|starts HTTP before runtime bootstrap resolves"
 ```
 
 Expected:
@@ -1133,7 +1133,7 @@ ok ... starts HTTP before runtime bootstrap resolves
 - [x] **Step 5: Commit the non-blocking startup refactor**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels && git add apps/gateway/src/runtime/runtime-bootstrapper.ts apps/gateway/src/container/modules/runtime.ts apps/gateway/src/bootstrap/start-gateway.ts apps/gateway/src/bootstrap/container.ts apps/gateway/src/index.ts apps/gateway/src/container/container.test.ts apps/gateway/src/store/store.test.ts && git commit -m "refactor: bootstrap runtime in background"
+cd /Users/feng/Projects/agent-relay && git add apps/gateway/src/runtime/runtime-bootstrapper.ts apps/gateway/src/container/modules/runtime.ts apps/gateway/src/bootstrap/start-gateway.ts apps/gateway/src/bootstrap/container.ts apps/gateway/src/index.ts apps/gateway/src/container/container.test.ts apps/gateway/src/store/store.test.ts && git commit -m "refactor: bootstrap runtime in background"
 ```
 
 ## Task 5: Move Reconcile Logic Into RuntimeAssignmentCoordinator
@@ -1218,7 +1218,7 @@ assert.equal((await runtimeResponse.json())[0]?.ownerNodeId, "node-a");
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts src/http/app.test.ts --test-name-pattern "RuntimeAssignmentCoordinator|ownerNodeId"
+cd /Users/feng/Projects/agent-relay/apps/gateway && XDG_CACHE_HOME=/tmp/a2a-cache DB_PATH=/tmp/test-a2a-store.db NODE_PATH=../../node_modules/.pnpm/node_modules node --import tsx/esm --test src/store/store.test.ts src/http/app.test.ts --test-name-pattern "RuntimeAssignmentCoordinator|ownerNodeId"
 ```
 
 Expected:
@@ -1233,7 +1233,7 @@ error: Cannot find module '../runtime/runtime-assignment-coordinator.js'
 ```ts
 // apps/gateway/src/runtime/runtime-assignment-coordinator.ts
 import { inject, injectable } from "inversify";
-import type { AgentConfig, ChannelBinding } from "@a2a-channels/core";
+import type { AgentConfig, ChannelBinding } from "@agent-relay/core";
 import type { GatewayConfig } from "../bootstrap/config.js";
 import { GatewayConfigToken } from "../bootstrap/config.js";
 import { RelayRuntime } from "./relay-runtime.js";
@@ -1396,7 +1396,7 @@ async releaseAssignment(bindingId: string): Promise<void> {
 Run:
 
 ```bash
-cd /Users/feng/Projects/a2a-channels && pnpm typecheck && pnpm test
+cd /Users/feng/Projects/agent-relay && pnpm typecheck && pnpm test
 ```
 
 Expected:
@@ -1412,7 +1412,7 @@ Found 0 errors.
 - [x] **Step 5: Commit the coordinator-driven scheduling refactor**
 
 ```bash
-cd /Users/feng/Projects/a2a-channels && git add apps/gateway/src/container/modules/runtime.ts apps/gateway/src/runtime/runtime-assignment-coordinator.ts apps/gateway/src/runtime/local-scheduler.ts apps/gateway/src/runtime/cluster/leader-scheduler.ts apps/gateway/src/runtime/bootstrap.ts apps/gateway/src/runtime/runtime-bootstrapper.ts apps/gateway/src/runtime/relay-runtime.ts apps/gateway/src/store/store.test.ts apps/gateway/src/http/app.test.ts && git commit -m "refactor: move runtime reconcile into coordinator"
+cd /Users/feng/Projects/agent-relay && git add apps/gateway/src/container/modules/runtime.ts apps/gateway/src/runtime/runtime-assignment-coordinator.ts apps/gateway/src/runtime/local-scheduler.ts apps/gateway/src/runtime/cluster/leader-scheduler.ts apps/gateway/src/runtime/bootstrap.ts apps/gateway/src/runtime/runtime-bootstrapper.ts apps/gateway/src/runtime/relay-runtime.ts apps/gateway/src/store/store.test.ts apps/gateway/src/http/app.test.ts && git commit -m "refactor: move runtime reconcile into coordinator"
 ```
 
 ## Self-Review Checklist
