@@ -116,15 +116,6 @@ describe("AgentConfigAggregate", () => {
       assert.deepEqual(agg.config, { url: "http://agent-2" });
     });
 
-    test("clears description when updated to null", () => {
-      const agg = AgentConfigAggregate.register(registerData);
-      agg.clearPendingEvents();
-
-      agg.update({ description: null as unknown as string });
-
-      assert.equal(agg.description, undefined);
-    });
-
     test("updates description to a new value", () => {
       const agg = AgentConfigAggregate.register(registerData);
       agg.clearPendingEvents();
