@@ -1,6 +1,6 @@
 export interface AgentRequest {
   userMessage: string;
-  sessionKey?: string;
+  sessionKey: string;
   accountId: string;
 }
 

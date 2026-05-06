@@ -41,6 +41,7 @@ export function NewAgentPage({
     () => formMapper.protocolOption(form.protocol),
     [form.protocol],
   );
+  const validation = formMapper.validate(form);
 
   async function handleSave() {
     setSaving(true);
@@ -137,6 +138,7 @@ export function NewAgentPage({
                   protocol: routeProtocol,
                 })
               }
+              validation={validation}
             />
           </CardContent>
         </Card>

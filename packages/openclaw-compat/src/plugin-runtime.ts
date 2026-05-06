@@ -55,7 +55,7 @@ export interface PluginRuntimeOptions {
 export interface MessageInboundEvent {
   channelType: string | undefined;
   accountId: string;
-  sessionKey: string | undefined;
+  sessionKey: string;
   userMessage: string;
   replyEvent: ChannelReplyEvent;
 }
@@ -63,7 +63,7 @@ export interface MessageInboundEvent {
 export interface MessageOutboundEvent {
   channelType: string | undefined;
   accountId: string;
-  sessionKey: string | undefined;
+  sessionKey: string;
   replyText: string;
 }
 

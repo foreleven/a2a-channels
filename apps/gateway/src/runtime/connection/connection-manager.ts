@@ -5,6 +5,7 @@
  * plugin host. Each Connection handles the chat message path for its binding.
  */
 
+import { createHash, randomUUID } from "node:crypto";
 import type { ChannelBindingSnapshot } from "@a2a-channels/domain";
 import {
   type ChannelReplyDispatchResult,
@@ -185,7 +186,12 @@ export class ConnectionManager implements ReplyEventDispatcher {
       (ctx["Channel"] as string | undefined) ??
       (ctx["Provider"] as string | undefined);
     const accountId = normalizeAccountId(ctx["AccountId"]);
-    const sessionKey = ctx["SessionKey"] as string | undefined;
+    const sessionKey = normalizeSessionKey(ctx["SessionKey"]) ??
+      buildFallbackSessionKey({
+        accountId,
+        channelType,
+        ctx,
+      });
 
     return {
       accountId,
@@ -234,4 +240,45 @@ function normalizeAccountId(accountId: unknown): string {
   return typeof accountId === "string" && accountId.trim()
     ? accountId
     : "default";
+}
+
+function normalizeSessionKey(sessionKey: unknown): string | undefined {
+  return typeof sessionKey === "string" && sessionKey.trim()
+    ? sessionKey.trim()
+    : undefined;
+}
+
+function buildFallbackSessionKey({
+  accountId,
+  channelType,
+  ctx,
+}: {
+  accountId: string;
+  channelType: string | undefined;
+  ctx: Record<string, unknown>;
+}): string {
+  const peer =
+    readNonEmptyString(ctx["OriginatingTo"]) ??
+    readNonEmptyString(ctx["To"]) ??
+    readNonEmptyString(ctx["From"]);
+  const discriminator =
+    peer ??
+    readNonEmptyString(ctx["MessageSid"]) ??
+    readNonEmptyString(ctx["RawBody"]) ??
+    randomUUID();
+  const hash = createHash("md5")
+    .update(
+      JSON.stringify({
+        accountId,
+        channelType: channelType ?? "unknown",
+        discriminator,
+      }),
+    )
+    .digest("hex");
+
+  return `fallback:${hash}`;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }

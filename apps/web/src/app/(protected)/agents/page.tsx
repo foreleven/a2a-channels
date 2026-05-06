@@ -104,6 +104,8 @@ export default function AgentsPage() {
     }
   }
 
+  const validation = formMapper.validate(form);
+
   return (
     <div className="flex w-full flex-col gap-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -218,7 +220,11 @@ export default function AgentsPage() {
               Configure the target used by the gateway transport.
             </DialogDescription>
           </DialogHeader>
-          <AgentConfigFields form={form} onChange={setForm} />
+          <AgentConfigFields
+            form={form}
+            onChange={setForm}
+            validation={validation}
+          />
           <Separator className="my-6" />
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setEditingId(null)}>

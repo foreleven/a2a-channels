@@ -268,6 +268,45 @@ describe("ConnectionManager", () => {
     });
   });
 
+  test("generates stable compact fallback session keys for missing channel session key", async () => {
+    const sessionKeys: string[] = [];
+    const agentClient = createAgentClient(
+      "http://agent-1",
+      async (request) => {
+        sessionKeys.push(request.sessionKey);
+        return { text: `echo: ${request.userMessage}` };
+      },
+    );
+    const runtime = createRuntime();
+    const manager = new ConnectionManager(null as never, runtime, null as never);
+    const connection = new Connection({
+      agentClient,
+      binding,
+    });
+
+    Reflect.get(manager, "trackConnection").call(manager, connection);
+
+    for (const body of ["hello", "hello again"]) {
+      await runtime.handleChannelReplyEvent({
+        type: "channel.reply.buffered.dispatch",
+        ctx: {
+          BodyForAgent: body,
+          ChannelType: "feishu",
+          AccountId: "default",
+          From: "user-1",
+          To: "bot-1",
+        } as never,
+        dispatcherOptions: {
+          deliver: async () => {},
+        },
+      });
+    }
+
+    assert.equal(sessionKeys.length, 2);
+    assert.match(sessionKeys[0] ?? "", /^fallback:[a-f0-9]{32}$/);
+    assert.equal(sessionKeys[1], sessionKeys[0]);
+  });
+
   test("completes dispatch replies when no connection owns the message", async () => {
     const runtime = createRuntime();
     new ConnectionManager(null as never, runtime, null as never);

@@ -25,6 +25,11 @@ export interface AgentConfigFormState {
   description: string;
 }
 
+export type AgentConfigFormField = keyof AgentConfigFormState;
+export type AgentConfigFormValidation = Partial<
+  Record<AgentConfigFormField, string>
+>;
+
 export const DEFAULT_AGENT_PROTOCOL: AgentProtocol = "a2a";
 
 export const AGENT_PROTOCOL_OPTIONS: AgentProtocolOption[] = [
@@ -104,11 +109,35 @@ export class AgentConfigFormMapper {
   }
 
   canSubmit(form: AgentConfigFormState): boolean {
-    if (!isFolderSafeAgentName(form.name.trim())) return false;
-    if (form.protocol === "acp") {
-      return Boolean(form.command.trim()) && this.hasValidTimeout(form.timeoutMs);
+    return Object.keys(this.validate(form)).length === 0;
+  }
+
+  validate(form: AgentConfigFormState): AgentConfigFormValidation {
+    const errors: AgentConfigFormValidation = {};
+    const name = form.name.trim();
+
+    if (!name) {
+      errors.name = "Name is required.";
+    } else if (!isFolderSafeAgentName(name)) {
+      errors.name =
+        "Use only letters, numbers, dots, underscores, and hyphens.";
     }
-    return Boolean(form.url.trim());
+
+    if (form.protocol === "acp") {
+      if (!form.command.trim()) {
+        errors.command = "Command is required.";
+      }
+      if (!this.hasValidTimeout(form.timeoutMs)) {
+        errors.timeoutMs = "Use a positive integer.";
+      }
+      return errors;
+    }
+
+    if (!form.url.trim()) {
+      errors.url = "A2A URL is required.";
+    }
+
+    return errors;
   }
 
   describeTarget(agent: AgentConfig): string {

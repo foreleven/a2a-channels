@@ -64,13 +64,14 @@ class ACPStdioAgentProcessPool {
       return { text: "(agent unavailable: ACP stdio transport is stopping)" };
     }
 
-    const worker = this.getOrCreateWorker(request.accountId);
+    const workerKey = buildWorkerKey(this.config, request);
+    const worker = this.getOrCreateWorker(workerKey, request);
 
     try {
       return await worker.send(request);
     } catch (error) {
-      if (this.workers.get(request.accountId) === worker) {
-        this.workers.delete(request.accountId);
+      if (this.workers.get(workerKey) === worker) {
+        this.workers.delete(workerKey);
       }
       await worker.stop();
       console.error("[acp stdio] agent request failed:", String(error));
@@ -89,14 +90,22 @@ class ACPStdioAgentProcessPool {
     await Promise.all(allWorkers.map((worker) => worker.stop()));
   }
 
-  private getOrCreateWorker(accountId: string): ACPStdioAccountWorker {
-    let worker = this.workers.get(accountId);
+  private getOrCreateWorker(
+    workerKey: string,
+    request: AgentRequest,
+  ): ACPStdioAccountWorker {
+    let worker = this.workers.get(workerKey);
     if (!worker) {
       worker = new ACPStdioAccountWorker(
-        accountId,
-        parseCommandSpec(this.config, accountId, this.context),
+        request.accountId,
+        parseCommandSpec(
+          this.config,
+          request.accountId,
+          request.sessionKey,
+          this.context,
+        ),
       );
-      this.workers.set(accountId, worker);
+      this.workers.set(workerKey, worker);
     }
 
     return worker;
@@ -180,8 +189,7 @@ class ACPStdioAgentProcess {
     await this.initialize();
     const connection = this.requireConnection();
     // Each account has its own process so no accountId prefix is needed here.
-    const sessionKey = request.sessionKey ?? "default";
-    const sessionId = await this.getOrCreateSession(sessionKey);
+    const sessionId = await this.getOrCreateSession(request.sessionKey);
     const collectedText: string[] = [];
     this.activeTextBuffers.set(sessionId, collectedText);
 
@@ -378,10 +386,14 @@ async function withTimeout<T>(
 function parseCommandSpec(
   config: ACPStdioAgentConfig,
   accountId: string,
+  sessionKey: string,
   context?: AgentTransportContext,
 ): CommandSpec {
   const command = config.command.trim();
-  const args = [...(config.args ?? [])];
+  const templateVars = { accountId, sessionKey };
+  const args = (config.args ?? []).map((arg) =>
+    renderCommandTemplate(arg, templateVars),
+  );
 
   const acpBasePath = process.env["ACP_BASE_PATH"];
   const agentName = context?.agentName;
@@ -390,14 +402,18 @@ function parseCommandSpec(
       "ACP stdio agentName must be a folder-safe name using only letters, numbers, dots, underscores, and hyphens",
     );
   }
-  const cwd =
-    acpBasePath && agentName && accountId
+  const configuredCwd = config.cwd
+    ? renderCommandTemplate(config.cwd, templateVars).trim()
+    : undefined;
+  const cwd = configuredCwd
+    ? configuredCwd
+    : acpBasePath && agentName && accountId
       ? join(
           acpBasePath,
           agentName,
           sanitizePathSegment(accountId),
         )
-      : (config.cwd ?? process.env["ACP_STDIO_CWD"] ?? process.cwd());
+      : (process.env["ACP_STDIO_CWD"] ?? process.cwd());
 
   const permission =
     config.permission ?? process.env["ACP_STDIO_PERMISSION"] ?? "reject_once";
@@ -411,6 +427,33 @@ function parseCommandSpec(
   }
 
   throw new Error("ACP stdio config requires command");
+}
+
+function buildWorkerKey(
+  config: ACPStdioAgentConfig,
+  request: AgentRequest,
+): string {
+  const sessionScoped = commandTemplatesUseSessionKey(config);
+  return [
+    request.accountId,
+    sessionScoped ? request.sessionKey : "",
+  ].join("\0");
+}
+
+function commandTemplatesUseSessionKey(config: ACPStdioAgentConfig): boolean {
+  return (
+    (config.cwd?.includes("{sessionKey}") ?? false) ||
+    (config.args ?? []).some((arg) => arg.includes("{sessionKey}"))
+  );
+}
+
+function renderCommandTemplate(
+  value: string,
+  vars: { accountId: string; sessionKey: string },
+): string {
+  return value
+    .replaceAll("{accountId}", vars.accountId)
+    .replaceAll("{sessionKey}", vars.sessionKey);
 }
 
 function readPositiveIntegerValue(value: unknown, fallback: number): number {
