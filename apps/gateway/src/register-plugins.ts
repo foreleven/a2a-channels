@@ -10,10 +10,14 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import weixinPlugin from "@openclaw/weixin";
-import type { OpenClawPluginHost } from "@agent-relay/openclaw-compat";
-import { defineBundledChannelEntry } from "openclaw/plugin-sdk/channel-entry-contract";
+import { OpenClawPluginHost } from "@agent-relay/openclaw-compat";
+import type {
+  ChannelPlugin,
+  OpenClawPluginApi,
+} from "openclaw/plugin-sdk";
+import { inject, injectable } from "inversify";
 
+import type { ServiceContribution } from "./bootstrap/service-contribution.js";
 import { OpenClawChannelPackageDescriptor } from "./runtime/channel-plugin-descriptor.js";
 import { channelTypeRegistry } from "./runtime/channel-type-registry.js";
 
@@ -34,7 +38,6 @@ type BundledOpenClawChannelRegistration = {
 type DirectPackageChannelRegistration = {
   kind: "direct-package";
   packageName: string;
-  plugin: RegisterablePlugin;
 };
 
 type ChannelRegistration =
@@ -43,10 +46,21 @@ type ChannelRegistration =
   | DirectPackageChannelRegistration;
 
 type RegisterablePlugin = {
-  register(api: any): void;
+  register(api: OpenClawPluginApi): void;
 };
 
 const require = createRequire(import.meta.url);
+
+type BundledEntryReference = {
+  specifier: string;
+  exportName: string;
+};
+
+type PreparedChannelRegistration = {
+  descriptor: OpenClawChannelPackageDescriptor;
+  label: string;
+  plugin: RegisterablePlugin;
+};
 
 function resolveOpenClawDistDir(): string {
   const channelEntryContractPath = require.resolve(
@@ -63,60 +77,137 @@ function resolveOpenClawExtensionRoot(channelId: "slack" | "telegram"): string {
   return join(resolveOpenClawDistDir(), "extensions", channelId);
 }
 
-function readOpenClawBundledChannelDescriptor(
+async function readOpenClawBundledChannelDescriptorAsync(
   channelId: BundledOpenClawChannelRegistration["channelId"],
-): OpenClawChannelPackageDescriptor {
-  return OpenClawChannelPackageDescriptor.fromPackageRoot(
+): Promise<OpenClawChannelPackageDescriptor> {
+  return OpenClawChannelPackageDescriptor.fromPackageRootAsync(
     resolveOpenClawExtensionRoot(channelId),
   );
 }
 
-function readPackageChannelDescriptor(
+async function readPackageChannelDescriptorAsync(
   packageName: string,
-): OpenClawChannelPackageDescriptor {
-  return OpenClawChannelPackageDescriptor.fromPackageRoot(
+): Promise<OpenClawChannelPackageDescriptor> {
+  return OpenClawChannelPackageDescriptor.fromPackageRootAsync(
     resolvePackageRoot(packageName),
   );
 }
 
-function buildOpenClawBundledChannelEntry(
-  registration: BundledOpenClawChannelRegistration,
-) {
-  const descriptor = readOpenClawBundledChannelDescriptor(
-    registration.channelId,
-  );
-  const extensionSpecifier = descriptor.extensionSpecifiers[0] ?? "./index.js";
-  return defineBundledChannelEntry({
-    id: descriptor.channelIds[0] ?? descriptor.pluginId,
-    name: descriptor.channelIds[0] ?? descriptor.pluginId,
-    description: `${descriptor.packageName} channel plugin`,
-    importMetaUrl: pathToFileURL(
-      join(
-        resolveOpenClawExtensionRoot(registration.channelId),
-        extensionSpecifier,
-      ),
-    ).href,
-    plugin: {
-      specifier: "./channel-plugin-api.js",
-      exportName: `${registration.channelId}Plugin`,
-    },
-  });
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
 }
 
-function buildPackageBundledChannelEntry(
-  registration: BundledPackageChannelRegistration,
-) {
-  const descriptor = readPackageChannelDescriptor(registration.packageName);
-  const channelId = descriptor.channelIds[0] ?? descriptor.pluginId;
-  const extensionSpecifier = descriptor.extensionSpecifiers[0] ?? "./index.ts";
+function resolveLoadedModuleExport(
+  loadedModule: unknown,
+  reference: BundledEntryReference,
+): unknown {
+  const resolved =
+    isRecord(loadedModule) && "default" in loadedModule
+      ? loadedModule["default"]
+      : loadedModule;
+  const exportSource = isRecord(resolved)
+    ? resolved
+    : isRecord(loadedModule)
+      ? loadedModule
+      : undefined;
 
-  return defineBundledChannelEntry({
-    id: channelId,
-    name: channelId,
-    description: `${descriptor.packageName} channel plugin`,
-    importMetaUrl: pathToFileURL(
-      join(resolvePackageRoot(registration.packageName), extensionSpecifier),
-    ).href,
+  if (!exportSource || !(reference.exportName in exportSource)) {
+    throw new Error(
+      `missing export "${reference.exportName}" from bundled entry module ${reference.specifier}`,
+    );
+  }
+  return exportSource[reference.exportName];
+}
+
+function toChannelPlugin(value: unknown, label: string): ChannelPlugin {
+  if (!isRecord(value) || typeof value["id"] !== "string") {
+    throw new Error(`${label} did not export a valid OpenClaw channel plugin`);
+  }
+  return value as ChannelPlugin;
+}
+
+function toRegisterablePlugin(value: unknown, label: string): RegisterablePlugin {
+  if (!isRecord(value) || typeof value["register"] !== "function") {
+    throw new Error(`${label} did not export a valid OpenClaw plugin`);
+  }
+  const register = value["register"];
+  return {
+    register(api) {
+      register(api);
+    },
+  };
+}
+
+function toRuntimeSetter(
+  value: unknown,
+  label: string,
+): (runtime: OpenClawPluginApi["runtime"]) => void {
+  if (typeof value !== "function") {
+    throw new Error(`${label} did not export a valid runtime setter`);
+  }
+  return (runtime) => {
+    value(runtime);
+  };
+}
+
+async function importBundledExport(
+  importMetaUrl: string,
+  reference: BundledEntryReference,
+): Promise<unknown> {
+  const loadedModule = await import(
+    new URL(reference.specifier, importMetaUrl).href
+  );
+  return resolveLoadedModuleExport(loadedModule, reference);
+}
+
+async function importDirectPackagePlugin(
+  registration: DirectPackageChannelRegistration,
+): Promise<RegisterablePlugin> {
+  const loadedModule = await import(registration.packageName);
+  const resolved =
+    isRecord(loadedModule) && "default" in loadedModule
+      ? loadedModule["default"]
+      : loadedModule;
+  return toRegisterablePlugin(resolved, registration.packageName);
+}
+
+async function buildLoadedBundledChannelEntry(params: {
+  importMetaUrl: string;
+  label: string;
+  plugin: BundledEntryReference;
+  runtime?: BundledEntryReference;
+}): Promise<RegisterablePlugin> {
+  const [pluginExport, runtimeExport] = await Promise.all([
+    importBundledExport(params.importMetaUrl, params.plugin),
+    params.runtime
+      ? importBundledExport(params.importMetaUrl, params.runtime)
+      : Promise.resolve(undefined),
+  ]);
+  const channelPlugin = toChannelPlugin(pluginExport, params.label);
+  const setRuntime = runtimeExport
+    ? toRuntimeSetter(runtimeExport, params.label)
+    : undefined;
+
+  return {
+    register(api) {
+      api.registerChannel({ plugin: channelPlugin });
+      setRuntime?.(api.runtime);
+    },
+  };
+}
+
+async function buildPackageBundledChannelEntry(
+  registration: BundledPackageChannelRegistration,
+  descriptor: OpenClawChannelPackageDescriptor,
+): Promise<RegisterablePlugin> {
+  const extensionSpecifier = descriptor.extensionSpecifiers[0] ?? "./index.ts";
+  const importMetaUrl = pathToFileURL(
+    join(resolvePackageRoot(registration.packageName), extensionSpecifier),
+  ).href;
+
+  return buildLoadedBundledChannelEntry({
+    importMetaUrl,
+    label: registration.packageName,
     plugin: {
       specifier: registration.pluginSpecifier,
       exportName: registration.pluginExportName,
@@ -128,6 +219,28 @@ function buildPackageBundledChannelEntry(
             exportName: registration.runtimeExportName,
           }
         : undefined,
+  });
+}
+
+async function buildOpenClawBundledChannelEntry(
+  registration: BundledOpenClawChannelRegistration,
+  descriptor: OpenClawChannelPackageDescriptor,
+): Promise<RegisterablePlugin> {
+  const extensionSpecifier = descriptor.extensionSpecifiers[0] ?? "./index.js";
+  const importMetaUrl = pathToFileURL(
+    join(
+      resolveOpenClawExtensionRoot(registration.channelId),
+      extensionSpecifier,
+    ),
+  ).href;
+
+  return buildLoadedBundledChannelEntry({
+    importMetaUrl,
+    label: `openclaw/${registration.channelId}`,
+    plugin: {
+      specifier: "./channel-plugin-api.js",
+      exportName: `${registration.channelId}Plugin`,
+    },
   });
 }
 
@@ -157,58 +270,60 @@ function registerMetadataAliases(
   }
 }
 
-function registerDirectPackagePlugin(
-  host: OpenClawPluginHost,
+async function prepareDirectPackagePlugin(
   registration: DirectPackageChannelRegistration,
-): void {
-  const descriptor = readPackageChannelDescriptor(registration.packageName);
-  registerPlugin(host, registration.plugin, registration.packageName);
-  registerMetadataAliases(host, descriptor);
+): Promise<PreparedChannelRegistration> {
+  return {
+    descriptor: await readPackageChannelDescriptorAsync(registration.packageName),
+    label: registration.packageName,
+    plugin: await importDirectPackagePlugin(registration),
+  };
 }
 
-function registerBundledPackagePlugin(
-  host: OpenClawPluginHost,
+async function prepareBundledPackagePlugin(
   registration: BundledPackageChannelRegistration,
-): void {
-  registerPlugin(
-    host,
-    buildPackageBundledChannelEntry(registration),
+): Promise<PreparedChannelRegistration> {
+  const descriptor = await readPackageChannelDescriptorAsync(
     registration.packageName,
   );
-  registerMetadataAliases(
-    host,
-    readPackageChannelDescriptor(registration.packageName),
-  );
+  return {
+    descriptor,
+    label: registration.packageName,
+    plugin: await buildPackageBundledChannelEntry(registration, descriptor),
+  };
 }
 
-function registerBundledOpenClawPlugin(
-  host: OpenClawPluginHost,
+async function prepareBundledOpenClawPlugin(
   registration: BundledOpenClawChannelRegistration,
-): void {
-  registerPlugin(
-    host,
-    buildOpenClawBundledChannelEntry(registration),
-    `openclaw/${registration.channelId}`,
+): Promise<PreparedChannelRegistration> {
+  const descriptor = await readOpenClawBundledChannelDescriptorAsync(
+    registration.channelId,
   );
-  registerMetadataAliases(
-    host,
-    readOpenClawBundledChannelDescriptor(registration.channelId),
-  );
+  return {
+    descriptor,
+    label: `openclaw/${registration.channelId}`,
+    plugin: await buildOpenClawBundledChannelEntry(registration, descriptor),
+  };
 }
 
-function registerChannelPlugin(
-  host: OpenClawPluginHost,
+function prepareChannelPlugin(
   registration: ChannelRegistration,
-): void {
+): Promise<PreparedChannelRegistration> {
   if (registration.kind === "direct-package") {
-    registerDirectPackagePlugin(host, registration);
-    return;
+    return prepareDirectPackagePlugin(registration);
   }
   if (registration.kind === "openclaw-bundled") {
-    registerBundledOpenClawPlugin(host, registration);
-    return;
+    return prepareBundledOpenClawPlugin(registration);
   }
-  registerBundledPackagePlugin(host, registration);
+  return prepareBundledPackagePlugin(registration);
+}
+
+function registerPreparedChannelPlugin(
+  host: OpenClawPluginHost,
+  prepared: PreparedChannelRegistration,
+): void {
+  registerPlugin(host, prepared.plugin, prepared.label);
+  registerMetadataAliases(host, prepared.descriptor);
 }
 
 const channelRegistrations: ChannelRegistration[] = [
@@ -241,7 +356,6 @@ const channelRegistrations: ChannelRegistration[] = [
   {
     kind: "direct-package",
     packageName: "@openclaw/weixin",
-    plugin: weixinPlugin,
   },
   {
     kind: "package-bundled",
@@ -257,8 +371,34 @@ const channelRegistrations: ChannelRegistration[] = [
 // Register all plugins with the host
 // ---------------------------------------------------------------------------
 
-export function registerAllPlugins(host: OpenClawPluginHost): void {
-  for (const registration of channelRegistrations) {
-    registerChannelPlugin(host, registration);
+export async function registerAllPlugins(
+  host: OpenClawPluginHost,
+): Promise<void> {
+  const preparedRegistrations = await Promise.all(
+    channelRegistrations.map((registration) =>
+      prepareChannelPlugin(registration),
+    ),
+  );
+
+  for (const prepared of preparedRegistrations) {
+    registerPreparedChannelPlugin(host, prepared);
   }
+}
+
+@injectable()
+export class PluginRegistrationService implements ServiceContribution {
+  private registered = false;
+
+  constructor(
+    @inject(OpenClawPluginHost)
+    private readonly host: OpenClawPluginHost,
+  ) {}
+
+  async start(): Promise<void> {
+    if (this.registered) return;
+    await registerAllPlugins(this.host);
+    this.registered = true;
+  }
+
+  async stop(): Promise<void> {}
 }

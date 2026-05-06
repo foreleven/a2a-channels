@@ -39,7 +39,7 @@ import { AccountCredentialsStateRepository } from "../infra/account-credentials-
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
-import { registerAllPlugins } from "../register-plugins.js";
+import { PluginRegistrationService } from "../register-plugins.js";
 import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
 import { AgentClientFactory } from "../runtime/agent-clients.js";
 import { RuntimeScheduler } from "../runtime/scheduler.js";
@@ -202,13 +202,13 @@ function bindRuntime(
   container
     .bind(OpenClawPluginHost)
     .toDynamicValue(() => {
-      const host = new OpenClawPluginHost(
-        container.get(OpenClawPluginRuntime),
-      );
-      registerAllPlugins(host);
-      return host;
+      return new OpenClawPluginHost(container.get(OpenClawPluginRuntime));
     })
     .inSingletonScope();
+  container.bind(PluginRegistrationService).toSelf().inSingletonScope();
+  container
+    .bind<ServiceContribution>(ServiceContributionToken)
+    .toService(PluginRegistrationService);
 
   container.bind(RuntimeOwnershipState).toSelf().inSingletonScope();
 

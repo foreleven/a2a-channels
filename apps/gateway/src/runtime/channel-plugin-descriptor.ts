@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFile, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -30,6 +31,12 @@ function readJsonFile(filePath: string): JsonRecord {
   return JSON.parse(readFileSync(filePath, "utf8")) as JsonRecord;
 }
 
+const readFileAsync = promisify(readFile);
+
+async function readJsonFileAsync(filePath: string): Promise<JsonRecord> {
+  return JSON.parse(await readFileAsync(filePath, "utf8")) as JsonRecord;
+}
+
 export class OpenClawChannelPackageDescriptor {
   readonly pluginId: string;
   readonly packageName: string;
@@ -48,6 +55,33 @@ export class OpenClawChannelPackageDescriptor {
   static fromPackageRoot(packageRoot: string): OpenClawChannelPackageDescriptor {
     const packageJson = readJsonFile(join(packageRoot, "package.json"));
     const pluginJson = readJsonFile(join(packageRoot, "openclaw.plugin.json"));
+    return OpenClawChannelPackageDescriptor.fromJson(packageRoot, {
+      packageJson,
+      pluginJson,
+    });
+  }
+
+  static async fromPackageRootAsync(
+    packageRoot: string,
+  ): Promise<OpenClawChannelPackageDescriptor> {
+    const [packageJson, pluginJson] = await Promise.all([
+      readJsonFileAsync(join(packageRoot, "package.json")),
+      readJsonFileAsync(join(packageRoot, "openclaw.plugin.json")),
+    ]);
+    return OpenClawChannelPackageDescriptor.fromJson(packageRoot, {
+      packageJson,
+      pluginJson,
+    });
+  }
+
+  private static fromJson(
+    packageRoot: string,
+    files: {
+      packageJson: JsonRecord;
+      pluginJson: JsonRecord;
+    },
+  ): OpenClawChannelPackageDescriptor {
+    const { packageJson, pluginJson } = files;
     const openclaw = asRecord(packageJson["openclaw"]);
     const packageChannel = asRecord(openclaw["channel"]);
 

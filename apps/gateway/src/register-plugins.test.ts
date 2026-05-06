@@ -80,10 +80,10 @@ describe("registerAllPlugins", () => {
     assert.deepEqual(weixin.channelIds, ["openclaw-weixin"]);
   });
 
-  test("registers all OpenClaw channel plugins supported by the gateway", () => {
+  test("registers all OpenClaw channel plugins supported by the gateway", async () => {
     const host = createHost();
 
-    registerAllPlugins(host);
+    await registerAllPlugins(host);
 
     for (const channelType of [
       "feishu",

@@ -44,6 +44,7 @@ import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
 import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
 import { RedisRuntimeEventBus } from "../runtime/cluster/redis-runtime-event-bus.js";
 import { RedisClientService } from "../infra/redis-client.js";
+import { PluginRegistrationService } from "../register-plugins.js";
 
 describe("buildGatewayContainer", () => {
   test("resolves typed config", async () => {
@@ -225,7 +226,7 @@ describe("buildGatewayContainer", () => {
 
     assert.deepEqual(
       services.map((service) => service.constructor),
-      [RedisClientService, RedisRuntimeEventBus],
+      [RedisClientService, RedisRuntimeEventBus, PluginRegistrationService],
     );
   });
 
