@@ -8,6 +8,8 @@
 
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
+import type { AgentFile } from "@agent-relay/agent-transport";
+
 import { buildAgentCompat } from "./compatibilities/agent.js";
 import { buildChannelCompat } from "./compatibilities/channel.js";
 import {
@@ -59,6 +61,8 @@ export interface MessageInboundEvent {
   userMessage: string;
   event: ChannelReplyEvent;
   replyToId?: string;
+  /** Optional file attachments from the user message. */
+  files?: AgentFile[];
 }
 
 export interface MessageOutboundEvent {

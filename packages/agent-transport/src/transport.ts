@@ -1,11 +1,27 @@
+/** A file attachment sent to or received from an agent. */
+export interface AgentFile {
+  /** Remote URL for the file content. Preferred over inline data when available. */
+  url?: string;
+  /** Base64-encoded file content. Used when a URL is not available. */
+  data?: string;
+  /** MIME type of the file (e.g. "image/jpeg", "application/pdf"). */
+  mimeType?: string;
+  /** Optional display name for the file. */
+  name?: string;
+}
+
 export interface AgentRequest {
   userMessage: string;
   sessionKey: string;
   accountId: string;
+  /** Optional file attachments from the user message (e.g. images, documents). */
+  files?: AgentFile[];
 }
 
 export interface AgentResponse {
   text: string;
+  /** Optional file attachments in the agent's reply. */
+  files?: AgentFile[];
 }
 
 export type AgentResponseStreamEventKind = "partial" | "block" | "final";
@@ -13,6 +29,8 @@ export type AgentResponseStreamEventKind = "partial" | "block" | "final";
 export interface AgentResponseStreamEvent {
   kind: AgentResponseStreamEventKind;
   text: string;
+  /** Optional file attachments in this stream event. Only populated for block/final events. */
+  files?: AgentFile[];
 }
 
 export type AgentProtocol = "a2a" | "acp";
@@ -73,7 +91,7 @@ export class AgentClient {
     request: AgentRequest,
   ): AsyncIterable<AgentResponseStreamEvent> {
     const response = await this.send(request);
-    yield { kind: "final", text: response.text };
+    yield { kind: "final", text: response.text, files: response.files };
   }
 }
 

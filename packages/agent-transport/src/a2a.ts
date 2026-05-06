@@ -10,6 +10,7 @@ import { ClientFactory } from "@a2a-js/sdk/client";
 import type { MessageSendParams } from "@a2a-js/sdk";
 import type {
   A2AAgentConfig,
+  AgentFile,
   AgentProtocolConfig,
   AgentRequest,
   AgentResponse,
@@ -69,6 +70,102 @@ function extractText(result: unknown): string {
   return "";
 }
 
+/** Extract file attachments from an A2A result envelope. */
+function extractFiles(result: unknown): AgentFile[] {
+  if (!result || typeof result !== "object") return [];
+  const rec = result as Record<string, unknown>;
+
+  // Unwrap JSON-RPC success envelope
+  if ("jsonrpc" in rec && "result" in rec) return extractFiles(rec["result"]);
+
+  if (rec["kind"] === "message") {
+    return extractFilesFromParts(
+      Array.isArray(rec["parts"]) ? rec["parts"] : [],
+    );
+  }
+
+  if (rec["kind"] === "task") {
+    const files: AgentFile[] = [];
+    for (const artifact of (Array.isArray(rec["artifacts"])
+      ? rec["artifacts"]
+      : []) as Array<Record<string, unknown>>) {
+      files.push(
+        ...extractFilesFromParts(
+          Array.isArray(artifact["parts"]) ? artifact["parts"] : [],
+        ),
+      );
+    }
+    return files;
+  }
+
+  if (rec["kind"] === "artifact-update") {
+    return extractFiles({ kind: "task", artifacts: [rec["artifact"]] });
+  }
+
+  return [];
+}
+
+/** Convert raw A2A part objects with kind "file" into AgentFile values. */
+function extractFilesFromParts(parts: unknown[]): AgentFile[] {
+  const files: AgentFile[] = [];
+  for (const p of parts) {
+    if (
+      typeof p !== "object" ||
+      p === null ||
+      (p as Record<string, unknown>)["kind"] !== "file"
+    ) {
+      continue;
+    }
+    const part = p as Record<string, unknown>;
+    const file = part["file"] as Record<string, unknown> | undefined;
+    if (!file) continue;
+
+    const agentFile: AgentFile = {
+      mimeType:
+        typeof file["mimeType"] === "string" ? file["mimeType"] : undefined,
+      name: typeof file["name"] === "string" ? file["name"] : undefined,
+    };
+
+    if (typeof file["uri"] === "string") {
+      agentFile.url = file["uri"];
+    } else if (typeof file["bytes"] === "string") {
+      agentFile.data = file["bytes"];
+    } else {
+      continue;
+    }
+
+    files.push(agentFile);
+  }
+  return files;
+}
+
+/** Build A2A FilePart objects from AgentFile attachments. */
+function buildFileParts(files: AgentFile[]): Array<Record<string, unknown>> {
+  const parts: Array<Record<string, unknown>> = [];
+  for (const f of files) {
+    if (f.url) {
+      parts.push({
+        kind: "file",
+        file: {
+          uri: f.url,
+          ...(f.mimeType ? { mimeType: f.mimeType } : {}),
+          ...(f.name ? { name: f.name } : {}),
+        },
+      });
+    } else if (f.data) {
+      parts.push({
+        kind: "file",
+        file: {
+          bytes: f.data,
+          ...(f.mimeType ? { mimeType: f.mimeType } : {}),
+          ...(f.name ? { name: f.name } : {}),
+        },
+      });
+    }
+  }
+  return parts;
+}
+
 /** Factory for JSON-RPC A2A-compatible agent transports. */
 export class A2ATransport implements AgentTransportFactory {
   readonly protocol = "a2a";
@@ -124,7 +221,11 @@ class A2AAgentTransport implements AgentTransport {
         signal: abortController.signal,
       });
       const text = extractText(result);
-      return { text: text || "(no response from agent)" };
+      const files = extractFiles(result);
+      return {
+        text: text || "(no response from agent)",
+        ...(files.length ? { files } : {}),
+      };
     })();
 
     try {
@@ -164,7 +265,9 @@ class A2AAgentTransport implements AgentTransport {
 
       for await (const event of stream) {
         const text = extractText(event);
-        if (!text) {
+        const files = extractFiles(event);
+        const hasContent = text || files.length > 0;
+        if (!hasContent) {
           continue;
         }
 
@@ -174,6 +277,7 @@ class A2AAgentTransport implements AgentTransport {
           yield {
             kind: event.lastChunk ? "final" : "block",
             text: event.lastChunk ? finalText : text,
+            ...(files.length ? { files } : {}),
           };
           if (event.lastChunk) {
             yieldedFinal = true;
@@ -185,7 +289,7 @@ class A2AAgentTransport implements AgentTransport {
         yielded = true;
         if (event.kind === "message") {
           yieldedFinal = true;
-          yield { kind: "final", text };
+          yield { kind: "final", text, ...(files.length ? { files } : {}) };
         } else {
           yield { kind: "partial", text };
         }
@@ -193,7 +297,7 @@ class A2AAgentTransport implements AgentTransport {
 
       if (!yielded) {
         const response = await this.send(request);
-        yield { kind: "final", text: response.text };
+        yield { kind: "final", text: response.text, ...(response.files?.length ? { files: response.files } : {}) };
         return;
       }
 
@@ -216,12 +320,17 @@ class A2AAgentTransport implements AgentTransport {
 
   private buildPayload(request: AgentRequest): MessageSendParams {
     const contextId = request.sessionKey;
+    const parts: Array<Record<string, unknown>> = [];
+    if (request.userMessage.trim()) {
+      parts.push({ kind: "text", text: request.userMessage });
+    }
+    parts.push(...buildFileParts(request.files ?? []));
     return {
       message: {
         kind: "message",
         messageId: crypto.randomUUID(),
         role: "user",
-        parts: [{ kind: "text", text: request.userMessage }],
+        parts,
         ...(contextId ? { contextId } : {}),
         metadata: { userId: request.accountId },
       },
