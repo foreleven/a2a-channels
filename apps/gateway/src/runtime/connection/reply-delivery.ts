@@ -100,8 +100,7 @@ export class ChannelReplyDelivery {
 
     try {
       for await (const chunk of stream) {
-        const hasContent = chunk.text.trim() || chunk.files?.length;
-        if (!hasContent) {
+        if (!hasStreamChunkContent(chunk)) {
           continue;
         }
 
@@ -159,8 +158,7 @@ export class ChannelReplyDelivery {
     let sentFinal = false;
 
     for await (const chunk of stream) {
-      const hasContent = chunk.text.trim() || chunk.files?.length;
-      if (!hasContent) {
+      if (!hasStreamChunkContent(chunk)) {
         continue;
       }
 
@@ -209,4 +207,9 @@ export class ChannelReplyDelivery {
 function resolveMediaUrls(files: AgentFile[] | undefined): string[] {
   if (!files?.length) return [];
   return files.map((f) => f.url).filter((u): u is string => Boolean(u));
+}
+
+/** Returns true when a stream chunk has content worth delivering (non-blank text or files). */
+function hasStreamChunkContent(chunk: AgentResponseStreamEvent): boolean {
+  return Boolean(chunk.text.trim() || chunk.files?.length);
 }

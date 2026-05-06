@@ -1,5 +1,6 @@
 import type {
   AgentClient,
+  AgentFile,
   AgentResponseStreamEvent,
 } from "@agent-relay/agent-transport";
 import type { ChannelBindingSnapshot } from "@agent-relay/domain";
@@ -135,14 +136,14 @@ export class Connection {
   /** Sends inbound channel text to the bound agent and emits outbound telemetry. */
   async handleMessage(
     event: MessageInboundEvent,
-  ): Promise<{ text: string; files?: import("@agent-relay/agent-transport").AgentFile[] } | null> {
+  ): Promise<{ text: string; files?: AgentFile[] } | null> {
     const { accountId, channelType, sessionKey, userMessage, files } = event;
 
     if (!userMessage.trim() && !files?.length) {
       return null;
     }
 
-    let result: { text: string; files?: import("@agent-relay/agent-transport").AgentFile[] } | null;
+    let result: { text: string; files?: AgentFile[] } | null;
     try {
       result = await this.options.agentClient.send({
         userMessage,

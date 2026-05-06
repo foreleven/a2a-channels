@@ -200,9 +200,9 @@ class ACPStdioAgentProcess {
     this.activeFileBuffers.set(sessionId, collectedFiles);
 
     try {
-      const promptBlocks = buildACPPromptBlocks(request);
+      const contentBlocks = buildACPPromptBlocks(request);
       const response = await withTimeout(
-        connection.prompt({ sessionId, prompt: promptBlocks }),
+        connection.prompt({ sessionId, prompt: contentBlocks }),
         this.command.timeoutMs,
         'ACP request "session/prompt"',
       );
