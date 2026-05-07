@@ -15,9 +15,10 @@ export interface GatewayMessageInboundEvent {
   accountId: string;
   sessionKey: SessionKey;
   userMessage: string;
-  event: ChannelReplyEvent;
+  event?: ChannelReplyEvent;
   replyToId?: string;
   files?: AgentFile[];
+  metadata?: Record<string, unknown>;
 }
 
 /** Gateway-owned outbound message shape that keeps the original channel session identity. */

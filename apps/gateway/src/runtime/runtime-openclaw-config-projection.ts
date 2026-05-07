@@ -53,6 +53,15 @@ export class RuntimeOpenClawConfigProjection {
     this.openClawConfig = this.buildConfig(this.listBindings());
   }
 
+  /** Builds an OpenClaw config for an explicit binding set without mutating global projection. */
+  buildScopedConfig(bindings: ChannelBinding[]): OpenClawConfig {
+    return this.buildConfig(
+      [...bindings].sort((left, right) =>
+        left.createdAt.localeCompare(right.createdAt),
+      ),
+    );
+  }
+
   /** Lists owned bindings in stable creation order for deterministic config output. */
   private listBindings(): ChannelBinding[] {
     return this.ownershipState

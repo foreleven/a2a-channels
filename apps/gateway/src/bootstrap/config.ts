@@ -15,6 +15,13 @@ export interface GatewayConfigSnapshot {
   nodeId: string;
   nodeDisplayName: string;
   runtimeAddress: string;
+  bunQueueEnabled: boolean;
+  bunQueueHost: string;
+  bunQueuePort: number;
+  bunQueueToken?: string;
+  bunQueueQueueName: string;
+  bunQueueWorkerConcurrency: number;
+  bunQueuePrefix?: string;
 }
 
 export const GatewayConfigOverrides = Symbol.for(
@@ -67,6 +74,34 @@ export class GatewayConfigService {
     return this.snapshot.runtimeAddress;
   }
 
+  get bunQueueEnabled(): boolean {
+    return this.snapshot.bunQueueEnabled;
+  }
+
+  get bunQueueHost(): string {
+    return this.snapshot.bunQueueHost;
+  }
+
+  get bunQueuePort(): number {
+    return this.snapshot.bunQueuePort;
+  }
+
+  get bunQueueToken(): string | undefined {
+    return this.snapshot.bunQueueToken;
+  }
+
+  get bunQueueQueueName(): string {
+    return this.snapshot.bunQueueQueueName;
+  }
+
+  get bunQueueWorkerConcurrency(): number {
+    return this.snapshot.bunQueueWorkerConcurrency;
+  }
+
+  get bunQueuePrefix(): string | undefined {
+    return this.snapshot.bunQueuePrefix;
+  }
+
   toSnapshot(): GatewayConfigSnapshot {
     return { ...this.snapshot };
   }
@@ -98,5 +133,27 @@ export function buildGatewayConfig(
       process.env["NODE_DISPLAY_NAME"] ??
       "Gateway Node",
     runtimeAddress,
+    bunQueueEnabled:
+      overrides.bunQueueEnabled ?? process.env["BUNQUEUE_ENABLED"] === "true",
+    bunQueueHost:
+      overrides.bunQueueHost ?? process.env["BUNQUEUE_HOST"] ?? "localhost",
+    bunQueuePort:
+      overrides.bunQueuePort ?? Number(process.env["BUNQUEUE_PORT"] ?? 6789),
+    bunQueueToken:
+      overrides.bunQueueToken ?? normalizeOptional(process.env["BUNQUEUE_TOKEN"]),
+    bunQueueQueueName:
+      overrides.bunQueueQueueName ??
+      process.env["BUNQUEUE_QUEUE"] ??
+      "scheduled-jobs",
+    bunQueueWorkerConcurrency:
+      overrides.bunQueueWorkerConcurrency ??
+      Number(process.env["BUNQUEUE_WORKER_CONCURRENCY"] ?? 2),
+    bunQueuePrefix:
+      overrides.bunQueuePrefix ?? normalizeOptional(process.env["BUNQUEUE_PREFIX"]),
   };
+}
+
+function normalizeOptional(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
 }

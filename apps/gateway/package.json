@@ -26,6 +26,7 @@
     "@prisma/client": "7.7.0",
     "@prisma/client-runtime-utils": "7.7.0",
     "better-sqlite3": "12.9.0",
+    "bunqueue": "2.7.10",
     "inversify": "^7.7.1",
     "ioredis": "^5.10.1",
     "openclaw": "^2026.5.2",

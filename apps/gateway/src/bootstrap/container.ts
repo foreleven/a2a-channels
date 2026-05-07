@@ -61,6 +61,7 @@ import { LocalScheduler } from "../runtime/local/local-scheduler.js";
 import { RuntimeOwnershipState } from "../runtime/ownership-state.js";
 import { RuntimeOwnershipGate } from "../runtime/ownership-gate.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
+import { RuntimeAgentChangeSubscriber } from "../runtime/runtime-agent-change-subscriber.js";
 import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
 import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
 import { RuntimeCommandHandler } from "../runtime/runtime-command-handler.js";
@@ -70,6 +71,8 @@ import {
 } from "../runtime/event-transport/index.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
+import { BunQueueScheduledJobService } from "../runtime/cron/bunqueue-scheduled-job-service.js";
+import { ScheduledJobExecutor } from "../runtime/cron/scheduled-job-executor.js";
 import { AgentTransportToken } from "../runtime/transport-tokens.js";
 import type { GatewayConfigSnapshot } from "./config.js";
 import {
@@ -237,9 +240,18 @@ function bindRuntime(
 
   container.bind(RuntimeAssignmentService).toSelf().inSingletonScope();
   container.bind(RelayRuntime).toSelf().inSingletonScope();
+  container.bind(RuntimeAgentChangeSubscriber).toSelf().inSingletonScope();
+  container
+    .bind<ServiceContribution>(ServiceContributionToken)
+    .toService(RuntimeAgentChangeSubscriber);
 
   container.bind(RuntimeAssignmentCoordinator).toSelf().inSingletonScope();
   container.bind(RuntimeCommandHandler).toSelf().inSingletonScope();
+  container.bind(ScheduledJobExecutor).toSelf().inSingletonScope();
+  container.bind(BunQueueScheduledJobService).toSelf().inSingletonScope();
+  container
+    .bind<ServiceContribution>(ServiceContributionToken)
+    .toService(BunQueueScheduledJobService);
 
   if (config.clusterMode) {
     bindClusterRuntime(container);

@@ -69,6 +69,54 @@ describe("RuntimeOpenClawConfigProjection", () => {
     });
   });
 
+  test("buildScopedConfig does not replace the owned runtime projection", () => {
+    const ownershipState = new RuntimeOwnershipState();
+    ownershipState.attachBinding(
+      createBinding({
+        id: "binding-default",
+        accountId: "default",
+        channelConfig: { botToken: "token-default" },
+      }),
+    );
+    ownershipState.attachBinding(
+      createBinding({
+        id: "binding-alerts",
+        accountId: "alerts",
+        channelConfig: { botToken: "token-alerts" },
+      }),
+    );
+
+    const projection = new RuntimeOpenClawConfigProjection(ownershipState);
+    const before = structuredClone(projection.getConfig());
+
+    const scoped = projection.buildScopedConfig([
+      createBinding({
+        id: "binding-default",
+        accountId: "default",
+        channelConfig: { botToken: "token-default" },
+      }),
+    ]);
+
+    assert.deepEqual(scoped.channels?.["telegram"], {
+      bindingId: "binding-default",
+      botToken: "token-default",
+      enabled: true,
+    });
+    assert.deepEqual(projection.getConfig(), before);
+    assert.deepEqual(projection.getConfig().channels?.["telegram"], {
+      bindingId: "binding-default",
+      botToken: "token-default",
+      enabled: true,
+      accounts: {
+        alerts: {
+          bindingId: "binding-alerts",
+          botToken: "token-alerts",
+          enabled: true,
+        },
+      },
+    });
+  });
+
   test("projects WeChat aliases into the OpenClaw Weixin plugin channel key", () => {
     const ownershipState = new RuntimeOwnershipState();
     ownershipState.attachBinding(

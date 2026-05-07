@@ -156,6 +156,13 @@ provided Makefile-backed commands.
 | `LOG_PRETTY` | auto | Enables `pino-pretty` output when set to `true`; set to `false` to force JSON logs |
 | `CLUSTER_MODE` | `false` | Enables Redis-backed runtime coordination when set to `true` |
 | `REDIS_URL` | - | Redis connection URL for cluster mode |
+| `BUNQUEUE_ENABLED` | `false` | Enables the BunQueue scheduled job worker |
+| `BUNQUEUE_HOST` | `localhost` | BunQueue TCP server host |
+| `BUNQUEUE_PORT` | `6789` | BunQueue TCP server port |
+| `BUNQUEUE_TOKEN` | - | Optional BunQueue auth token |
+| `BUNQUEUE_QUEUE` | `scheduled-jobs` | Queue consumed by scheduled job workers |
+| `BUNQUEUE_WORKER_CONCURRENCY` | `2` | Scheduled job worker concurrency per gateway process |
+| `BUNQUEUE_PREFIX` | - | Optional BunQueue namespace prefix |
 | `ECHO_AGENT_PORT` | `3001` | Echo agent HTTP port |
 | `ECHO_AGENT_URL` | `http://localhost:$ECHO_AGENT_PORT` | Echo agent base URL and seed target URL |
 | `FEISHU_APP_ID` | - | Feishu/Lark app ID used by `pnpm seed` |
@@ -163,6 +170,19 @@ provided Makefile-backed commands.
 | `FEISHU_ACCOUNT_ID` | `default` | Account ID for the seeded Feishu binding |
 | `FEISHU_VERIFICATION_TOKEN` | - | Optional Feishu event verification token |
 | `FEISHU_ENCRYPT_KEY` | - | Optional Feishu message encrypt key |
+
+Scheduled jobs are stored and triggered by BunQueue, not by the gateway database.
+Start a BunQueue server and create cron jobs in the `scheduled-jobs` queue:
+
+```bash
+bunqueue start --tcp-port 6789
+
+bunqueue cron add daily-summary \
+  -q scheduled-jobs \
+  -s "0 9 * * *" \
+  -z UTC \
+  -d '{"bindingId":"binding-id","sessionKey":"agent:any:feishu:default:direct:ou_xxx","prompt":"Send the daily summary."}'
+```
 
 For the admin UI:
 

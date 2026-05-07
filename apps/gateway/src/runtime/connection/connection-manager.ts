@@ -189,6 +189,7 @@ export class ConnectionManager implements ReplyEventDispatcher {
         content: event.userMessage,
         metadata: {
           channelType: event.channelType,
+          ...(event.metadata ?? {}),
           ...(event.replyToId ? { replyToId: event.replyToId } : {}),
           ...(event.files?.length ? { files: event.files } : {}),
         },
@@ -238,10 +239,11 @@ export class ConnectionManager implements ReplyEventDispatcher {
       "no active connection for inbound channel message; message dropped",
     );
 
-    if (message.event.type === "channel.reply.dispatch") {
-      message.event.dispatcher.markComplete();
+    const replyEvent = message.event;
+    if (replyEvent?.type === "channel.reply.dispatch") {
+      replyEvent.dispatcher.markComplete();
       try {
-        await message.event.dispatcher.waitForIdle();
+        await replyEvent.dispatcher.waitForIdle();
       } catch {
         // Ignore draining errors when no connection handled the message.
       }

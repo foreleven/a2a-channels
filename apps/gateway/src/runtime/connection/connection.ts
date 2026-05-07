@@ -127,12 +127,17 @@ export class Connection {
 
     this.options.callbacks?.emitMessageInbound?.(event);
 
+    const replyEvent = event.event;
+    if (!replyEvent) {
+      throw new Error("Inbound channel message is missing a reply event.");
+    }
+
     if (!event.userMessage.trim() && !event.files?.length) {
-      return this.replyDelivery.deliver(event.event, null);
+      return this.replyDelivery.deliver(replyEvent, null);
     }
 
     return this.replyDelivery.deliverStream(
-      event.event,
+      replyEvent,
       this.handleMessageStream(event),
     );
   }

@@ -143,28 +143,9 @@ export class LocalScheduler implements RuntimeScheduler {
         break;
       }
 
-      case "AgentChanged": {
-        // Refresh every binding currently owned by this node that uses the
-        // changed agent.
-        const affectedIds = this.assignments
-          .listBindings()
-          .filter((b) => b.agentId === event.agentId)
-          .map((b) => b.id);
-        for (const bindingId of affectedIds) {
-          void bus
-            .sendDirected(LOCAL_NODE_ID, {
-              type: "RefreshBinding",
-              bindingId,
-            })
-            .catch((error) => {
-              this.logger.error(
-                { bindingId, agentId: event.agentId, err: error },
-                "failed to send refresh command",
-              );
-            });
-        }
+      case "AgentChanged":
+        // RuntimeAgentChangeSubscriber updates agent clients on every node.
         break;
-      }
 
       case "NodeLeft":
         // Not applicable in single-instance mode; ignored.
