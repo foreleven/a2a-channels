@@ -16,7 +16,7 @@ import {
 
 /** Runs scheduled outbound jobs delivered by an external BunQueue server. */
 @injectable()
-export class BunQueueScheduledJobService implements ServiceContribution {
+export class BunQueueScheduledJobWorkerService implements ServiceContribution {
   private worker: Worker<ScheduledJobPayload, ScheduledJobExecutionResult> | null =
     null;
 

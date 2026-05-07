@@ -1,8 +1,11 @@
 import { Hono } from "hono";
 import { inject, injectable } from "inversify";
 
-import { Prisma } from "../../generated/prisma/index.js";
-import { ScheduledJobService } from "../../application/scheduled-job-service.js";
+import {
+  ScheduledJobService,
+  ScheduledJobQueueUnavailableError,
+  type ScheduledJobService as ScheduledJobServicePort,
+} from "../../application/scheduled-job-service.js";
 import { parseJsonBody } from "../utils/schema.js";
 import {
   createScheduledJobBodySchema,
@@ -14,7 +17,7 @@ import {
 export class ScheduledJobRoutes {
   constructor(
     @inject(ScheduledJobService)
-    private readonly jobs: ScheduledJobService,
+    private readonly jobs: ScheduledJobServicePort,
   ) {}
 
   register(app: Hono): void {
@@ -36,11 +39,8 @@ export class ScheduledJobRoutes {
         const job = await this.jobs.create(parsed.data);
         return c.json(job, 201);
       } catch (err) {
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === "P2003"
-        ) {
-          return c.json({ error: "Referenced channel binding not found" }, 422);
+        if (err instanceof ScheduledJobQueueUnavailableError) {
+          return c.json({ error: err.message }, 503);
         }
         throw err;
       }
@@ -52,7 +52,15 @@ export class ScheduledJobRoutes {
       if (!parsed.success) {
         return parsed.response;
       }
-      const updated = await this.jobs.update(id, parsed.data);
+      let updated;
+      try {
+        updated = await this.jobs.update(id, parsed.data);
+      } catch (err) {
+        if (err instanceof ScheduledJobQueueUnavailableError) {
+          return c.json({ error: err.message }, 503);
+        }
+        throw err;
+      }
       if (!updated) {
         return c.json({ error: `Scheduled job ${id} not found` }, 404);
       }

@@ -14,7 +14,6 @@ import type {
   ChannelBindingSnapshot,
 } from "./aggregates/channel-binding.js";
 import type { ChannelMessageRecord } from "./messages.js";
-import type { ScheduledJobRecord } from "./scheduled-job.js";
 
 export const ChannelBindingRepository = Symbol.for(
   "ports.ChannelBindingRepository",
@@ -22,9 +21,6 @@ export const ChannelBindingRepository = Symbol.for(
 export const AgentConfigRepository = Symbol.for("ports.AgentConfigRepository");
 export const ChannelMessageRepository = Symbol.for(
   "ports.ChannelMessageRepository",
-);
-export const ScheduledJobRepository = Symbol.for(
-  "ports.ScheduledJobRepository",
 );
 
 export interface ChannelBindingRepository {
@@ -73,30 +69,4 @@ export interface ChannelMessageRepository {
     agentId?: string;
     limit?: number;
   }): Promise<ChannelMessageRecord[]>;
-}
-
-export interface CreateScheduledJobData {
-  name: string;
-  channelBindingId: string;
-  sessionKey: string;
-  prompt: string;
-  cronExpression: string;
-  enabled?: boolean;
-}
-
-export interface UpdateScheduledJobData {
-  name?: string;
-  channelBindingId?: string;
-  sessionKey?: string;
-  prompt?: string;
-  cronExpression?: string;
-  enabled?: boolean;
-}
-
-export interface ScheduledJobRepository {
-  findById(id: string): Promise<ScheduledJobRecord | null>;
-  findAll(): Promise<ScheduledJobRecord[]>;
-  create(data: CreateScheduledJobData): Promise<ScheduledJobRecord>;
-  update(id: string, data: UpdateScheduledJobData): Promise<ScheduledJobRecord | null>;
-  delete(id: string): Promise<boolean>;
 }

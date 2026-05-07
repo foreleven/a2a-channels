@@ -37,6 +37,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 const LIMIT = 100;
+const ALL_AGENTS_VALUE = "__all_agents__";
+const ALL_CHANNELS_VALUE = "__all_channels__";
 
 export default function MessagesPage() {
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
@@ -127,7 +129,7 @@ export default function MessagesPage() {
         </Alert>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-2 md:grid-cols-3">
         <MetricCard
           icon={<MessageSquareText className="size-4" />}
           label="Total"
@@ -164,15 +166,17 @@ export default function MessagesPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
             <Select
-              value={filterAgentId}
-              onValueChange={setFilterAgentId}
+              value={filterAgentId || ALL_AGENTS_VALUE}
+              onValueChange={(value) =>
+                setFilterAgentId(value === ALL_AGENTS_VALUE ? "" : value)
+              }
             >
               <SelectTrigger className="sm:w-48">
                 <SelectValue placeholder="All agents" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="">All agents</SelectItem>
+                  <SelectItem value={ALL_AGENTS_VALUE}>All agents</SelectItem>
                   {agents.map((agent) => (
                     <SelectItem key={agent.id} value={agent.id}>
                       {agent.name}
@@ -182,15 +186,17 @@ export default function MessagesPage() {
               </SelectContent>
             </Select>
             <Select
-              value={filterChannelId}
-              onValueChange={setFilterChannelId}
+              value={filterChannelId || ALL_CHANNELS_VALUE}
+              onValueChange={(value) =>
+                setFilterChannelId(value === ALL_CHANNELS_VALUE ? "" : value)
+              }
             >
               <SelectTrigger className="sm:w-48">
                 <SelectValue placeholder="All channels" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="">All channels</SelectItem>
+                  <SelectItem value={ALL_CHANNELS_VALUE}>All channels</SelectItem>
                   {channels.map((ch) => (
                     <SelectItem key={ch.id} value={ch.id}>
                       {ch.name}
@@ -284,12 +290,16 @@ function MetricCard({
 }) {
   return (
     <Card>
-      <CardContent className="p-5">
-        <div className="mb-4 flex size-9 items-center justify-center rounded-md bg-accent text-accent-foreground">
+      <CardContent className="flex items-center gap-3 px-3 py-2.5">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
           {icon}
         </div>
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="mt-2 text-3xl font-semibold tracking-normal">{value}</p>
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-semibold leading-none tracking-normal">
+            {value}
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

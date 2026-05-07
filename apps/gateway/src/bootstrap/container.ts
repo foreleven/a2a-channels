@@ -15,14 +15,16 @@ import {
   AgentConfigRepository,
   ChannelBindingRepository,
   ChannelMessageRepository,
-  ScheduledJobRepository,
 } from "@agent-relay/domain";
 import { AgentService } from "../application/agent-service.js";
 import { AccountIdGenerator } from "../application/account-id-generator.js";
 import { AccountService } from "../application/account-service.js";
 import { ChannelAuthService } from "../application/channel-auth-service.js";
 import { ChannelMessageService } from "../application/channel-message-service.js";
-import { ScheduledJobService } from "../application/scheduled-job-service.js";
+import {
+  ScheduledJobService,
+  type ScheduledJobService as ScheduledJobServicePort,
+} from "../application/scheduled-job-service.js";
 import {
   ChannelQrLoginProviderToken,
   FeishuQrLoginProvider,
@@ -44,7 +46,7 @@ import { AccountStateRepository } from "../infra/account-repo.js";
 import { AccountCredentialsStateRepository } from "../infra/account-credentials-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { ChannelMessageStateRepository } from "../infra/channel-message-repo.js";
-import { ScheduledJobStateRepository } from "../infra/scheduled-job-repo.js";
+import { BunQueueScheduledJobService } from "../infra/bunqueue-scheduled-job-service.js";
 import {
   createGatewayLogger,
   GatewayLogger,
@@ -75,7 +77,7 @@ import {
 } from "../runtime/event-transport/index.js";
 import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
-import { BunQueueScheduledJobService } from "../runtime/cron/bunqueue-scheduled-job-service.js";
+import { BunQueueScheduledJobWorkerService } from "../runtime/cron/bunqueue-scheduled-job-service.js";
 import { ScheduledJobExecutor } from "../runtime/cron/scheduled-job-executor.js";
 import { AgentTransportToken } from "../runtime/transport-tokens.js";
 import type { GatewayConfigSnapshot } from "./config.js";
@@ -142,7 +144,7 @@ function bindInfrastructure(
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelBindingStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelMessageStateRepository).toSelf().inSingletonScope();
-  container.bind(ScheduledJobStateRepository).toSelf().inSingletonScope();
+  container.bind(BunQueueScheduledJobService).toSelf().inSingletonScope();
   container.bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();
 
   if (config.clusterMode) {
@@ -166,12 +168,11 @@ function bindApplication(container: Container): void {
     .bind(ChannelMessageRepository)
     .toService(ChannelMessageStateRepository);
   container
-    .bind(ScheduledJobRepository)
-    .toService(ScheduledJobStateRepository);
+    .bind<ScheduledJobServicePort>(ScheduledJobService)
+    .toService(BunQueueScheduledJobService);
   container.bind(AccountService).toSelf().inSingletonScope();
   container.bind(ChannelBindingService).toSelf().inSingletonScope();
   container.bind(ChannelMessageService).toSelf().inSingletonScope();
-  container.bind(ScheduledJobService).toSelf().inSingletonScope();
   container.bind(ChannelAuthService).toSelf().inSingletonScope();
   container.bind(AccountIdGenerator).toSelf().inSingletonScope();
   container
@@ -257,10 +258,10 @@ function bindRuntime(
   container.bind(RuntimeAssignmentCoordinator).toSelf().inSingletonScope();
   container.bind(RuntimeCommandHandler).toSelf().inSingletonScope();
   container.bind(ScheduledJobExecutor).toSelf().inSingletonScope();
-  container.bind(BunQueueScheduledJobService).toSelf().inSingletonScope();
+  container.bind(BunQueueScheduledJobWorkerService).toSelf().inSingletonScope();
   container
     .bind<ServiceContribution>(ServiceContributionToken)
-    .toService(BunQueueScheduledJobService);
+    .toService(BunQueueScheduledJobWorkerService);
 
   if (config.clusterMode) {
     bindClusterRuntime(container);

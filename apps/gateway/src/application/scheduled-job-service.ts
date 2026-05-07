@@ -1,40 +1,29 @@
-import {
-  ScheduledJobRepository,
-  type CreateScheduledJobData,
-  type ScheduledJobRecord,
-  type ScheduledJobRepository as ScheduledJobRepositoryPort,
-  type UpdateScheduledJobData,
+import type {
+  CreateScheduledJobData,
+  ScheduledJobRecord,
+  UpdateScheduledJobData,
 } from "@agent-relay/domain";
-import { inject, injectable } from "inversify";
 
-/** Application service for managing scheduled job definitions. */
-@injectable()
-export class ScheduledJobService {
-  constructor(
-    @inject(ScheduledJobRepository)
-    private readonly repo: ScheduledJobRepositoryPort,
-  ) {}
+export const ScheduledJobService = Symbol.for(
+  "application.ScheduledJobService",
+);
 
-  async list(): Promise<ScheduledJobRecord[]> {
-    return this.repo.findAll();
+export class ScheduledJobQueueUnavailableError extends Error {
+  constructor() {
+    super(
+      "BunQueue scheduled jobs are disabled. Set BUNQUEUE_ENABLED=true to manage scheduled tasks.",
+    );
+    this.name = "ScheduledJobQueueUnavailableError";
   }
+}
 
-  async getById(id: string): Promise<ScheduledJobRecord | null> {
-    return this.repo.findById(id);
-  }
-
-  async create(data: CreateScheduledJobData): Promise<ScheduledJobRecord> {
-    return this.repo.create(data);
-  }
-
-  async update(
+export interface ScheduledJobService {
+  list(): Promise<ScheduledJobRecord[]>;
+  getById(id: string): Promise<ScheduledJobRecord | null>;
+  create(data: CreateScheduledJobData): Promise<ScheduledJobRecord>;
+  update(
     id: string,
     data: UpdateScheduledJobData,
-  ): Promise<ScheduledJobRecord | null> {
-    return this.repo.update(id, data);
-  }
-
-  async delete(id: string): Promise<boolean> {
-    return this.repo.delete(id);
-  }
+  ): Promise<ScheduledJobRecord | null>;
+  delete(id: string): Promise<boolean>;
 }
