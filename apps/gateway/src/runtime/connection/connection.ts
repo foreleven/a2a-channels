@@ -3,16 +3,16 @@ import type {
   AgentFile,
   AgentResponseStreamEvent,
 } from "@agent-relay/agent-transport";
-import type { ChannelBindingSnapshot } from "@agent-relay/domain";
+import type { ChannelBindingSnapshot, SessionKey } from "@agent-relay/domain";
 import { OpenClawPluginHost } from "@agent-relay/openclaw-compat";
-import type {
-  ChannelBindingStatusUpdate,
-  MessageInboundEvent,
-} from "@agent-relay/openclaw-compat";
+import type { ChannelBindingStatusUpdate } from "@agent-relay/openclaw-compat";
 
 import { channelTypeRegistry } from "../channel-type-registry.js";
 import type { GatewayLogger } from "../../infra/logger.js";
-import type { ConnectionCallbacks } from "./events.js";
+import type {
+  ConnectionCallbacks,
+  GatewayMessageInboundEvent,
+} from "./events.js";
 import {
   ChannelReplyDelivery,
   type ReplyDeliveryResult,
@@ -119,7 +119,7 @@ export class Connection {
 
   /** Handles a full inbound runtime message for this connection when it owns the binding. */
   async handleInbound(
-    event: MessageInboundEvent,
+    event: GatewayMessageInboundEvent,
   ): Promise<ReplyDeliveryResult | undefined> {
     if (!this.matchesChannelAccount(event.channelType, event.accountId)) {
       return undefined;
@@ -139,9 +139,10 @@ export class Connection {
 
   /** Sends inbound channel text to the bound agent and emits outbound telemetry. */
   async handleMessage(
-    event: MessageInboundEvent,
+    event: GatewayMessageInboundEvent,
   ): Promise<{ text: string; files?: AgentFile[] } | null> {
     const { accountId, channelType, sessionKey, userMessage, files } = event;
+    const downstreamSessionKey = this.toDownstreamSessionKey(sessionKey);
 
     if (!userMessage.trim() && !files?.length) {
       return null;
@@ -151,7 +152,7 @@ export class Connection {
     try {
       result = await this.options.agentClient.send({
         userMessage,
-        sessionKey,
+        sessionKey: downstreamSessionKey,
         accountId,
         ...(files?.length ? { files } : {}),
       });
@@ -181,16 +182,17 @@ export class Connection {
 
   /** Streams inbound channel text to the bound agent and emits final outbound telemetry. */
   async *handleMessageStream(
-    event: MessageInboundEvent,
+    event: GatewayMessageInboundEvent,
   ): AsyncIterable<AgentResponseStreamEvent> {
     const { accountId, channelType, sessionKey, userMessage, files } = event;
+    const downstreamSessionKey = this.toDownstreamSessionKey(sessionKey);
     let sawFinal = false;
     let lastText = "";
 
     try {
       for await (const chunk of this.options.agentClient.stream({
         userMessage,
-        sessionKey,
+        sessionKey: downstreamSessionKey,
         accountId,
         ...(files?.length ? { files } : {}),
       })) {
@@ -248,6 +250,10 @@ export class Connection {
         metadata: { kind: "final", error: true },
       });
     }
+  }
+
+  private toDownstreamSessionKey(sessionKey: SessionKey): string {
+    return sessionKey.toMd5();
   }
 
   private maybeReportConnected(status: ChannelBindingStatusUpdate): void {

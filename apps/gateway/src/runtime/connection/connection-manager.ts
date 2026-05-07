@@ -8,14 +8,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   ChannelMessageRepository,
+  SessionKey,
   type ChannelBindingSnapshot,
   type ChannelMessageRepository as ChannelMessageRepositoryPort,
 } from "@agent-relay/domain";
 import {
   type ChannelReplyDispatchResult,
   type ChannelReplyEvent,
-  type MessageInboundEvent,
-  type MessageOutboundEvent,
   OpenClawPluginHost,
   OpenClawPluginRuntime,
   type ReplyEventDispatcher,
@@ -35,6 +34,8 @@ import { Connection } from "./connection.js";
 import type {
   AgentCallFailureEvent,
   ConnectionLifecycleEvent,
+  GatewayMessageInboundEvent,
+  GatewayMessageOutboundEvent,
 } from "./events.js";
 
 type ChannelBinding = ChannelBindingSnapshot;
@@ -176,7 +177,7 @@ export class ConnectionManager implements ReplyEventDispatcher {
 
   private emitMessageInbound(
     binding: ChannelBinding,
-    event: MessageInboundEvent,
+    event: GatewayMessageInboundEvent,
   ): void {
     void this.messageRepository
       .append({
@@ -197,7 +198,7 @@ export class ConnectionManager implements ReplyEventDispatcher {
 
   private emitMessageOutbound(
     binding: ChannelBinding,
-    event: MessageOutboundEvent,
+    event: GatewayMessageOutboundEvent,
   ): void {
     void this.messageRepository
       .append({
@@ -226,13 +227,13 @@ export class ConnectionManager implements ReplyEventDispatcher {
   }
 
   private async completeUnhandledReplyEvent(
-    message: MessageInboundEvent,
+    message: GatewayMessageInboundEvent,
   ): Promise<ChannelReplyDispatchResult> {
     this.logger.warn(
       {
         channelType: message.channelType,
         accountId: message.accountId,
-        sessionKey: message.sessionKey,
+        sessionKey: message.sessionKey.toString(),
       },
       "no active connection for inbound channel message; message dropped",
     );
@@ -251,7 +252,7 @@ export class ConnectionManager implements ReplyEventDispatcher {
 
   private buildMessageInboundEvent(
     event: ChannelReplyEvent,
-  ): MessageInboundEvent {
+  ): GatewayMessageInboundEvent {
     const ctx = event.ctx;
     const userMessage =
       readNonEmptyString(ctx.BodyForAgent) ??
@@ -260,16 +261,15 @@ export class ConnectionManager implements ReplyEventDispatcher {
       "";
     const channelType = normalizeChannelType(ctx);
     const accountId = normalizeAccountId(ctx.AccountId);
-    const sessionKey =
-      // Prefer Feishu thread roots for stable A2A context IDs.
-      normalizeSessionKey(ctx.RootMessageId) ??
-      normalizeSessionKey(ctx.SenderId) ??
+    // Prefer OpenClaw route sessions, then synthesize a compact fallback key.
+    const sessionKey = SessionKey.fromString(
       normalizeSessionKey(ctx.SessionKey) ??
-      buildFallbackSessionKey({
-        accountId,
-        channelType,
-        ctx,
-      });
+        buildFallbackSessionKey({
+          accountId,
+          channelType,
+          ctx,
+        }),
+    );
     const files = buildFilesFromContext(ctx);
 
     this.logger.info(ctx, "Inbound message event");

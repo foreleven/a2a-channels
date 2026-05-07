@@ -7,10 +7,11 @@ import {
   type AgentResponseStreamEvent,
   type AgentTransport,
 } from "@agent-relay/agent-transport";
-import type {
-  ChannelBindingSnapshot,
-  ChannelMessageRecord,
-  ChannelMessageRepository,
+import {
+  SessionKey,
+  type ChannelBindingSnapshot,
+  type ChannelMessageRecord,
+  type ChannelMessageRepository,
 } from "@agent-relay/domain";
 import { OpenClawPluginRuntime } from "@agent-relay/openclaw-compat";
 
@@ -105,7 +106,7 @@ describe("Connection", () => {
           deliver: async () => {},
         },
       },
-      sessionKey: "session-1",
+      sessionKey: SessionKey.fromString("session-1"),
       userMessage: "hello",
     });
 
@@ -153,7 +154,7 @@ describe("Connection", () => {
           deliver: async () => {},
         },
       },
-      sessionKey: "session-1",
+      sessionKey: SessionKey.fromString("session-1"),
       userMessage: "hello",
     });
 
@@ -188,7 +189,7 @@ describe("Connection", () => {
           deliver: async () => {},
         },
       },
-      sessionKey: "session-1",
+      sessionKey: SessionKey.fromString("session-1"),
       userMessage: "hello",
     });
 
@@ -230,7 +231,7 @@ describe("Connection", () => {
           },
         },
       },
-      sessionKey: "session-1",
+      sessionKey: SessionKey.fromString("session-1"),
       userMessage: "hello",
     });
 
@@ -300,7 +301,7 @@ describe("Connection", () => {
           },
         } as never,
       },
-      sessionKey: "session-1",
+      sessionKey: SessionKey.fromString("session-1"),
       userMessage: "hello",
     });
 
@@ -496,8 +497,49 @@ describe("ConnectionManager", () => {
     }
 
     assert.equal(sessionKeys.length, 2);
-    assert.match(sessionKeys[0] ?? "", /^fallback:[a-f0-9]{32}$/);
+    assert.match(sessionKeys[0] ?? "", /^[a-f0-9]{32}$/);
     assert.equal(sessionKeys[1], sessionKeys[0]);
+  });
+
+  test("prefers OpenClaw route session key over sender id for agent requests", async () => {
+    const sessionKeys: string[] = [];
+    const agentClient = createAgentClient("http://agent-1", async (request) => {
+      sessionKeys.push(request.sessionKey);
+      return { text: `echo: ${request.userMessage}` };
+    });
+    const runtime = createRuntime();
+    const manager = new ConnectionManager(
+      null as never,
+      runtime,
+      null as never,
+      createMessageRepository(),
+    );
+    const connection = new Connection({
+      agentClient,
+      binding,
+    });
+
+    Reflect.get(manager, "trackConnection").call(manager, connection);
+
+    await runtime.handleChannelReplyEvent({
+      type: "channel.reply.buffered.dispatch",
+      ctx: {
+        BodyForAgent: "hello",
+        Surface: "feishu",
+        AccountId: "default",
+        SessionKey: "agent:agent-1:feishu:default:direct:ou_user_1",
+        SenderId: "ou_user_1",
+      } as never,
+      dispatcherOptions: {
+        deliver: async () => {},
+      },
+    });
+
+    assert.deepEqual(sessionKeys, [
+      SessionKey.fromString(
+        "agent:agent-1:feishu:default:direct:ou_user_1",
+      ).toMd5(),
+    ]);
   });
 
   test("completes dispatch replies when no connection owns the message", async () => {

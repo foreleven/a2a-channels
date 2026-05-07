@@ -1,4 +1,5 @@
 export * from "./value-objects.js";
+export * from "./session-key.js";
 export * from "./events.js";
 export * from "./aggregates/channel-binding.js";
 export * from "./aggregates/agent-config.js";

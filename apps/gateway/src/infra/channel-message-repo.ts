@@ -1,7 +1,8 @@
-import type {
-  ChannelMessageRecord,
-  ChannelMessageRepository,
-  MessageDirection,
+import {
+  SessionKey,
+  type ChannelMessageRecord,
+  type ChannelMessageRepository,
+  type MessageDirection,
 } from "@agent-relay/domain";
 import { injectable } from "inversify";
 
@@ -24,7 +25,7 @@ function mapMessageRow(row: {
     direction: parseDirection(row.direction),
     channelType: row.channelType,
     accountId: row.accountId,
-    sessionKey: row.sessionKey,
+    sessionKey: SessionKey.fromString(row.sessionKey),
     content: row.content,
     metadata: parseMetadata(row.metadata),
     createdAt: row.createdAt.toISOString(),
@@ -42,7 +43,7 @@ export class ChannelMessageStateRepository implements ChannelMessageRepository {
         direction: record.direction,
         channelType: record.channelType,
         accountId: record.accountId,
-        sessionKey: record.sessionKey,
+        sessionKey: record.sessionKey.toString(),
         content: record.content,
         metadata: JSON.stringify(record.metadata ?? {}),
         ...(record.createdAt ? { createdAt: new Date(record.createdAt) } : {}),

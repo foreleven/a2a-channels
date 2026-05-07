@@ -1,3 +1,5 @@
+import type { SessionKey } from "./session-key.js";
+
 export type MessageDirection = "input" | "output";
 
 export interface ChannelMessageRecord {
@@ -6,9 +8,8 @@ export interface ChannelMessageRecord {
   direction: MessageDirection;
   channelType: string;
   accountId: string;
-  sessionKey: string;
+  sessionKey: SessionKey;
   content: string;
   metadata?: Record<string, unknown>;
   createdAt?: string;
 }
-

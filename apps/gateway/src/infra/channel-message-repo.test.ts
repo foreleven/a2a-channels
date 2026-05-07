@@ -1,6 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
+import { SessionKey } from "@agent-relay/domain";
 import { prisma } from "../store/prisma.js";
 import { ChannelMessageStateRepository } from "./channel-message-repo.js";
 
@@ -40,7 +41,7 @@ describe("ChannelMessageStateRepository", () => {
       direction: "input",
       channelType: "feishu",
       accountId: "message-account",
-      sessionKey: "session-1",
+      sessionKey: SessionKey.fromString("session-1"),
       content: "hello",
       metadata: { replyToId: "om_parent" },
     });
@@ -49,7 +50,7 @@ describe("ChannelMessageStateRepository", () => {
       direction: "output",
       channelType: "feishu",
       accountId: "message-account",
-      sessionKey: "session-1",
+      sessionKey: SessionKey.fromString("session-1"),
       content: "world",
       metadata: { kind: "final" },
     });

@@ -1,5 +1,8 @@
-import { inject, injectable } from "inversify";
-import type { ChannelBindingSnapshot } from "@agent-relay/domain";
+import { inject, injectable, optional } from "inversify";
+import type {
+  AgentConfigSnapshot,
+  ChannelBindingSnapshot,
+} from "@agent-relay/domain";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import {
@@ -7,10 +10,19 @@ import {
   type ChannelConfigProjector,
   type ProjectedChannelConfig,
 } from "./channel-config-projector.js";
+import { channelTypeRegistry } from "./channel-type-registry.js";
 import { RuntimeOwnershipState } from "./ownership-state.js";
+import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 
 type ChannelBinding = ChannelBindingSnapshot;
 type OpenClawChannels = NonNullable<OpenClawConfig["channels"]>;
+type OpenClawAgents = NonNullable<OpenClawConfig["agents"]>;
+type OpenClawAgent = NonNullable<OpenClawAgents["list"]>[number];
+type OpenClawBinding = NonNullable<OpenClawConfig["bindings"]>[number];
+type OpenClawSession = NonNullable<OpenClawConfig["session"]>;
+
+const DIRECT_MESSAGE_SESSION_SCOPE: NonNullable<OpenClawSession["dmScope"]> =
+  "per-account-channel-peer";
 
 /** Projects currently owned channel bindings into OpenClaw plugin config. */
 @injectable()
@@ -24,6 +36,9 @@ export class RuntimeOpenClawConfigProjection {
   constructor(
     @inject(RuntimeOwnershipState)
     private readonly ownershipState: RuntimeOwnershipState,
+    @inject(RuntimeAgentRegistry)
+    @optional()
+    private readonly agentRegistry?: RuntimeAgentRegistry,
   ) {
     this.openClawConfig = this.buildConfig(this.listBindings());
   }
@@ -63,8 +78,61 @@ export class RuntimeOpenClawConfigProjection {
 
     return {
       channels,
-      agents: {},
+      agents: {
+        list: this.buildAgents(bindings),
+      },
+      bindings: this.buildRouteBindings(bindings),
+      session: {
+        dmScope: DIRECT_MESSAGE_SESSION_SCOPE,
+      },
     } as OpenClawConfig;
+  }
+
+  /** Projects runtime agents so OpenClaw route resolution does not fall back to main. */
+  private buildAgents(bindings: ChannelBinding[]): OpenClawAgent[] {
+    const agentsById = new Map<string, OpenClawAgent>();
+
+    for (const agent of this.agentRegistry?.listAgents() ?? []) {
+      agentsById.set(agent.id, this.projectAgent(agent));
+    }
+
+    for (const binding of bindings) {
+      if (!binding.enabled || agentsById.has(binding.agentId)) {
+        continue;
+      }
+      agentsById.set(binding.agentId, {
+        id: binding.agentId,
+        name: binding.agentId,
+      });
+    }
+
+    return Array.from(agentsById.values());
+  }
+
+  /** Projects gateway channel bindings into OpenClaw route bindings. */
+  private buildRouteBindings(bindings: ChannelBinding[]): OpenClawBinding[] {
+    return bindings
+      .filter((binding) => binding.enabled)
+      .map((binding) => ({
+        type: "route" as const,
+        agentId: binding.agentId,
+        comment: `gateway binding ${binding.id}`,
+        match: {
+          channel: channelTypeRegistry.canonicalize(binding.channelType),
+          accountId: binding.accountId,
+        },
+        session: {
+          dmScope: DIRECT_MESSAGE_SESSION_SCOPE,
+        },
+      }));
+  }
+
+  /** Keeps only OpenClaw routing-facing agent metadata from a gateway agent. */
+  private projectAgent(agent: AgentConfigSnapshot): OpenClawAgent {
+    return {
+      id: agent.id,
+      name: agent.name,
+    };
   }
 
   /** Merges one projected account config into the proper OpenClaw channel entry. */
