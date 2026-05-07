@@ -55,6 +55,7 @@ model ChannelBinding {
   messages      Message[]
   scheduledJobs ScheduledJob[]
 
+  @@index([agentId])
   @@map("channel_bindings")
 }
 
