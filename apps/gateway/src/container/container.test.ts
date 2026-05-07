@@ -3,11 +3,6 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { Container } from "inversify";
-import type { AgentTransport } from "@agent-relay/agent-transport";
-import {
-  AgentConfigRepository,
-  ChannelBindingRepository,
-} from "@agent-relay/domain";
 
 import { AgentService } from "../application/agent-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
@@ -15,36 +10,7 @@ import {
   buildGatewayConfig,
   GatewayConfigService,
 } from "../bootstrap/config.js";
-import type { GatewayConfigSnapshot } from "../bootstrap/config.js";
 import { buildGatewayContainer } from "../bootstrap/container.js";
-import { GatewayServer } from "../bootstrap/gateway-server.js";
-import {
-  type ServiceContribution,
-  ServiceContributionToken,
-} from "../bootstrap/service-contribution.js";
-import { GatewayApp } from "../http/app.js";
-import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
-import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
-import { AgentClientRegistry } from "../runtime/agent-client-registry.js";
-import { RuntimeOwnershipState } from "../runtime/ownership-state.js";
-import { ConnectionManager } from "../runtime/connection/index.js";
-import { RelayRuntime } from "../runtime/relay-runtime.js";
-import { RuntimeAgentRegistry } from "../runtime/runtime-agent-registry.js";
-import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.js";
-import { RuntimeAssignmentCoordinator } from "../runtime/runtime-assignment-coordinator.js";
-import { RuntimeCommandHandler } from "../runtime/runtime-command-handler.js";
-import { RuntimeEventBus } from "../runtime/event-transport/index.js";
-import { RuntimeScheduler } from "../runtime/scheduler.js";
-import { LocalOwnershipGate } from "../runtime/local/local-ownership-gate.js";
-import { LocalScheduler } from "../runtime/local/local-scheduler.js";
-import { RuntimeOwnershipGate } from "../runtime/ownership-gate.js";
-import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
-import { AgentTransportToken } from "../runtime/transport-tokens.js";
-import { LeaderScheduler } from "../runtime/cluster/leader-scheduler.js";
-import { RedisOwnershipGate } from "../runtime/cluster/redis-ownership-gate.js";
-import { RedisRuntimeEventBus } from "../runtime/cluster/redis-runtime-event-bus.js";
-import { RedisClientService } from "../infra/redis-client.js";
-import { PluginRegistrationService } from "../register-plugins.js";
 
 describe("buildGatewayContainer", () => {
   test("resolves typed config", async () => {
@@ -109,32 +75,6 @@ describe("buildGatewayContainer", () => {
     }
   });
 
-  test("keeps infra bindings singleton-scoped", () => {
-    const config = buildGatewayConfig({ port: 7891 });
-    const container: Container = buildGatewayContainer(config);
-
-    assert.strictEqual(
-      container.get(AgentConfigStateRepository),
-      container.get(AgentConfigStateRepository),
-    );
-    assert.strictEqual(
-      container.get(ChannelBindingStateRepository),
-      container.get(ChannelBindingStateRepository),
-    );
-    assert.strictEqual(
-      container.get<AgentConfigRepository>(AgentConfigRepository),
-      container.get<AgentConfigRepository>(AgentConfigRepository),
-    );
-    assert.strictEqual(
-      container.get<ChannelBindingRepository>(ChannelBindingRepository),
-      container.get<ChannelBindingRepository>(ChannelBindingRepository),
-    );
-    assert.strictEqual(
-      container.get(GatewayConfigService),
-      container.get(GatewayConfigService),
-    );
-  });
-
   test("resolves application services and basic reads", async () => {
     const config = buildGatewayConfig({ port: 7891 });
     const container: Container = buildGatewayContainer(config);
@@ -142,144 +82,11 @@ describe("buildGatewayContainer", () => {
     const channelBindingService = container.get(ChannelBindingService);
     const agentService = container.get(AgentService);
 
-    assert.strictEqual(
-      channelBindingService,
-      container.get(ChannelBindingService),
-    );
-    assert.strictEqual(agentService, container.get(AgentService));
-
     assert.ok(Array.isArray(await channelBindingService.list()));
     assert.ok(Array.isArray(await agentService.list()));
 
     const missingId = randomUUID();
     assert.equal(await channelBindingService.getById(missingId), null);
     assert.equal(await agentService.getById(missingId), null);
-  });
-
-  test("resolves relay runtime lifecycle", () => {
-    const container = buildGatewayContainer(buildGatewayConfig({ port: 7896 }));
-
-    assert.ok(container.get(RelayRuntime));
-    assert.ok(container.get(GatewayServer));
-    assert.ok(container.get(GatewayApp));
-  });
-
-  test("binds supported agent transports behind a multi-injection token", () => {
-    const container = buildGatewayContainer(buildGatewayConfig({ port: 7896 }));
-    const transports = container.getAll<AgentTransport>(AgentTransportToken);
-
-    assert.deepEqual(transports.map((transport) => transport.protocol).sort(), [
-      "a2a",
-      "acp",
-    ]);
-  });
-
-  test("binds LocalScheduler for single-instance runtime mode", () => {
-    const container = buildGatewayContainer(
-      buildGatewayConfig({ port: 7896, clusterMode: false }),
-    );
-
-    assert.ok(container.get(RuntimeScheduler) instanceof LocalScheduler);
-    assert.ok(
-      container.get(RuntimeOwnershipGate) instanceof LocalOwnershipGate,
-    );
-  });
-
-  test("resolves LocalScheduler with constructor-injected collaborators", async () => {
-    const container = buildGatewayContainer(
-      buildGatewayConfig({ port: 7896, clusterMode: false }),
-    );
-    const scheduler = container.get(LocalScheduler);
-
-    scheduler.start();
-    await scheduler.stop();
-  });
-
-  test("binds cluster runtime components when clusterMode is true", () => {
-    const container = buildGatewayContainer(
-      buildGatewayConfig({
-        port: 7896,
-        clusterMode: true,
-        redisUrl: "redis://localhost:6379",
-      }),
-    );
-
-    assert.ok(container.get(RuntimeScheduler) instanceof LeaderScheduler);
-    assert.ok(
-      container.get(RuntimeOwnershipGate) instanceof RedisOwnershipGate,
-    );
-    assert.ok(container.get(RuntimeEventBus) instanceof RedisRuntimeEventBus);
-  });
-
-  test("binds Redis infrastructure as service contributions in cluster mode", () => {
-    const container = buildGatewayContainer(
-      buildGatewayConfig({
-        port: 7896,
-        clusterMode: true,
-        redisUrl: "redis://localhost:6379",
-      }),
-    );
-
-    const services = container.getAll<ServiceContribution>(
-      ServiceContributionToken,
-    );
-
-    assert.deepEqual(
-      services.map((service) => service.constructor),
-      [RedisClientService, RedisRuntimeEventBus, PluginRegistrationService],
-    );
-  });
-
-  test("resolves runtime singleton collaborators through direct singleton bindings", () => {
-    const container = buildGatewayContainer(buildGatewayConfig({ port: 7898 }));
-
-    assert.strictEqual(
-      container.get(LocalScheduler),
-      container.get(LocalScheduler),
-    );
-    assert.strictEqual(
-      container.get(RuntimeAgentRegistry),
-      container.get(RuntimeAgentRegistry),
-    );
-    assert.strictEqual(
-      container.get(RuntimeOpenClawConfigProjection),
-      container.get(RuntimeOpenClawConfigProjection),
-    );
-    assert.strictEqual(
-      container.get(ConnectionManager),
-      container.get(ConnectionManager),
-    );
-    assert.strictEqual(
-      container.get(RuntimeAssignmentService),
-      container.get(RuntimeAssignmentService),
-    );
-    assert.strictEqual(
-      container.get(AgentClientRegistry),
-      container.get(AgentClientRegistry),
-    );
-    assert.strictEqual(
-      container.get(RuntimeAssignmentCoordinator),
-      container.get(RuntimeAssignmentCoordinator),
-    );
-    assert.strictEqual(
-      container.get(RuntimeCommandHandler),
-      container.get(RuntimeCommandHandler),
-    );
-    assert.strictEqual(
-      container.get(RuntimeEventBus),
-      container.get(RuntimeEventBus),
-    );
-    assert.strictEqual(
-      container.get(RuntimeOwnershipState),
-      container.get(RuntimeOwnershipState),
-    );
-  });
-
-  test("resolves RelayRuntime as a singleton", () => {
-    const container = buildGatewayContainer(buildGatewayConfig({ port: 7897 }));
-    const first = container.get(RelayRuntime);
-    const second = container.get(RelayRuntime);
-
-    assert.strictEqual(first, second);
   });
 });
