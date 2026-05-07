@@ -64,4 +64,8 @@ export interface AgentConfigRepository {
 
 export interface ChannelMessageRepository {
   append(record: ChannelMessageRecord): Promise<ChannelMessageRecord>;
+  listRecent(query?: {
+    channelBindingId?: string;
+    limit?: number;
+  }): Promise<ChannelMessageRecord[]>;
 }

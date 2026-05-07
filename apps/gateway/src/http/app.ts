@@ -8,6 +8,7 @@ import { AccountService } from "../application/account-service.js";
 import { AccountRoutes } from "./routes/accounts.js";
 import { AgentRoutes } from "./routes/agents.js";
 import { ChannelRoutes } from "./routes/channels.js";
+import { MessageRoutes } from "./routes/messages.js";
 import { RuntimeStatusRoutes } from "./routes/runtime-status.js";
 import { extractAuthToken } from "./routes/accounts.js";
 
@@ -44,6 +45,8 @@ export class HonoGatewayApp implements GatewayApp {
     private readonly channelRoutes: ChannelRoutes,
     @inject(AgentRoutes)
     private readonly agentRoutes: AgentRoutes,
+    @inject(MessageRoutes)
+    private readonly messageRoutes: MessageRoutes,
     @inject(RuntimeStatusRoutes)
     private readonly runtimeStatusRoutes: RuntimeStatusRoutes,
   ) {
@@ -106,6 +109,7 @@ export class HonoGatewayApp implements GatewayApp {
 
     this.channelRoutes.register(app);
     this.agentRoutes.register(app);
+    this.messageRoutes.register(app);
     this.runtimeStatusRoutes.register(app);
     this.accountRoutes.register(app);
 

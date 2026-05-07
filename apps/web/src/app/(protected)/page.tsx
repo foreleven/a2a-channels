@@ -7,6 +7,7 @@ import {
   Bot,
   CheckCircle2,
   Clock,
+  MessageSquareText,
   Plus,
   RadioTower,
   Unplug,
@@ -14,7 +15,7 @@ import {
 
 import type { DashboardSnapshot } from "@/lib/dashboard";
 import { DashboardEventStream, DashboardSnapshotFactory } from "@/lib/dashboard";
-import { listAgents, listChannels } from "@/lib/api";
+import { listAgents, listChannels, listMessages } from "@/lib/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,12 +48,13 @@ export default function DashboardPage() {
 
     async function loadInitialSnapshot() {
       try {
-        const [channels, agents] = await Promise.all([
+        const [channels, agents, messages] = await Promise.all([
           listChannels(),
           listAgents(),
+          listMessages(),
         ]);
         if (!cancelled) {
-          setSnapshot(factory.create(channels, agents));
+          setSnapshot(factory.create(channels, agents, messages));
         }
       } catch (initialError) {
         if (!cancelled) {
@@ -162,9 +164,9 @@ export default function DashboardPage() {
         />
         <MetricCard
           icon={<Activity className="size-4" />}
-          label="Channel Types"
-          value={snapshot?.channelTypes.length ?? 0}
-          detail="Configured providers"
+          label="Recent Messages"
+          value={totals?.messages ?? 0}
+          detail={`${totals?.inboundMessages ?? 0} in / ${totals?.outboundMessages ?? 0} out`}
         />
       </div>
 
@@ -250,6 +252,56 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle>Message Monitor</CardTitle>
+          <CardDescription>
+            Recent channel messages persisted by the gateway relay path.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {snapshot && snapshot.recentMessages.length > 0 ? (
+            snapshot.recentMessages.map((message) => (
+              <div
+                key={message.id ?? `${message.channelBindingId}-${message.createdAt}`}
+                className="grid gap-3 rounded-md border border-border p-3 md:grid-cols-[140px_1fr_180px]"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <MessageSquareText className="size-4 shrink-0 text-muted-foreground" />
+                  <Badge
+                    variant={
+                      message.direction === "input" ? "outline" : "secondary"
+                    }
+                  >
+                    {message.direction === "input" ? "inbound" : "outbound"}
+                  </Badge>
+                </div>
+                <div className="min-w-0">
+                  <p className="line-clamp-2 break-words text-sm">
+                    {message.content || "(empty message)"}
+                  </p>
+                  <p className="mt-1 break-all text-xs text-muted-foreground">
+                    {message.channelType} / {message.accountId} /{" "}
+                    {message.sessionKey}
+                  </p>
+                </div>
+                <div className="flex items-start justify-start md:justify-end">
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Clock className="size-3" />
+                    {formatTimestamp(message.createdAt)}
+                  </span>
+                </div>
+              </div>
+            ))
+          ) : (
+            <EmptyPanel
+              title="No messages yet"
+              description="Messages appear here after a connected channel receives or sends relay traffic."
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -294,4 +346,9 @@ function EmptyPanel({
       </EmptyHeader>
     </Empty>
   );
+}
+
+function formatTimestamp(value: string | undefined): string {
+  if (!value) return "unknown";
+  return new Date(value).toLocaleString();
 }

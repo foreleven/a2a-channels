@@ -20,11 +20,12 @@ export async function GET(request: Request) {
 
       const publish = async () => {
         try {
-          const [channels, agents] = await Promise.all([
+          const [channels, agents, messages] = await Promise.all([
             gateway.listChannels(),
             gateway.listAgents(),
+            gateway.listMessages(),
           ]);
-          send("snapshot", snapshots.create(channels, agents));
+          send("snapshot", snapshots.create(channels, agents, messages));
         } catch (error) {
           send(
             "error-state",

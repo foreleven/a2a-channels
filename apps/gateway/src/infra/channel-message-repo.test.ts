@@ -82,5 +82,14 @@ describe("ChannelMessageStateRepository", () => {
         },
       ],
     );
+
+    const recent = await repository.listRecent({
+      channelBindingId: "binding-message-test",
+      limit: 1,
+    });
+
+    assert.equal(recent.length, 1);
+    assert.equal(recent[0]?.direction, "output");
+    assert.equal(recent[0]?.content, "world");
   });
 });

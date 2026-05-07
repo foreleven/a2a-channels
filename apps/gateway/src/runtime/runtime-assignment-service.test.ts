@@ -80,6 +80,7 @@ function createMessageRepository(): ChannelMessageRepository {
       id: record.id ?? "message-1",
       createdAt: record.createdAt ?? new Date().toISOString(),
     }),
+    listRecent: async () => [],
   };
 }
 

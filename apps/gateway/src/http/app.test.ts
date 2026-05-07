@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { Container } from "inversify";
+import { SessionKey, type ChannelMessageRepository } from "@agent-relay/domain";
 import type { AgentConfigSnapshot } from "../application/agent-service.js";
 import {
   AgentService,
   ReferencedAgentError,
 } from "../application/agent-service.js";
 import { AccountService } from "../application/account-service.js";
+import { ChannelMessageService } from "../application/channel-message-service.js";
 import type { ChannelBindingSnapshot } from "../application/channel-binding-service.js";
 import { ChannelBindingService } from "../application/channel-binding-service.js";
 import { RuntimeStatusService } from "../application/runtime-status-service.js";
@@ -311,6 +313,51 @@ describe("GatewayApp", () => {
       headers: authCookieHeaders,
     });
     assert.equal(cookieChannelsResponse.status, 200);
+  });
+
+  test("exposes recent channel messages for monitoring", async () => {
+    const container = createHttpContainer();
+    const messageRepo: ChannelMessageRepository = {
+      append: async (record) => record,
+      listRecent: async (query) => [
+        {
+          id: "message-1",
+          channelBindingId: query?.channelBindingId ?? "binding-1",
+          direction: "input",
+          channelType: "feishu",
+          accountId: "account-1",
+          sessionKey: SessionKey.fromString("session-1"),
+          content: "hello",
+          metadata: { replyToId: "om_parent" },
+          createdAt: "2026-04-21T00:00:00.000Z",
+        },
+      ],
+    };
+    container
+      .rebindSync(ChannelMessageService)
+      .toConstantValue(new ChannelMessageService(messageRepo));
+
+    const app = container.get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request(
+      "/api/messages?channelBindingId=binding-1&limit=10",
+      { headers: authHeaders },
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), [
+      {
+        id: "message-1",
+        channelBindingId: "binding-1",
+        direction: "input",
+        channelType: "feishu",
+        accountId: "account-1",
+        sessionKey: "session-1",
+        content: "hello",
+        metadata: { replyToId: "om_parent" },
+        createdAt: "2026-04-21T00:00:00.000Z",
+      },
+    ]);
   });
 
   test("preserves existing mutation error handling", async () => {

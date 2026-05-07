@@ -1,14 +1,18 @@
-import type { AgentConfig, ChannelBinding } from "./api";
+import type { AgentConfig, ChannelBinding, ChannelMessage } from "./api";
 
 export interface DashboardSnapshot {
   channels: ChannelBinding[];
   agents: AgentConfig[];
+  recentMessages: ChannelMessage[];
   totals: {
     channels: number;
     enabledChannels: number;
     disabledChannels: number;
     agents: number;
     unassignedAgents: number;
+    messages: number;
+    inboundMessages: number;
+    outboundMessages: number;
   };
   channelTypes: Array<{ name: string; count: number }>;
   recentBindings: ChannelBinding[];
@@ -16,7 +20,11 @@ export interface DashboardSnapshot {
 }
 
 export class DashboardSnapshotFactory {
-  create(channels: ChannelBinding[], agents: AgentConfig[]): DashboardSnapshot {
+  create(
+    channels: ChannelBinding[],
+    agents: AgentConfig[],
+    recentMessages: ChannelMessage[] = [],
+  ): DashboardSnapshot {
     const enabledChannels = channels.filter((channel) => channel.enabled).length;
     const assignedAgentIds = new Set(channels.map((channel) => channel.agentId));
     const channelTypeCounts = channels.reduce<Map<string, number>>(
@@ -24,10 +32,14 @@ export class DashboardSnapshotFactory {
         counts.set(channel.channelType, (counts.get(channel.channelType) ?? 0) + 1),
       new Map(),
     );
+    const inboundMessages = recentMessages.filter(
+      (message) => message.direction === "input",
+    ).length;
 
     return {
       channels,
       agents,
+      recentMessages,
       totals: {
         channels: channels.length,
         enabledChannels,
@@ -35,6 +47,9 @@ export class DashboardSnapshotFactory {
         agents: agents.length,
         unassignedAgents: agents.filter((agent) => !assignedAgentIds.has(agent.id))
           .length,
+        messages: recentMessages.length,
+        inboundMessages,
+        outboundMessages: recentMessages.length - inboundMessages,
       },
       channelTypes: Array.from(channelTypeCounts, ([name, count]) => ({
         name,

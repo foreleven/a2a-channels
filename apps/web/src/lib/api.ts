@@ -79,6 +79,20 @@ export interface RuntimeChannelStatus {
   leaseHeld: boolean;
 }
 
+export type ChannelMessageDirection = "input" | "output";
+
+export interface ChannelMessage {
+  id?: string;
+  channelBindingId: string;
+  direction: ChannelMessageDirection;
+  channelType: string;
+  accountId: string;
+  sessionKey: string;
+  content: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+}
+
 export interface ChannelQrLoginStartResult {
   qrDataUrl?: string;
   message: string;
@@ -226,6 +240,13 @@ export async function waitForChannelQrLogin(
   );
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<ChannelQrLoginWaitResult>;
+}
+
+export async function listMessages(limit = 25): Promise<ChannelMessage[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const res = await fetch(`${BASE}/api/messages?${params}`, withCredentials());
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<ChannelMessage[]>;
 }
 
 // ---------------------------------------------------------------------------

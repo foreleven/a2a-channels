@@ -52,6 +52,21 @@ export class ChannelMessageStateRepository implements ChannelMessageRepository {
 
     return mapMessageRow(row);
   }
+
+  async listRecent(query: {
+    channelBindingId?: string;
+    limit?: number;
+  } = {}): Promise<ChannelMessageRecord[]> {
+    const rows = await prisma.message.findMany({
+      where: query.channelBindingId
+        ? { channelBindingId: query.channelBindingId }
+        : undefined,
+      orderBy: { createdAt: "desc" },
+      take: query.limit,
+    });
+
+    return rows.map(mapMessageRow);
+  }
 }
 
 function parseDirection(value: string): MessageDirection {

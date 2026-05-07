@@ -685,6 +685,7 @@ function createMessageRepository(
       records.push(saved);
       return saved;
     },
+    listRecent: async () => [...records].reverse(),
   };
 }
 

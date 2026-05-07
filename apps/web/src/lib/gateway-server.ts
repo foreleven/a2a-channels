@@ -1,5 +1,6 @@
 import type {
   AgentConfig,
+  ChannelMessage,
   ChannelBinding,
   RuntimeChannelStatus,
 } from "./api";
@@ -18,6 +19,10 @@ export class GatewayServerClient {
 
   async listAgents(): Promise<AgentConfig[]> {
     return this.get<AgentConfig[]>("/api/agents");
+  }
+
+  async listMessages(limit = 25): Promise<ChannelMessage[]> {
+    return this.get<ChannelMessage[]>(`/api/messages?limit=${limit}`);
   }
 
   async listRuntimeChannelStatuses(): Promise<RuntimeChannelStatus[]> {

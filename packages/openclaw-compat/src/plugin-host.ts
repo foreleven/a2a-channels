@@ -149,6 +149,11 @@ export class OpenClawPluginHost {
     return this.resolveChannel(channelType) !== undefined;
   }
 
+  /** Returns the registered plugin for a channel id or alias, if available. */
+  getChannelPlugin(channelType: string): ChannelPlugin | undefined {
+    return this.resolveChannel(channelType);
+  }
+
   /**
    * Register a community plugin.  The loader receives the host's plugin API
    * object and is expected to call the plugin's own register() function:
