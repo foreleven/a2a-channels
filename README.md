@@ -152,6 +152,8 @@ provided Makefile-backed commands.
 | `RUNTIME_ADDRESS` | `http://localhost:$PORT` | Address advertised by this runtime node |
 | `NODE_ID` | `RUNTIME_ADDRESS` | Runtime node identity |
 | `NODE_DISPLAY_NAME` | `Gateway Node` | Human-readable node name in runtime status |
+| `LOG_LEVEL` | `info` | Gateway logger level |
+| `LOG_PRETTY` | auto | Enables `pino-pretty` output when set to `true`; set to `false` to force JSON logs |
 | `CLUSTER_MODE` | `false` | Enables Redis-backed runtime coordination when set to `true` |
 | `REDIS_URL` | - | Redis connection URL for cluster mode |
 | `ECHO_AGENT_PORT` | `3001` | Echo agent HTTP port |

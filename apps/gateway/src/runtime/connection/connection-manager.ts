@@ -272,6 +272,8 @@ export class ConnectionManager implements ReplyEventDispatcher {
       });
     const files = buildFilesFromContext(ctx);
 
+    this.logger.info(ctx, "Inbound message event");
+
     return {
       accountId,
       channelType,
@@ -388,11 +390,9 @@ function readNonEmptyString(value: unknown): string | undefined {
  * when the inbound message contains image or other media attachments.
  */
 function buildFilesFromContext(ctx: ChannelReplyEvent["ctx"]): AgentFile[] {
-  const urls = readStringArray(ctx.MediaUrls) ?? (
-    ctx.MediaUrl && typeof ctx.MediaUrl === "string"
-      ? [ctx.MediaUrl]
-      : []
-  );
+  const urls =
+    readStringArray(ctx.MediaUrls) ??
+    (ctx.MediaUrl && typeof ctx.MediaUrl === "string" ? [ctx.MediaUrl] : []);
 
   if (!urls.length) return [];
 
@@ -400,9 +400,11 @@ function buildFilesFromContext(ctx: ChannelReplyEvent["ctx"]): AgentFile[] {
 
   return urls
     .map((url, i): AgentFile | null => {
-      const mimeType = types?.[i] ?? (
-        typeof ctx.MediaType === "string" && i === 0 ? ctx.MediaType : undefined
-      );
+      const mimeType =
+        types?.[i] ??
+        (typeof ctx.MediaType === "string" && i === 0
+          ? ctx.MediaType
+          : undefined);
       const trimmed = url.trim();
       if (!trimmed) return null;
       return {
