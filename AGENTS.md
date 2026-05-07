@@ -7,6 +7,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - All new features and functional changes in this project must default to OOP, EventSource, and clean architecture.
 - When extending existing code, prefer refactoring toward these constraints instead of adding more procedural or tightly coupled logic.
 - Do not use `as unknown as ...` or similar double-cast patterns to bypass TypeScript errors. Fix the underlying types, narrow values with proper type guards, update interfaces, or add typed adapters so the compiler verifies the behavior instead of being silenced.
+- When changing Prisma-managed tables or schema, use Prisma migrations as the source of truth. Do not write ad hoc scripts to alter tables or migrate schema state.
 
 ## Commands
 
