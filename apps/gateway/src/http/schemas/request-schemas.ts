@@ -6,6 +6,10 @@ import type {
   RegisterAgentData,
   UpdateAgentData,
 } from "../../application/agent-service.js";
+import type {
+  CreateScheduledJobData,
+  UpdateScheduledJobData,
+} from "@agent-relay/domain";
 import { isValidAgentName } from "@agent-relay/domain";
 import { z } from "../utils/schema.js";
 
@@ -116,3 +120,23 @@ export const updateAgentBodySchema: z.ZodType<UpdateAgentData> = z
     description: z.string().optional(),
   })
   .superRefine(validateAgentProtocolConfig);
+
+export const createScheduledJobBodySchema: z.ZodType<CreateScheduledJobData> =
+  z.object({
+    name: nonEmptyString,
+    channelBindingId: nonEmptyString,
+    sessionKey: nonEmptyString,
+    prompt: nonEmptyString,
+    cronExpression: nonEmptyString,
+    enabled: z.boolean().default(true),
+  });
+
+export const updateScheduledJobBodySchema: z.ZodType<UpdateScheduledJobData> =
+  z.object({
+    name: z.string().optional(),
+    channelBindingId: z.string().optional(),
+    sessionKey: z.string().optional(),
+    prompt: z.string().optional(),
+    cronExpression: z.string().optional(),
+    enabled: z.boolean().optional(),
+  });

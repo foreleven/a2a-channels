@@ -10,6 +10,7 @@ import { AgentRoutes } from "./routes/agents.js";
 import { ChannelRoutes } from "./routes/channels.js";
 import { MessageRoutes } from "./routes/messages.js";
 import { RuntimeStatusRoutes } from "./routes/runtime-status.js";
+import { ScheduledJobRoutes } from "./routes/scheduled-jobs.js";
 import { extractAuthToken } from "./routes/accounts.js";
 
 export interface GatewayApp {
@@ -49,6 +50,8 @@ export class HonoGatewayApp implements GatewayApp {
     private readonly messageRoutes: MessageRoutes,
     @inject(RuntimeStatusRoutes)
     private readonly runtimeStatusRoutes: RuntimeStatusRoutes,
+    @inject(ScheduledJobRoutes)
+    private readonly scheduledJobRoutes: ScheduledJobRoutes,
   ) {
     this.app = this.createApp();
     this.request = this.app.request.bind(this.app);
@@ -111,6 +114,7 @@ export class HonoGatewayApp implements GatewayApp {
     this.agentRoutes.register(app);
     this.messageRoutes.register(app);
     this.runtimeStatusRoutes.register(app);
+    this.scheduledJobRoutes.register(app);
     this.accountRoutes.register(app);
 
     return app;

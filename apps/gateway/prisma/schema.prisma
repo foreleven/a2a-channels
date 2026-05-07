@@ -53,7 +53,9 @@ model ChannelBinding {
 
   agent         Agent    @relation(fields: [agentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   messages      Message[]
+  scheduledJobs ScheduledJob[]
 
+  @@index([agentId])
   @@map("channel_bindings")
 }
 
@@ -98,4 +100,20 @@ model Message {
   @@index([channelBindingId, createdAt])
   @@index([channelType, accountId, createdAt])
   @@map("messages")
+}
+
+model ScheduledJob {
+  id               String   @id @default(uuid())
+  name             String
+  channelBindingId String   @map("channel_binding_id")
+  sessionKey       String   @map("session_key")
+  prompt           String
+  cronExpression   String   @map("cron_expression")
+  enabled          Boolean  @default(true)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  channelBinding ChannelBinding @relation(fields: [channelBindingId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("scheduled_jobs")
 }
