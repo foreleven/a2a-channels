@@ -123,6 +123,8 @@ export class Connection {
       return undefined;
     }
 
+    this.options.callbacks?.emitMessageInbound?.(event);
+
     if (!event.userMessage.trim() && !event.files?.length) {
       return this.replyDelivery.deliver(event.event, null);
     }
@@ -165,6 +167,10 @@ export class Connection {
         channelType,
         sessionKey,
         replyText: result.text,
+        metadata: {
+          kind: "final",
+          ...(result.files?.length ? { files: result.files } : {}),
+        },
       });
     }
 
@@ -196,6 +202,22 @@ export class Connection {
             channelType,
             sessionKey,
             replyText: chunk.text,
+            metadata: {
+              kind: chunk.kind,
+              ...(chunk.files?.length ? { files: chunk.files } : {}),
+            },
+          });
+        }
+        if (chunk.kind === "block") {
+          this.options.callbacks?.emitMessageOutbound?.({
+            accountId,
+            channelType,
+            sessionKey,
+            replyText: chunk.text,
+            metadata: {
+              kind: chunk.kind,
+              ...(chunk.files?.length ? { files: chunk.files } : {}),
+            },
           });
         }
         yield chunk;
@@ -207,6 +229,7 @@ export class Connection {
           channelType,
           sessionKey,
           replyText: lastText,
+          metadata: { kind: "final" },
         });
       }
     } catch (error) {
@@ -215,6 +238,13 @@ export class Connection {
         error,
       });
       yield { kind: "final", text: "(agent temporarily unavailable)" };
+      this.options.callbacks?.emitMessageOutbound?.({
+        accountId,
+        channelType,
+        sessionKey,
+        replyText: "(agent temporarily unavailable)",
+        metadata: { kind: "final", error: true },
+      });
     }
   }
 

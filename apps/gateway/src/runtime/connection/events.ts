@@ -1,5 +1,8 @@
 import type { ChannelBindingSnapshot } from "@agent-relay/domain";
-import type { MessageOutboundEvent } from "@agent-relay/openclaw-compat";
+import type {
+  MessageInboundEvent,
+  MessageOutboundEvent,
+} from "@agent-relay/openclaw-compat";
 
 import type { ConnectionStatus } from "./connection-status.js";
 
@@ -26,5 +29,6 @@ export interface ConnectionManagerCallbacks {
 
 /** Optional observers used by a single live binding connection. */
 export interface ConnectionCallbacks extends ConnectionManagerCallbacks {
+  emitMessageInbound?: (event: MessageInboundEvent) => void;
   emitMessageOutbound?: (event: MessageOutboundEvent) => void;
 }

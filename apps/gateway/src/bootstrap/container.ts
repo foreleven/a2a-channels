@@ -14,6 +14,7 @@ import {
 import {
   AgentConfigRepository,
   ChannelBindingRepository,
+  ChannelMessageRepository,
 } from "@agent-relay/domain";
 import { AgentService } from "../application/agent-service.js";
 import { AccountIdGenerator } from "../application/account-id-generator.js";
@@ -37,6 +38,7 @@ import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { AccountStateRepository } from "../infra/account-repo.js";
 import { AccountCredentialsStateRepository } from "../infra/account-credentials-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
+import { ChannelMessageStateRepository } from "../infra/channel-message-repo.js";
 import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { PluginRegistrationService } from "../register-plugins.js";
@@ -121,6 +123,7 @@ function bindInfrastructure(
   container.bind(AccountCredentialsStateRepository).toSelf().inSingletonScope();
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelBindingStateRepository).toSelf().inSingletonScope();
+  container.bind(ChannelMessageStateRepository).toSelf().inSingletonScope();
   container.bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();
 
   if (config.clusterMode) {
@@ -140,6 +143,9 @@ function bindApplication(container: Container): void {
     .bind(ChannelBindingRepository)
     .toService(ChannelBindingStateRepository);
   container.bind(AgentConfigRepository).toService(AgentConfigStateRepository);
+  container
+    .bind(ChannelMessageRepository)
+    .toService(ChannelMessageStateRepository);
   container.bind(AccountService).toSelf().inSingletonScope();
   container.bind(ChannelBindingService).toSelf().inSingletonScope();
   container.bind(ChannelAuthService).toSelf().inSingletonScope();

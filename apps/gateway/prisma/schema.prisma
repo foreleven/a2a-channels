@@ -52,6 +52,7 @@ model ChannelBinding {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   agent         Agent    @relation(fields: [agentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  messages      Message[]
 
   @@map("channel_bindings")
 }
@@ -79,4 +80,22 @@ model RuntimeNode {
   updatedAt        DateTime @default(now()) @map("updated_at")
 
   @@map("runtime_nodes")
+}
+
+model Message {
+  id               String   @id @default(uuid())
+  channelBindingId String   @map("channel_binding_id")
+  direction        String
+  channelType      String   @map("channel_type")
+  accountId        String   @map("account_id")
+  sessionKey       String   @map("session_key")
+  content          String
+  metadata         String   @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  channelBinding ChannelBinding @relation(fields: [channelBindingId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([channelBindingId, createdAt])
+  @@index([channelType, accountId, createdAt])
+  @@map("messages")
 }

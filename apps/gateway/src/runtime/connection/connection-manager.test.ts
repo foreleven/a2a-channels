@@ -7,7 +7,11 @@ import {
   type AgentResponseStreamEvent,
   type AgentTransport,
 } from "@agent-relay/agent-transport";
-import type { ChannelBindingSnapshot } from "@agent-relay/domain";
+import type {
+  ChannelBindingSnapshot,
+  ChannelMessageRecord,
+  ChannelMessageRepository,
+} from "@agent-relay/domain";
 import { OpenClawPluginRuntime } from "@agent-relay/openclaw-compat";
 
 import { Connection, ConnectionManager } from "./index.js";
@@ -110,6 +114,54 @@ describe("Connection", () => {
       queuedFinal: false,
       counts: { tool: 0, block: 0, final: 1 },
     });
+  });
+
+  test("emits input and output message events for an accepted channel message", async () => {
+    const inbound: string[] = [];
+    const outbound: Array<{ text: string; kind: unknown }> = [];
+    const connection = new Connection({
+      agentClient: createAgentClient(
+        "http://agent-1",
+        async () => ({ text: "unused" }),
+        () =>
+          streamEvents([
+            { kind: "block", text: "working" },
+            { kind: "final", text: "done" },
+          ]),
+      ),
+      binding,
+      callbacks: {
+        emitMessageInbound: (event) => {
+          inbound.push(event.userMessage);
+        },
+        emitMessageOutbound: (event) => {
+          outbound.push({
+            text: event.replyText,
+            kind: event.metadata?.["kind"],
+          });
+        },
+      },
+    });
+
+    await connection.handleInbound({
+      accountId: "default",
+      channelType: "feishu",
+      event: {
+        type: "channel.reply.buffered.dispatch",
+        ctx: {} as never,
+        dispatcherOptions: {
+          deliver: async () => {},
+        },
+      },
+      sessionKey: "session-1",
+      userMessage: "hello",
+    });
+
+    assert.deepEqual(inbound, ["hello"]);
+    assert.deepEqual(outbound, [
+      { text: "working", kind: "block" },
+      { text: "done", kind: "final" },
+    ]);
   });
 
   test("matches channel account across channel type aliases", async () => {
@@ -282,6 +334,7 @@ describe("ConnectionManager", () => {
       null as never,
       runtime,
       null as never,
+      createMessageRepository(),
     );
     const connection = new Connection({
       agentClient,
@@ -321,6 +374,7 @@ describe("ConnectionManager", () => {
       null as never,
       runtime,
       null as never,
+      createMessageRepository(),
     );
     const matchingConnection = new Connection({
       agentClient,
@@ -372,6 +426,7 @@ describe("ConnectionManager", () => {
       null as never,
       runtime,
       null as never,
+      createMessageRepository(),
     );
     const connection = new Connection({
       agentClient,
@@ -415,6 +470,7 @@ describe("ConnectionManager", () => {
       null as never,
       runtime,
       null as never,
+      createMessageRepository(),
     );
     const connection = new Connection({
       agentClient,
@@ -446,7 +502,12 @@ describe("ConnectionManager", () => {
 
   test("completes dispatch replies when no connection owns the message", async () => {
     const runtime = createRuntime();
-    new ConnectionManager(null as never, runtime, null as never);
+    new ConnectionManager(
+      null as never,
+      runtime,
+      null as never,
+      createMessageRepository(),
+    );
     let markedComplete = false;
     let waitedForIdle = false;
 
@@ -567,6 +628,22 @@ function createRuntime(): OpenClawPluginRuntime {
       writeConfigFile: async () => {},
     },
   });
+}
+
+function createMessageRepository(
+  records: ChannelMessageRecord[] = [],
+): ChannelMessageRepository {
+  return {
+    append: async (record) => {
+      const saved = {
+        ...record,
+        id: record.id ?? `message-${records.length + 1}`,
+        createdAt: record.createdAt ?? new Date().toISOString(),
+      };
+      records.push(saved);
+      return saved;
+    },
+  };
 }
 
 async function waitFor(assertion: () => boolean): Promise<void> {

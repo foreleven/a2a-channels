@@ -5,6 +5,7 @@ import type { AgentTransportFactory } from "@agent-relay/agent-transport";
 import type {
   AgentConfigSnapshot,
   ChannelBindingSnapshot,
+  ChannelMessageRepository,
 } from "@agent-relay/domain";
 import { OpenClawPluginRuntime } from "@agent-relay/openclaw-compat";
 
@@ -59,6 +60,7 @@ function createService(): {
     null as never,
     createRuntime(),
     null as never,
+    createMessageRepository(),
   );
   const service = new RuntimeAssignmentService(
     agentRegistry,
@@ -69,6 +71,16 @@ function createService(): {
   );
 
   return { connectionManager, service };
+}
+
+function createMessageRepository(): ChannelMessageRepository {
+  return {
+    append: async (record) => ({
+      ...record,
+      id: record.id ?? "message-1",
+      createdAt: record.createdAt ?? new Date().toISOString(),
+    }),
+  };
 }
 
 describe("RuntimeAssignmentService", () => {

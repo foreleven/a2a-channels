@@ -70,6 +70,7 @@ export interface MessageOutboundEvent {
   accountId: string;
   sessionKey: string;
   replyText: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ChannelReplyDispatchEvent {

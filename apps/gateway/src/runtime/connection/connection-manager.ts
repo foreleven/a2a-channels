@@ -6,7 +6,11 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import type { ChannelBindingSnapshot } from "@agent-relay/domain";
+import {
+  ChannelMessageRepository,
+  type ChannelBindingSnapshot,
+  type ChannelMessageRepository as ChannelMessageRepositoryPort,
+} from "@agent-relay/domain";
 import {
   type ChannelReplyDispatchResult,
   type ChannelReplyEvent,
@@ -43,6 +47,8 @@ export class ConnectionManager implements ReplyEventDispatcher {
     private readonly runtime: OpenClawPluginRuntime,
     @inject(RuntimeAgentRegistry)
     private readonly agentRegistry: RuntimeAgentRegistry,
+    @inject(ChannelMessageRepository)
+    private readonly messageRepository: ChannelMessageRepositoryPort,
   ) {
     this.runtime.setReplyEventDispatcher(this);
   }
@@ -74,7 +80,9 @@ export class ConnectionManager implements ReplyEventDispatcher {
       agentClient,
       binding,
       callbacks: {
-        emitMessageOutbound: (event) => this.emitMessageOutbound(event),
+        emitMessageInbound: (event) => this.emitMessageInbound(binding, event),
+        emitMessageOutbound: (event) =>
+          this.emitMessageOutbound(binding, event),
         onAgentCallFailed: (event) => this.logAgentCallFailed(event),
         onConnectionStatus: (event) => this.emitConnectionStatus(event),
       },
@@ -154,9 +162,55 @@ export class ConnectionManager implements ReplyEventDispatcher {
     );
   }
 
-  private emitMessageOutbound(_event: MessageOutboundEvent): void {
-    // Reserved for runtime telemetry sinks. No production listener currently
-    // consumes outbound message events.
+  private emitMessageInbound(
+    binding: ChannelBinding,
+    event: MessageInboundEvent,
+  ): void {
+    void this.messageRepository
+      .append({
+        channelBindingId: binding.id,
+        direction: "input",
+        channelType: binding.channelType,
+        accountId: event.accountId,
+        sessionKey: event.sessionKey,
+        content: event.userMessage,
+        metadata: {
+          channelType: event.channelType,
+          ...(event.replyToId ? { replyToId: event.replyToId } : {}),
+          ...(event.files?.length ? { files: event.files } : {}),
+        },
+      })
+      .catch((error) => this.logMessagePersistenceFailed(binding, error));
+  }
+
+  private emitMessageOutbound(
+    binding: ChannelBinding,
+    event: MessageOutboundEvent,
+  ): void {
+    void this.messageRepository
+      .append({
+        channelBindingId: binding.id,
+        direction: "output",
+        channelType: binding.channelType,
+        accountId: event.accountId,
+        sessionKey: event.sessionKey,
+        content: event.replyText,
+        metadata: {
+          channelType: event.channelType,
+          ...(event.metadata ?? {}),
+        },
+      })
+      .catch((error) => this.logMessagePersistenceFailed(binding, error));
+  }
+
+  private logMessagePersistenceFailed(
+    binding: ChannelBinding,
+    error: unknown,
+  ): void {
+    console.error(
+      `[runtime] message persistence failed for binding ${binding.id}:`,
+      String(error),
+    );
   }
 
   private async completeUnhandledReplyEvent(

@@ -13,11 +13,15 @@ import type {
   ChannelBindingAggregate,
   ChannelBindingSnapshot,
 } from "./aggregates/channel-binding.js";
+import type { ChannelMessageRecord } from "./messages.js";
 
 export const ChannelBindingRepository = Symbol.for(
   "ports.ChannelBindingRepository",
 );
 export const AgentConfigRepository = Symbol.for("ports.AgentConfigRepository");
+export const ChannelMessageRepository = Symbol.for(
+  "ports.ChannelMessageRepository",
+);
 
 export interface ChannelBindingRepository {
   /** Load the aggregate from the current state table. Returns null if unknown. */
@@ -56,4 +60,8 @@ export interface AgentConfigRepository {
   /** Load all non-deleted agents as snapshots from the current state table. */
   findAll(): Promise<AgentConfigSnapshot[]>;
   save(aggregate: AgentConfigAggregate): Promise<void>;
+}
+
+export interface ChannelMessageRepository {
+  append(record: ChannelMessageRecord): Promise<ChannelMessageRecord>;
 }
