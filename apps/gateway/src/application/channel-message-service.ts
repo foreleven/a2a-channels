@@ -10,6 +10,7 @@ const MAX_MESSAGE_LIMIT = 100;
 
 export interface ListChannelMessagesOptions {
   channelBindingId?: string;
+  agentId?: string;
   limit?: number;
 }
 
@@ -26,6 +27,7 @@ export class ChannelMessageService {
   ): Promise<ChannelMessageRecord[]> {
     return this.repo.listRecent({
       channelBindingId: options.channelBindingId,
+      agentId: options.agentId,
       limit: normalizeLimit(options.limit),
     });
   }

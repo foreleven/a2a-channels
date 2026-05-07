@@ -55,12 +55,18 @@ export class ChannelMessageStateRepository implements ChannelMessageRepository {
 
   async listRecent(query: {
     channelBindingId?: string;
+    agentId?: string;
     limit?: number;
   } = {}): Promise<ChannelMessageRecord[]> {
     const rows = await prisma.message.findMany({
-      where: query.channelBindingId
-        ? { channelBindingId: query.channelBindingId }
-        : undefined,
+      where: {
+        ...(query.channelBindingId
+          ? { channelBindingId: query.channelBindingId }
+          : {}),
+        ...(query.agentId
+          ? { channelBinding: { agentId: query.agentId } }
+          : {}),
+      },
       orderBy: { createdAt: "desc" },
       take: query.limit,
     });

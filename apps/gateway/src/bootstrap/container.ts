@@ -15,12 +15,14 @@ import {
   AgentConfigRepository,
   ChannelBindingRepository,
   ChannelMessageRepository,
+  ScheduledJobRepository,
 } from "@agent-relay/domain";
 import { AgentService } from "../application/agent-service.js";
 import { AccountIdGenerator } from "../application/account-id-generator.js";
 import { AccountService } from "../application/account-service.js";
 import { ChannelAuthService } from "../application/channel-auth-service.js";
 import { ChannelMessageService } from "../application/channel-message-service.js";
+import { ScheduledJobService } from "../application/scheduled-job-service.js";
 import {
   ChannelQrLoginProviderToken,
   FeishuQrLoginProvider,
@@ -36,11 +38,13 @@ import { AccountRoutes } from "../http/routes/accounts.js";
 import { ChannelRoutes } from "../http/routes/channels.js";
 import { MessageRoutes } from "../http/routes/messages.js";
 import { RuntimeStatusRoutes } from "../http/routes/runtime-status.js";
+import { ScheduledJobRoutes } from "../http/routes/scheduled-jobs.js";
 import { AgentConfigStateRepository } from "../infra/agent-config-repo.js";
 import { AccountStateRepository } from "../infra/account-repo.js";
 import { AccountCredentialsStateRepository } from "../infra/account-credentials-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { ChannelMessageStateRepository } from "../infra/channel-message-repo.js";
+import { ScheduledJobStateRepository } from "../infra/scheduled-job-repo.js";
 import {
   createGatewayLogger,
   GatewayLogger,
@@ -138,6 +142,7 @@ function bindInfrastructure(
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelBindingStateRepository).toSelf().inSingletonScope();
   container.bind(ChannelMessageStateRepository).toSelf().inSingletonScope();
+  container.bind(ScheduledJobStateRepository).toSelf().inSingletonScope();
   container.bind(RuntimeNodeStateRepository).toSelf().inSingletonScope();
 
   if (config.clusterMode) {
@@ -160,9 +165,13 @@ function bindApplication(container: Container): void {
   container
     .bind(ChannelMessageRepository)
     .toService(ChannelMessageStateRepository);
+  container
+    .bind(ScheduledJobRepository)
+    .toService(ScheduledJobStateRepository);
   container.bind(AccountService).toSelf().inSingletonScope();
   container.bind(ChannelBindingService).toSelf().inSingletonScope();
   container.bind(ChannelMessageService).toSelf().inSingletonScope();
+  container.bind(ScheduledJobService).toSelf().inSingletonScope();
   container.bind(ChannelAuthService).toSelf().inSingletonScope();
   container.bind(AccountIdGenerator).toSelf().inSingletonScope();
   container
@@ -296,6 +305,7 @@ function bindHttp(container: Container): void {
   container.bind(AgentRoutes).toSelf().inSingletonScope();
   container.bind(MessageRoutes).toSelf().inSingletonScope();
   container.bind(RuntimeStatusRoutes).toSelf().inSingletonScope();
+  container.bind(ScheduledJobRoutes).toSelf().inSingletonScope();
   container.bind(HonoGatewayApp).toSelf().inSingletonScope();
   container.bind(GatewayApp).toService(HonoGatewayApp);
 }

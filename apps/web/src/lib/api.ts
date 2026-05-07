@@ -242,9 +242,14 @@ export async function waitForChannelQrLogin(
   return res.json() as Promise<ChannelQrLoginWaitResult>;
 }
 
-export async function listMessages(limit = 25): Promise<ChannelMessage[]> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  const res = await fetch(`${BASE}/api/messages?${params}`, withCredentials());
+export async function listMessages(
+  params: { limit?: number; channelBindingId?: string; agentId?: string } = {},
+): Promise<ChannelMessage[]> {
+  const { limit = 25, channelBindingId, agentId } = params;
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (channelBindingId) query.set("channelBindingId", channelBindingId);
+  if (agentId) query.set("agentId", agentId);
+  const res = await fetch(`${BASE}/api/messages?${query}`, withCredentials());
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<ChannelMessage[]>;
 }
@@ -304,4 +309,58 @@ export async function listRuntimeChannelStatuses(): Promise<
   );
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<RuntimeChannelStatus[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled jobs
+// ---------------------------------------------------------------------------
+
+export interface ScheduledJob {
+  id: string;
+  name: string;
+  channelBindingId: string;
+  sessionKey: string;
+  prompt: string;
+  cronExpression: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listScheduledJobs(): Promise<ScheduledJob[]> {
+  const res = await fetch(`${BASE}/api/scheduled-jobs`, withCredentials());
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<ScheduledJob[]>;
+}
+
+export async function createScheduledJob(
+  data: Omit<ScheduledJob, "id" | "createdAt" | "updatedAt">,
+): Promise<ScheduledJob> {
+  const res = await fetch(`${BASE}/api/scheduled-jobs`, withCredentials({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }));
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<ScheduledJob>;
+}
+
+export async function updateScheduledJob(
+  id: string,
+  data: Partial<Omit<ScheduledJob, "id" | "createdAt" | "updatedAt">>,
+): Promise<ScheduledJob> {
+  const res = await fetch(`${BASE}/api/scheduled-jobs/${id}`, withCredentials({
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }));
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<ScheduledJob>;
+}
+
+export async function deleteScheduledJob(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/scheduled-jobs/${id}`, withCredentials({
+    method: "DELETE",
+  }));
+  if (!res.ok) throw new Error(await res.text());
 }

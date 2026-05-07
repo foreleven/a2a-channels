@@ -32,6 +32,7 @@ export class MessageRoutes {
             channelBindingId: normalizeQueryValue(
               c.req.query("channelBindingId"),
             ),
+            agentId: normalizeQueryValue(c.req.query("agentId")),
             limit: parseLimit(c.req.query("limit")),
           })
         ).map(toMessageResponse),
