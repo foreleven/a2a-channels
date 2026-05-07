@@ -18,6 +18,11 @@ import type {
 import { inject, injectable } from "inversify";
 
 import type { ServiceContribution } from "./bootstrap/service-contribution.js";
+import {
+  createSilentGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "./infra/logger.js";
 import { OpenClawChannelPackageDescriptor } from "./runtime/channel-plugin-descriptor.js";
 import { channelTypeRegistry } from "./runtime/channel-type-registry.js";
 
@@ -248,9 +253,10 @@ function registerPlugin(
   host: OpenClawPluginHost,
   plugin: RegisterablePlugin,
   label: string,
+  logger: Pick<GatewayLoggerPort, "info">,
 ): void {
   host.registerPlugin((api) => plugin.register(api));
-  console.info(`[channel-register] ${label} registered`);
+  logger.info({ label }, "channel plugin registered");
 }
 
 function registerMetadataAliases(
@@ -321,8 +327,9 @@ function prepareChannelPlugin(
 function registerPreparedChannelPlugin(
   host: OpenClawPluginHost,
   prepared: PreparedChannelRegistration,
+  logger: Pick<GatewayLoggerPort, "info">,
 ): void {
-  registerPlugin(host, prepared.plugin, prepared.label);
+  registerPlugin(host, prepared.plugin, prepared.label, logger);
   registerMetadataAliases(host, prepared.descriptor);
 }
 
@@ -373,6 +380,7 @@ const channelRegistrations: ChannelRegistration[] = [
 
 export async function registerAllPlugins(
   host: OpenClawPluginHost,
+  logger: Pick<GatewayLoggerPort, "info"> = createSilentGatewayLogger(),
 ): Promise<void> {
   const preparedRegistrations = await Promise.all(
     channelRegistrations.map((registration) =>
@@ -381,7 +389,7 @@ export async function registerAllPlugins(
   );
 
   for (const prepared of preparedRegistrations) {
-    registerPreparedChannelPlugin(host, prepared);
+    registerPreparedChannelPlugin(host, prepared, logger);
   }
 }
 
@@ -392,11 +400,13 @@ export class PluginRegistrationService implements ServiceContribution {
   constructor(
     @inject(OpenClawPluginHost)
     private readonly host: OpenClawPluginHost,
+    @inject(GatewayLogger)
+    private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
   ) {}
 
   async start(): Promise<void> {
     if (this.registered) return;
-    await registerAllPlugins(this.host);
+    await registerAllPlugins(this.host, this.logger);
     this.registered = true;
   }
 

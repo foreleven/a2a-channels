@@ -11,6 +11,7 @@ import type {
 } from "@agent-relay/openclaw-compat";
 
 import { channelTypeRegistry } from "../channel-type-registry.js";
+import type { GatewayLogger } from "../../infra/logger.js";
 import type { ConnectionCallbacks } from "./events.js";
 import {
   ChannelReplyDelivery,
@@ -23,6 +24,7 @@ export interface ConnectionOptions {
   agentClient: AgentClient;
   binding: ChannelBinding;
   callbacks?: ConnectionCallbacks;
+  logger?: GatewayLogger;
 }
 
 /** Live plugin and agent connection for one owned channel binding. */
@@ -40,9 +42,9 @@ export class Connection {
   }
 
   start(host: OpenClawPluginHost): void {
-    console.log(
-      `[connection] starting binding ${this.binding.id} for ${this.binding.channelType}:${this.binding.accountId}`,
-      this.binding,
+    this.options.logger?.info(
+      this.bindingLogFields(),
+      "starting channel binding connection",
     );
 
     this.options.callbacks?.onConnectionStatus?.({
@@ -84,9 +86,9 @@ export class Connection {
           status: "error",
           error: err,
         });
-        console.error(
-          `[connection] binding ${this.binding.id} error:`,
-          String(err),
+        this.options.logger?.error(
+          { ...this.bindingLogFields(), err },
+          "channel binding connection failed",
         );
       });
   }
@@ -270,5 +272,14 @@ export class Connection {
       binding: this.binding,
       status: "connected",
     });
+  }
+
+  private bindingLogFields(): Record<string, unknown> {
+    return {
+      bindingId: this.binding.id,
+      channelType: this.binding.channelType,
+      accountId: this.binding.accountId,
+      agentId: this.binding.agentId,
+    };
   }
 }

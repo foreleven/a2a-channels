@@ -43,6 +43,18 @@ interface GatewayRuntimeEnv {
   exit: (code: number) => void;
 }
 
+export interface OpenClawHostLogger {
+  debug(fields: Record<string, unknown>, message: string): void;
+  debug(message: string): void;
+  info(fields: Record<string, unknown>, message: string): void;
+  info(message: string): void;
+  warn(fields: Record<string, unknown>, message: string): void;
+  warn(message: string): void;
+  error(fields: Record<string, unknown>, message: string): void;
+  error(message: string): void;
+  child(fields: Record<string, unknown>): OpenClawHostLogger;
+}
+
 export interface ChannelBindingStatusUpdate extends ChannelAccountSnapshot {
   running?: boolean;
   connected?: boolean;
@@ -94,11 +106,12 @@ export interface ChannelQrLoginWaitResult {
 // Logger
 // ---------------------------------------------------------------------------
 
-const logger: ChannelLogSink = {
-  debug: (msg) => console.debug("[openclaw-host]", msg),
-  info: (msg) => console.info("[openclaw-host]", msg),
-  warn: (msg) => console.warn("[openclaw-host]", msg),
-  error: (msg) => console.error("[openclaw-host]", msg),
+const defaultLogger: OpenClawHostLogger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  child: () => defaultLogger,
 };
 
 // ---------------------------------------------------------------------------
@@ -119,7 +132,10 @@ export class OpenClawPluginHost {
    *   channel config.  Injected by the gateway so this package has no
    *   dependency on the store implementation.
    */
-  constructor(private readonly runtime: OpenClawPluginRuntime) {}
+  constructor(
+    private readonly runtime: OpenClawPluginRuntime,
+    private readonly logger: OpenClawHostLogger = defaultLogger,
+  ) {}
 
   // -------------------------------------------------------------------------
   // Public API
@@ -199,19 +215,24 @@ export class OpenClawPluginHost {
       );
     }
 
+    const bindingLogger = this.logger.child({
+      component: "openclaw-host",
+      channelType,
+      accountId,
+      bindingId,
+    });
+
     const runtimeEnv: GatewayRuntimeEnv = {
       log: (...args: unknown[]) =>
-        console.log(`[${channelType}:${accountId}:${bindingId}]`, ...args),
+        bindingLogger.info({ args }, "channel runtime log"),
       error: (...args: unknown[]) =>
-        console.error(`[${channelType}:${accountId}:${bindingId}]`, ...args),
+        bindingLogger.error({ args }, "channel runtime error"),
       exit: (code: number) => process.exit(code),
     };
 
     const emitStatus = (status: ChannelBindingStatusUpdate): void => {
       callbacks.onStatus?.(status);
-      logger.info(
-        `account[${channel.id}:${accountId}:${bindingId}] status=${JSON.stringify(status)}`,
-      );
+      bindingLogger.info({ status }, "channel account status updated");
     };
 
     const startPromise = channel.gateway.startAccount({
@@ -224,7 +245,7 @@ export class OpenClawPluginHost {
         return { accountId };
       },
       setStatus: (status) => emitStatus(status),
-      log: logger,
+      log: this.asChannelLogSink(bindingLogger),
     });
 
     await startPromise;
@@ -293,6 +314,7 @@ export class OpenClawPluginHost {
    */
   private buildPluginApi(): OpenClawPluginApi {
     const host = this;
+    const logger = this.asChannelLogSink(this.logger.child({ component: "openclaw-host" }));
     const config = host.runtime.getConfig();
 
     const on: OpenClawPluginApi["on"] = (event, handler) => {
@@ -341,8 +363,9 @@ export class OpenClawPluginHost {
           );
         }
         host.channels.set(channel.id, channel);
-        logger.info(
-          `channel registered: id=[${channel.id}] alias=[${channel.meta.aliases}]`,
+        host.logger.info(
+          { channelId: channel.id, aliases: channel.meta.aliases },
+          "channel registered",
         );
       },
 
@@ -414,5 +437,14 @@ export class OpenClawPluginHost {
     };
 
     return api;
+  }
+
+  private asChannelLogSink(logger: OpenClawHostLogger): ChannelLogSink {
+    return {
+      debug: (message) => logger.debug({ channelLog: true }, message),
+      info: (message) => logger.info({ channelLog: true }, message),
+      warn: (message) => logger.warn({ channelLog: true }, message),
+      error: (message) => logger.error({ channelLog: true }, message),
+    };
   }
 }

@@ -26,6 +26,10 @@
 
 import { buildGatewayContainer } from "./bootstrap/container.js";
 import { GatewayServer } from "./bootstrap/gateway-server.js";
+import {
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "./infra/logger.js";
 
 // Build the singleton object graph once for the entire process. The container
 // is the only place where concrete infrastructure classes are wired to domain
@@ -36,10 +40,11 @@ const container = buildGatewayContainer();
 // GatewayServer owns process-level lifetime. index.ts should not reach into
 // HTTP, scheduler, or runtime collaborators directly.
 const server = container.get(GatewayServer);
+const logger = container.get<GatewayLoggerPort>(GatewayLogger);
 await server.start();
 
 process.on("SIGINT", async () => {
-  console.log("\n[gateway] shutting down…");
+  logger.info("gateway shutting down after SIGINT");
   await server.shutdown();
   process.exit(0);
 });

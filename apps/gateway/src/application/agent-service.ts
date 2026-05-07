@@ -20,6 +20,11 @@ import {
   RuntimeEventBus,
   type RuntimeEventBus as RuntimeEventBusType,
 } from "../runtime/event-transport/runtime-event-bus.js";
+import {
+  createSilentGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "../infra/logger.js";
 
 export type { AgentConfigSnapshot };
 export type RegisterAgentData = Omit<AgentConfigSnapshot, "id" | "createdAt">;
@@ -58,6 +63,8 @@ export class AgentService {
     private readonly bindingRepo: ChannelBindingRepository,
     @inject(RuntimeEventBus)
     private readonly eventBus: RuntimeEventBusType,
+    @inject(GatewayLogger)
+    private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
   ) {}
 
   async list(): Promise<AgentConfigSnapshot[]> {
@@ -124,7 +131,10 @@ export class AgentService {
     void this.eventBus
       .broadcast({ type: "AgentChanged", agentId })
       .catch((err) =>
-        console.error("[agent-service] failed to broadcast AgentChanged:", err),
+        this.logger.error(
+          { agentId, err },
+          "failed to broadcast AgentChanged event",
+        ),
       );
   }
 }

@@ -17,6 +17,11 @@ import {
 import { RuntimeAgentRegistry } from "./runtime-agent-registry.js";
 import { RuntimeOpenClawConfigProjection } from "./runtime-openclaw-config-projection.js";
 import type { RuntimeConnectionStatus } from "./connection/index.js";
+import {
+  createSilentGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "../infra/logger.js";
 
 type AgentConfig = AgentConfigSnapshot;
 type ChannelBinding = ChannelBindingSnapshot;
@@ -50,6 +55,8 @@ export class RuntimeAssignmentService {
     private readonly ownershipGate: OwnershipGate,
     @inject(ConnectionManager)
     private readonly connectionManager: ConnectionManager,
+    @inject(GatewayLogger)
+    private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
   ) {
     this.connectionManager.onConnectionStatus((event) =>
       this.handleConnectionStatus(event),
@@ -239,10 +246,12 @@ export class RuntimeAssignmentService {
 
     const lease = await this.ownershipGate.acquire(bindingId);
     if (!lease) {
+      this.logger.debug({ bindingId }, "ownership lease unavailable");
       return false;
     }
 
     this.leases.set(bindingId, lease);
+    this.logger.info({ bindingId }, "ownership lease acquired");
     return true;
   }
 
@@ -257,9 +266,9 @@ export class RuntimeAssignmentService {
     try {
       await this.ownershipGate.release(lease);
     } catch (error) {
-      console.error(
-        `[runtime] failed to release ownership lease for binding ${bindingId}:`,
-        error,
+      this.logger.error(
+        { bindingId, err: error },
+        "failed to release ownership lease for binding",
       );
     }
   }
@@ -287,6 +296,7 @@ export class RuntimeAssignmentService {
         return;
       }
 
+      this.logger.info({ bindingId }, "restarting channel binding after reconnect delay");
       await this.connectionManager.restartConnection(latestBinding);
     });
   }

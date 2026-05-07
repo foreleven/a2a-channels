@@ -7,7 +7,7 @@
 
 import crypto from "node:crypto";
 import { ClientFactory } from "@a2a-js/sdk/client";
-import type { MessageSendParams } from "@a2a-js/sdk";
+import type { MessageSendParams, Part } from "@a2a-js/sdk";
 import type {
   A2AAgentConfig,
   AgentFile,
@@ -140,8 +140,8 @@ function extractFilesFromParts(parts: unknown[]): AgentFile[] {
 }
 
 /** Build A2A FilePart objects from AgentFile attachments. */
-function buildFileParts(files: AgentFile[]): Array<Record<string, unknown>> {
-  const parts: Array<Record<string, unknown>> = [];
+function buildFileParts(files: AgentFile[]): Array<Part> {
+  const parts: Array<Part> = [];
   for (const f of files) {
     if (f.url) {
       parts.push({
@@ -179,7 +179,9 @@ export class A2ATransport implements AgentTransportFactory {
   }
 }
 
-function isA2AAgentConfig(config: AgentProtocolConfig): config is A2AAgentConfig {
+function isA2AAgentConfig(
+  config: AgentProtocolConfig,
+): config is A2AAgentConfig {
   return "url" in config && typeof config.url === "string";
 }
 
@@ -237,7 +239,9 @@ class A2AAgentTransport implements AgentTransport {
     }
   }
 
-  async *stream(request: AgentRequest): AsyncIterable<AgentResponseStreamEvent> {
+  async *stream(
+    request: AgentRequest,
+  ): AsyncIterable<AgentResponseStreamEvent> {
     const timeoutMs = 120_000;
     const abortController = new AbortController();
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -297,7 +301,11 @@ class A2AAgentTransport implements AgentTransport {
 
       if (!yielded) {
         const response = await this.send(request);
-        yield { kind: "final", text: response.text, ...(response.files?.length ? { files: response.files } : {}) };
+        yield {
+          kind: "final",
+          text: response.text,
+          ...(response.files?.length ? { files: response.files } : {}),
+        };
         return;
       }
 
@@ -320,7 +328,7 @@ class A2AAgentTransport implements AgentTransport {
 
   private buildPayload(request: AgentRequest): MessageSendParams {
     const contextId = request.sessionKey;
-    const parts: Array<Record<string, unknown>> = [];
+    const parts: Array<Part> = [];
     if (request.userMessage.trim()) {
       parts.push({ kind: "text", text: request.userMessage });
     }

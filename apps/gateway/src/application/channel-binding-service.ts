@@ -15,6 +15,11 @@ import {
   RuntimeEventBus,
   type RuntimeEventBus as RuntimeEventBusType,
 } from "../runtime/event-transport/runtime-event-bus.js";
+import {
+  createSilentGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "../infra/logger.js";
 import { AccountIdGenerator } from "./account-id-generator.js";
 import { AgentNotFoundError, DuplicateEnabledBindingError } from "./errors.js";
 
@@ -47,6 +52,8 @@ export class ChannelBindingService {
     private readonly eventBus: RuntimeEventBusType,
     @inject(AccountIdGenerator)
     private readonly accountIdGenerator: AccountIdGenerator,
+    @inject(GatewayLogger)
+    private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
   ) {}
 
   async list(): Promise<ChannelBindingSnapshot[]> {
@@ -121,9 +128,9 @@ export class ChannelBindingService {
     void this.eventBus
       .broadcast({ type: "BindingChanged", bindingId })
       .catch((err) =>
-        console.error(
-          "[binding-service] failed to broadcast BindingChanged:",
-          err,
+        this.logger.error(
+          { bindingId, err },
+          "failed to broadcast BindingChanged event",
         ),
       );
   }

@@ -3,6 +3,11 @@ import { inject, injectable } from "inversify";
 
 import { GatewayConfigService } from "../../bootstrap/config.js";
 import type { ServiceContribution } from "../../bootstrap/service-contribution.js";
+import {
+  createSilentGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "../../infra/logger.js";
 import { RedisClientService } from "../../infra/redis-client.js";
 import type { RuntimeEventBus } from "../event-transport/runtime-event-bus.js";
 import type {
@@ -40,6 +45,8 @@ export class RedisRuntimeEventBus implements RuntimeEventBus, ServiceContributio
     private readonly redisService: RedisClientService,
     @inject(GatewayConfigService)
     private readonly config: GatewayConfigService,
+    @inject(GatewayLogger)
+    private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
   ) {}
 
   /** Opens the subscriber connection and subscribes to broadcast and directed channels. */
@@ -59,6 +66,14 @@ export class RedisRuntimeEventBus implements RuntimeEventBus, ServiceContributio
         BROADCAST_CHANNEL,
         directedChannel(this.config.nodeId),
       );
+      this.logger.info(
+        {
+          nodeId: this.config.nodeId,
+          broadcastChannel: BROADCAST_CHANNEL,
+          directedChannel: directedChannel(this.config.nodeId),
+        },
+        "redis runtime event bus subscribed",
+      );
     } catch (err) {
       try {
         await sub.quit();
@@ -76,6 +91,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus, ServiceContributio
     if (this.subscriber) {
       await this.subscriber.quit();
       this.subscriber = null;
+      this.logger.info("redis runtime event bus stopped");
     }
   }
 
@@ -122,7 +138,7 @@ export class RedisRuntimeEventBus implements RuntimeEventBus, ServiceContributio
     try {
       parsed = JSON.parse(message);
     } catch {
-      console.error("[redis-event-bus] received unparseable message");
+      this.logger.error({ channel }, "received unparseable redis runtime event");
       return;
     }
 

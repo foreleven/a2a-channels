@@ -7,6 +7,11 @@ import {
   InvalidTokenError,
   UsernameTakenError,
 } from "../../application/account-service.js";
+import {
+  createSilentGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "../../infra/logger.js";
 import { parseJsonBody, z } from "../utils/schema.js";
 
 export const AUTH_COOKIE_NAME = "a2a_auth_token";
@@ -42,6 +47,8 @@ export class AccountRoutes {
   constructor(
     @inject(AccountService)
     private readonly accountService: AccountService,
+    @inject(GatewayLogger)
+    private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
   ) {}
 
   register(app: Hono): void {
@@ -66,7 +73,7 @@ export class AccountRoutes {
         if (err instanceof UsernameTakenError) {
           return c.json({ error: err.message }, 409);
         }
-        console.error("[auth] unexpected error during registration", err);
+        this.logger.error({ err }, "unexpected error during registration");
         return c.json({ error: "Internal server error" }, 500);
       }
     });

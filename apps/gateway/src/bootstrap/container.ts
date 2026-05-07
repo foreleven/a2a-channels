@@ -39,6 +39,11 @@ import { AccountStateRepository } from "../infra/account-repo.js";
 import { AccountCredentialsStateRepository } from "../infra/account-credentials-repo.js";
 import { ChannelBindingStateRepository } from "../infra/channel-binding-repo.js";
 import { ChannelMessageStateRepository } from "../infra/channel-message-repo.js";
+import {
+  createGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "../infra/logger.js";
 import { RedisClientService } from "../infra/redis-client.js";
 import { RuntimeNodeStateRepository } from "../infra/runtime-node-repo.js";
 import { PluginRegistrationService } from "../register-plugins.js";
@@ -119,6 +124,10 @@ function bindInfrastructure(
 ): void {
   // Infrastructure adapters are the only concrete implementations of domain
   // repository ports. Application services consume the ports below, not Prisma.
+  container
+    .bind<GatewayLoggerPort>(GatewayLogger)
+    .toDynamicValue(() => createGatewayLogger())
+    .inSingletonScope();
   container.bind(AccountStateRepository).toSelf().inSingletonScope();
   container.bind(AccountCredentialsStateRepository).toSelf().inSingletonScope();
   container.bind(AgentConfigStateRepository).toSelf().inSingletonScope();
@@ -208,7 +217,12 @@ function bindRuntime(
   container
     .bind(OpenClawPluginHost)
     .toDynamicValue(() => {
-      return new OpenClawPluginHost(container.get(OpenClawPluginRuntime));
+      return new OpenClawPluginHost(
+        container.get(OpenClawPluginRuntime),
+        container
+          .get<GatewayLoggerPort>(GatewayLogger)
+          .child({ component: "openclaw-host" }),
+      );
     })
     .inSingletonScope();
   container.bind(PluginRegistrationService).toSelf().inSingletonScope();

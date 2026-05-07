@@ -24,6 +24,11 @@ import type { AgentFile } from "@agent-relay/agent-transport";
 import { inject, injectable } from "inversify";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 
+import {
+  createSilentGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "../../infra/logger.js";
 import { channelTypeRegistry } from "../channel-type-registry.js";
 import { RuntimeAgentRegistry } from "../runtime-agent-registry.js";
 import { Connection } from "./connection.js";
@@ -49,6 +54,8 @@ export class ConnectionManager implements ReplyEventDispatcher {
     private readonly agentRegistry: RuntimeAgentRegistry,
     @inject(ChannelMessageRepository)
     private readonly messageRepository: ChannelMessageRepositoryPort,
+    @inject(GatewayLogger)
+    private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
   ) {
     this.runtime.setReplyEventDispatcher(this);
   }
@@ -79,6 +86,7 @@ export class ConnectionManager implements ReplyEventDispatcher {
     const connection = new Connection({
       agentClient,
       binding,
+      logger: this.logger.child(this.bindingLogFields(binding)),
       callbacks: {
         emitMessageInbound: (event) => this.emitMessageInbound(binding, event),
         emitMessageOutbound: (event) =>
@@ -96,8 +104,9 @@ export class ConnectionManager implements ReplyEventDispatcher {
   private async startConnection(binding: ChannelBinding): Promise<void> {
     const existing = this.connections.get(binding.id);
     if (existing) {
-      console.log(
-        `[connection] stopping existing connection for ${binding.id}`,
+      this.logger.info(
+        this.bindingLogFields(binding),
+        "stopping existing connection before restart",
       );
       await existing.stop();
       this.untrackConnection(existing);
@@ -127,7 +136,10 @@ export class ConnectionManager implements ReplyEventDispatcher {
     const connection = this.connections.get(bindingId);
     if (!connection) return;
 
-    console.log(`[connection] stopping binding: ${bindingId}`);
+    this.logger.info(
+      this.bindingLogFields(connection.binding),
+      "stopping channel binding connection",
+    );
     await connection.stop();
     this.untrackConnection(connection);
   }
@@ -156,9 +168,9 @@ export class ConnectionManager implements ReplyEventDispatcher {
   }
 
   private logAgentCallFailed({ binding, error }: AgentCallFailureEvent): void {
-    console.error(
-      `[runtime] agent call failed for binding ${binding.id}:`,
-      String(error),
+    this.logger.error(
+      { ...this.bindingLogFields(binding), err: error },
+      "agent call failed for channel binding",
     );
   }
 
@@ -207,17 +219,22 @@ export class ConnectionManager implements ReplyEventDispatcher {
     binding: ChannelBinding,
     error: unknown,
   ): void {
-    console.error(
-      `[runtime] message persistence failed for binding ${binding.id}:`,
-      String(error),
+    this.logger.error(
+      { ...this.bindingLogFields(binding), err: error },
+      "message persistence failed for channel binding",
     );
   }
 
   private async completeUnhandledReplyEvent(
     message: MessageInboundEvent,
   ): Promise<ChannelReplyDispatchResult> {
-    console.warn(
-      `[runtime] no active connection for channelType=${message.channelType} accountId=${message.accountId}; message dropped`,
+    this.logger.warn(
+      {
+        channelType: message.channelType,
+        accountId: message.accountId,
+        sessionKey: message.sessionKey,
+      },
+      "no active connection for inbound channel message; message dropped",
     );
 
     if (message.event.type === "channel.reply.dispatch") {
@@ -297,6 +314,15 @@ export class ConnectionManager implements ReplyEventDispatcher {
     );
 
     return `${canonicalChannelType}:${accountId}`;
+  }
+
+  private bindingLogFields(binding: ChannelBinding): Record<string, unknown> {
+    return {
+      bindingId: binding.id,
+      channelType: binding.channelType,
+      accountId: binding.accountId,
+      agentId: binding.agentId,
+    };
   }
 }
 

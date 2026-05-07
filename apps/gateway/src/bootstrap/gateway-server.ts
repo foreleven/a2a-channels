@@ -13,24 +13,29 @@ import {
   type ServiceContribution,
 } from "./service-contribution.js";
 import { GatewayApp } from "../http/app.js";
+import {
+  createSilentGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "../infra/logger.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
 
-interface GatewayLogger {
+interface StartupLogger {
   info(message: string): void;
   error(message: string, error?: unknown): void;
 }
 
 export interface GatewayServerStartOptions {
-  logger?: GatewayLogger;
+  logger?: StartupLogger;
   serve?: typeof honoServe;
 }
 
-const defaultLogger: GatewayLogger = {
+const defaultLogger: StartupLogger = {
   info(message) {
-    console.log(message);
+    process.stdout.write(`${message}\n`);
   },
   error(message, error) {
-    console.error(message, error);
+    process.stderr.write(`${message}${error ? ` ${String(error)}` : ""}\n`);
   },
 };
 
@@ -48,7 +53,7 @@ const defaultLogger: GatewayLogger = {
 @injectable()
 export class GatewayServer {
   private server: ServerType | null = null;
-  private logger: GatewayLogger = defaultLogger;
+  private startupLogger: StartupLogger = defaultLogger;
   private startedServices: ServiceContribution[] = [];
 
   constructor(
@@ -63,6 +68,8 @@ export class GatewayServer {
     @multiInject(ServiceContributionToken)
     @optional()
     private readonly serviceContributions: ServiceContribution[] = [],
+    @inject(GatewayLogger)
+    private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
   ) {}
 
   async start(options: GatewayServerStartOptions = {}): Promise<void> {
@@ -70,12 +77,16 @@ export class GatewayServer {
       throw new Error("GatewayServer is already started");
     }
 
-    this.logger = options.logger ?? defaultLogger;
+    this.startupLogger = options.logger ?? defaultLogger;
 
     const serve = options.serve ?? this.defaultServe;
 
     this.logger.info(
-      `🚀 Agent Relay Gateway starting on http://localhost:${this.config.port}`,
+      { port: this.config.port },
+      "agent relay gateway starting",
+    );
+    this.startupLogger.info(
+      `Agent Relay Gateway starting on http://localhost:${this.config.port}`,
     );
 
     try {
@@ -91,11 +102,15 @@ export class GatewayServer {
         { fetch: this.app.fetch.bind(this.app), port: this.config.port },
         () => {
           this.logger.info(
-            `✅ Gateway listening on http://localhost:${this.config.port}`,
+            { port: this.config.port },
+            "agent relay gateway listening",
           );
-          this.logger.info(`   Web UI: http://localhost:${this.config.port}/`);
-          this.logger.info(
-            `   API:    http://localhost:${this.config.port}/api/channels`,
+          this.startupLogger.info(
+            `Gateway listening on http://localhost:${this.config.port}`,
+          );
+          this.startupLogger.info(`Web UI: http://localhost:${this.config.port}/`);
+          this.startupLogger.info(
+            `API:    http://localhost:${this.config.port}/api/channels`,
           );
         },
       );
@@ -134,7 +149,11 @@ export class GatewayServer {
     try {
       await this.stopStartedServices();
     } catch (error) {
-      this.logger.error("[gateway] failed to stop service contribution", error);
+      this.logger.error(
+        { err: error },
+        "failed to stop service contribution after startup failure",
+      );
+      this.startupLogger.error("[gateway] failed to stop service contribution", error);
     }
   }
 }

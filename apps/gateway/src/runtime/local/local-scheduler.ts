@@ -10,6 +10,11 @@ import {
   type RuntimeEventBus,
 } from "../event-transport/runtime-event-bus.js";
 import type { RuntimeBroadcastEvent } from "../event-transport/types.js";
+import {
+  createSilentGatewayLogger,
+  GatewayLogger,
+  type GatewayLogger as GatewayLoggerPort,
+} from "../../infra/logger.js";
 
 /** Timing options for local debounce and periodic reconciliation. */
 export interface LocalSchedulerOptions {
@@ -39,6 +44,8 @@ export class LocalScheduler implements RuntimeScheduler {
     private readonly coordinator: RuntimeAssignmentCoordinator,
     @unmanaged()
     private readonly options: LocalSchedulerOptions = {},
+    @inject(GatewayLogger)
+    private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
   ) {}
 
   /** Subscribes to the local bus and schedules periodic desired-state reconciliation. */
@@ -46,6 +53,7 @@ export class LocalScheduler implements RuntimeScheduler {
     if (!this.stopped) return;
     const bus = this.runtimeBus;
     this.stopped = false;
+    this.logger.info("local runtime scheduler starting");
 
     this.unsubscribeBroadcast = bus.onBroadcast((event) =>
       this.handleBroadcast(event),
@@ -82,6 +90,7 @@ export class LocalScheduler implements RuntimeScheduler {
     this.unsubscribeDirected?.();
     this.unsubscribeBroadcast = null;
     this.unsubscribeDirected = null;
+    this.logger.info("local runtime scheduler stopped");
   }
 
   // Public wake-up hook for callers that know desired state may have drifted.
@@ -109,7 +118,10 @@ export class LocalScheduler implements RuntimeScheduler {
               bindingId,
             })
             .catch((error) => {
-              console.error("[runtime] failed to send refresh command:", error);
+              this.logger.error(
+                { bindingId, err: error },
+                "failed to send refresh command",
+              );
             });
         }
         this.debounceFullScan();
@@ -123,7 +135,10 @@ export class LocalScheduler implements RuntimeScheduler {
             bindingId: event.bindingId,
           })
           .catch((error) => {
-            console.error("[runtime] failed to send attach command:", error);
+            this.logger.error(
+              { bindingId: event.bindingId, err: error },
+              "failed to send attach command",
+            );
           });
         break;
       }
@@ -142,7 +157,10 @@ export class LocalScheduler implements RuntimeScheduler {
               bindingId,
             })
             .catch((error) => {
-              console.error("[runtime] failed to send refresh command:", error);
+              this.logger.error(
+                { bindingId, agentId: event.agentId, err: error },
+                "failed to send refresh command",
+              );
             });
         }
         break;
@@ -165,7 +183,10 @@ export class LocalScheduler implements RuntimeScheduler {
       void this.runtimeBus
         .broadcast({ type: "NodeJoined", nodeId: LOCAL_NODE_ID })
         .catch((error) => {
-          console.error("[runtime] failed to broadcast local node join:", error);
+          this.logger.error(
+            { nodeId: LOCAL_NODE_ID, err: error },
+            "failed to broadcast local node join",
+          );
         });
     }, this.options.debounceMs ?? 100);
   }
