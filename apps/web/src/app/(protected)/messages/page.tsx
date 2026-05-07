@@ -71,12 +71,16 @@ export default function MessagesPage() {
 
   useEffect(() => {
     async function loadFilters() {
-      const [channelData, agentData] = await Promise.all([
-        listChannels(),
-        listAgents(),
-      ]);
-      setChannels(channelData);
-      setAgents(agentData);
+      try {
+        const [channelData, agentData] = await Promise.all([
+          listChannels(),
+          listAgents(),
+        ]);
+        setChannels(channelData);
+        setAgents(agentData);
+      } catch (err) {
+        setError(String(err));
+      }
     }
     void loadFilters();
   }, []);

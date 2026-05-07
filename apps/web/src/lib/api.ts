@@ -334,7 +334,9 @@ export async function listScheduledJobs(): Promise<ScheduledJob[]> {
 }
 
 export async function createScheduledJob(
-  data: Omit<ScheduledJob, "id" | "createdAt" | "updatedAt">,
+  data: Omit<ScheduledJob, "id" | "createdAt" | "updatedAt" | "enabled"> & {
+    enabled?: boolean;
+  },
 ): Promise<ScheduledJob> {
   const res = await fetch(`${BASE}/api/scheduled-jobs`, withCredentials({
     method: "POST",

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { inject, injectable } from "inversify";
 
+import { Prisma } from "../../generated/prisma/index.js";
 import { ScheduledJobService } from "../../application/scheduled-job-service.js";
 import { parseJsonBody } from "../utils/schema.js";
 import {
@@ -31,8 +32,18 @@ export class ScheduledJobRoutes {
       if (!parsed.success) {
         return parsed.response;
       }
-      const job = await this.jobs.create(parsed.data);
-      return c.json(job, 201);
+      try {
+        const job = await this.jobs.create(parsed.data);
+        return c.json(job, 201);
+      } catch (err) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === "P2003"
+        ) {
+          return c.json({ error: "Referenced channel binding not found" }, 422);
+        }
+        throw err;
+      }
     });
 
     app.patch("/api/scheduled-jobs/:id", async (c) => {

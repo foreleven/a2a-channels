@@ -6,6 +6,7 @@ import {
 } from "@agent-relay/domain";
 import { injectable } from "inversify";
 
+import { Prisma } from "../generated/prisma/index.js";
 import { prisma } from "../store/prisma.js";
 
 function mapJobRow(row: {
@@ -84,8 +85,11 @@ export class ScheduledJobStateRepository implements ScheduledJobRepository {
         },
       });
       return mapJobRow(row);
-    } catch {
-      return null;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+        return null;
+      }
+      throw err;
     }
   }
 
@@ -93,8 +97,11 @@ export class ScheduledJobStateRepository implements ScheduledJobRepository {
     try {
       await prisma.scheduledJob.delete({ where: { id } });
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+        return false;
+      }
+      throw err;
     }
   }
 }
