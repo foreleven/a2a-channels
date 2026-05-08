@@ -156,7 +156,7 @@ export class Connection {
     let result: { text: string; files?: AgentFile[] } | null;
     try {
       result = await this.options.agentClient.send({
-        userMessage,
+        message: userMessage,
         sessionKey: downstreamSessionKey,
         accountId,
         ...(files?.length ? { files } : {}),
@@ -196,7 +196,7 @@ export class Connection {
 
     try {
       for await (const chunk of this.options.agentClient.stream({
-        userMessage,
+        message: userMessage,
         sessionKey: downstreamSessionKey,
         accountId,
         ...(files?.length ? { files } : {}),

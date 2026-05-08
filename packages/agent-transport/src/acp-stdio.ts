@@ -31,10 +31,7 @@ export class ACPStdioTransport implements AgentTransport {
   readonly protocol = "acp";
   private readonly processPool: ACPStdioAgentProcessPool;
 
-  constructor(
-    config: ACPStdioAgentConfig,
-    context?: AgentTransportContext,
-  ) {
+  constructor(config: ACPStdioAgentConfig, context?: AgentTransportContext) {
     this.processPool = new ACPStdioAgentProcessPool(config, context);
   }
 
@@ -390,8 +387,8 @@ class ACPStdioClientCallbacks implements acp.Client {
 function buildACPPromptBlocks(request: AgentRequest): acp.ContentBlock[] {
   const blocks: acp.ContentBlock[] = [];
 
-  if (request.userMessage.trim()) {
-    blocks.push({ type: "text", text: request.userMessage });
+  if (request.message.trim()) {
+    blocks.push({ type: "text", text: request.message });
   }
 
   for (const f of request.files ?? []) {
@@ -489,11 +486,7 @@ function parseCommandSpec(
   const cwd = configuredCwd
     ? configuredCwd
     : acpBasePath && agentName && accountId
-      ? join(
-          acpBasePath,
-          agentName,
-          sanitizePathSegment(accountId),
-        )
+      ? join(acpBasePath, agentName, sanitizePathSegment(accountId))
       : (process.env["ACP_STDIO_CWD"] ?? process.cwd());
 
   const permission =
@@ -515,10 +508,9 @@ function buildWorkerKey(
   request: AgentRequest,
 ): string {
   const sessionScoped = commandTemplatesUseSessionKey(config);
-  return [
-    request.accountId,
-    sessionScoped ? request.sessionKey : "",
-  ].join("\0");
+  return [request.accountId, sessionScoped ? request.sessionKey : ""].join(
+    "\0",
+  );
 }
 
 function commandTemplatesUseSessionKey(config: ACPStdioAgentConfig): boolean {
@@ -555,8 +547,6 @@ function sanitizePathSegment(segment: string): string {
 
 function isFolderSafePathSegment(segment: string): boolean {
   return (
-    /^[A-Za-z0-9._-]+$/.test(segment) &&
-    segment !== "." &&
-    segment !== ".."
+    /^[A-Za-z0-9._-]+$/.test(segment) && segment !== "." && segment !== ".."
   );
 }

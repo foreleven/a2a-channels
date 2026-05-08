@@ -7,9 +7,7 @@ import {
   type ChannelBindingSnapshot,
   type ChannelMessageRepository as ChannelMessageRepositoryPort,
 } from "@agent-relay/domain";
-import {
-  OpenClawPluginHost,
-} from "@agent-relay/openclaw-compat";
+import { OpenClawPluginHost } from "@agent-relay/openclaw-compat";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import {
@@ -88,7 +86,9 @@ export class ScheduledJobExecutor {
       binding,
     ]);
 
-    const agentClient = await this.agentRegistry.getAgentClient(binding.agentId);
+    const agentClient = await this.agentRegistry.getAgentClient(
+      binding.agentId,
+    );
     const sessionKey = SessionKey.fromString(normalized.sessionKey);
     const metadata = buildScheduledJobMetadata(context);
 
@@ -97,7 +97,7 @@ export class ScheduledJobExecutor {
     let replyText: string | undefined;
     try {
       const result = await agentClient.send({
-        userMessage: normalized.prompt,
+        message: normalized.prompt,
         sessionKey: sessionKey.toMd5(),
         accountId: binding.accountId,
       });

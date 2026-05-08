@@ -90,8 +90,8 @@ describe("Connection", () => {
     const sentMessages: string[] = [];
     const connection = new Connection({
       agentClient: createAgentClient("http://agent-1", async (request) => {
-        sentMessages.push(request.userMessage);
-        return { text: `echo: ${request.userMessage}` };
+        sentMessages.push(request.message);
+        return { text: `echo: ${request.message}` };
       }),
       binding,
     });
@@ -169,8 +169,8 @@ describe("Connection", () => {
     const sentMessages: string[] = [];
     const connection = new Connection({
       agentClient: createAgentClient("http://agent-1", async (request) => {
-        sentMessages.push(request.userMessage);
-        return { text: `echo: ${request.userMessage}` };
+        sentMessages.push(request.message);
+        return { text: `echo: ${request.message}` };
       }),
       binding: {
         ...binding,
@@ -327,8 +327,8 @@ describe("ConnectionManager", () => {
   test("routes runtime reply events to its matching connection", async () => {
     const sentMessages: string[] = [];
     const agentClient = createAgentClient("http://agent-1", async (request) => {
-      sentMessages.push(request.userMessage);
-      return { text: `echo: ${request.userMessage}` };
+      sentMessages.push(request.message);
+      return { text: `echo: ${request.message}` };
     });
     const runtime = createRuntime();
     const manager = new ConnectionManager(
@@ -367,8 +367,8 @@ describe("ConnectionManager", () => {
   test("routes by channel account without probing unrelated connections", async () => {
     const sentMessages: string[] = [];
     const agentClient = createAgentClient("http://agent-1", async (request) => {
-      sentMessages.push(request.userMessage);
-      return { text: `echo: ${request.userMessage}` };
+      sentMessages.push(request.message);
+      return { text: `echo: ${request.message}` };
     });
     const runtime = createRuntime();
     const manager = new ConnectionManager(
@@ -419,8 +419,8 @@ describe("ConnectionManager", () => {
   test("routes runtime reply events across channel type aliases", async () => {
     const sentMessages: string[] = [];
     const agentClient = createAgentClient("http://agent-1", async (request) => {
-      sentMessages.push(request.userMessage);
-      return { text: `echo: ${request.userMessage}` };
+      sentMessages.push(request.message);
+      return { text: `echo: ${request.message}` };
     });
     const runtime = createRuntime();
     const manager = new ConnectionManager(
@@ -464,7 +464,7 @@ describe("ConnectionManager", () => {
     const sessionKeys: string[] = [];
     const agentClient = createAgentClient("http://agent-1", async (request) => {
       sessionKeys.push(request.sessionKey);
-      return { text: `echo: ${request.userMessage}` };
+      return { text: `echo: ${request.message}` };
     });
     const runtime = createRuntime();
     const manager = new ConnectionManager(
@@ -505,7 +505,7 @@ describe("ConnectionManager", () => {
     const sessionKeys: string[] = [];
     const agentClient = createAgentClient("http://agent-1", async (request) => {
       sessionKeys.push(request.sessionKey);
-      return { text: `echo: ${request.userMessage}` };
+      return { text: `echo: ${request.message}` };
     });
     const runtime = createRuntime();
     const manager = new ConnectionManager(

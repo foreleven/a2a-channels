@@ -329,8 +329,8 @@ class A2AAgentTransport implements AgentTransport {
   private buildPayload(request: AgentRequest): MessageSendParams {
     const contextId = request.sessionKey;
     const parts: Array<Part> = [];
-    if (request.userMessage.trim()) {
-      parts.push({ kind: "text", text: request.userMessage });
+    if (request.message.trim()) {
+      parts.push({ kind: "text", text: request.message });
     }
     parts.push(...buildFileParts(request.files ?? []));
     return {

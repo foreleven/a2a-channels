@@ -143,7 +143,7 @@ test("ACPTransport calls an ACP stdio agent through the SDK client", async () =>
 
   try {
     const response = await client.send({
-      userMessage: "hello",
+      message: "hello",
       accountId: "default",
       sessionKey: "ctx",
     });
@@ -204,20 +204,26 @@ test("ACPTransport spawns separate processes per accountId when ACP_BASE_PATH an
 
   try {
     await client.send({
-      userMessage: "hello",
+      message: "hello",
       accountId: "user-1",
       sessionKey: "s1",
     });
     await client.send({
-      userMessage: "world",
+      message: "world",
       accountId: "user-2",
       sessionKey: "s2",
     });
 
     // Each account should have its own subdirectory under basePath/name/
     const entries = await readdir(join(basePath, "my-agent"));
-    assert.ok(entries.includes("user-1"), "user-1 cwd directory should be created");
-    assert.ok(entries.includes("user-2"), "user-2 cwd directory should be created");
+    assert.ok(
+      entries.includes("user-1"),
+      "user-1 cwd directory should be created",
+    );
+    assert.ok(
+      entries.includes("user-2"),
+      "user-2 cwd directory should be created",
+    );
   } finally {
     await client.stop?.();
     if (originalBasePath === undefined) {
@@ -252,7 +258,7 @@ test("ACPTransport prefers configured ACP stdio cwd over isolated base path", as
 
   try {
     await client.send({
-      userMessage: "hello",
+      message: "hello",
       accountId: "user-1",
       sessionKey: "s1",
     });
@@ -296,7 +302,7 @@ test("ACPTransport treats blank ACP stdio cwd as unset", async () => {
 
   try {
     await client.send({
-      userMessage: "hello",
+      message: "hello",
       accountId: "user-1",
       sessionKey: "s1",
     });
@@ -324,28 +330,28 @@ test("ACPTransport expands account and session placeholders in args and cwd", as
   const client = transport.create({
     transport: "stdio",
     command: "node",
-    args: [
-      agentPath,
-      "--account={accountId}",
-      "--session={sessionKey}",
-    ],
+    args: [agentPath, "--account={accountId}", "--session={sessionKey}"],
     cwd: join(tempDir, "work", "{accountId}", "{sessionKey}"),
   });
 
   try {
     const first = await client.send({
-      userMessage: "hello",
+      message: "hello",
       accountId: "user-1",
       sessionKey: "session-a",
     });
     const second = await client.send({
-      userMessage: "world",
+      message: "world",
       accountId: "user-1",
       sessionKey: "session-b",
     });
 
-    const firstCwd = await realpath(join(tempDir, "work", "user-1", "session-a"));
-    const secondCwd = await realpath(join(tempDir, "work", "user-1", "session-b"));
+    const firstCwd = await realpath(
+      join(tempDir, "work", "user-1", "session-a"),
+    );
+    const secondCwd = await realpath(
+      join(tempDir, "work", "user-1", "session-b"),
+    );
 
     assert.deepEqual(JSON.parse(first.text), {
       argv: ["--account=user-1", "--session=session-a"],
@@ -381,7 +387,7 @@ test("ACPTransport rejects unsafe agentName values for isolated workspaces", asy
   try {
     await assert.rejects(() =>
       client.send({
-        userMessage: "hello",
+        message: "hello",
         accountId: "user-1",
         sessionKey: "s1",
       }),

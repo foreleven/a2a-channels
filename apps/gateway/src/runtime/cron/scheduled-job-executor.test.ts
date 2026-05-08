@@ -109,7 +109,7 @@ describe("ScheduledJobExecutor", () => {
 
     assert.deepEqual(result, { status: "sent", bindingId: "binding-1" });
     assert.deepEqual(upsertedAgentIds, ["agent-1"]);
-    assert.equal(requests[0]?.userMessage, "daily prompt");
+    assert.equal(requests[0]?.message, "daily prompt");
     assert.equal(
       requests[0]?.sessionKey,
       SessionKey.fromString(
@@ -142,7 +142,9 @@ function createBindingRepo(
 ): ChannelBindingRepository {
   return {
     findById: async (id) =>
-      id === snapshot.id ? ChannelBindingAggregate.fromSnapshot(snapshot) : null,
+      id === snapshot.id
+        ? ChannelBindingAggregate.fromSnapshot(snapshot)
+        : null,
     findAll: async () => [snapshot],
     findEnabled: async () => snapshot,
     findByAgentId: async () => [snapshot],

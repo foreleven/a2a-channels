@@ -11,7 +11,7 @@ export interface AgentFile {
 }
 
 export interface AgentRequest {
-  userMessage: string;
+  message: string;
   sessionKey: string;
   accountId: string;
   /** Optional file attachments from the user message (e.g. images, documents). */
