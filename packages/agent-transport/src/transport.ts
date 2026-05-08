@@ -103,6 +103,11 @@ export interface AgentTransport {
   stop?(): Promise<void>;
 }
 
+/** DI multi-binding token for registered agent transport implementations. */
+export const AgentTransportFactory = Symbol.for(
+  "@agent-relay/gateway/AgentTransportFactory",
+);
+
 export interface AgentTransportFactory {
   readonly protocol: AgentProtocol;
   create(
@@ -125,8 +130,7 @@ export class TransportRegistry {
   }
 
   resolve(protocol: AgentProtocol): AgentTransportFactory {
-    const factory =
-      this.factories.get(protocol) ?? this.factories.get("a2a");
+    const factory = this.factories.get(protocol) ?? this.factories.get("a2a");
     if (!factory) {
       throw new Error(
         `No transport registered for protocol "${protocol}" and no "a2a" fallback available.`,

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   A2ATransport,
   ACPTransport,
-  type AgentTransportFactory,
+  AgentTransportFactory,
 } from "@agent-relay/agent-transport";
 import {
   OpenClawPluginHost,
@@ -79,7 +79,6 @@ import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
 import { BunQueueScheduledJobWorkerService } from "../runtime/cron/bunqueue-scheduled-job-service.js";
 import { ScheduledJobExecutor } from "../runtime/cron/scheduled-job-executor.js";
-import { AgentTransportToken } from "../runtime/transport-tokens.js";
 import type { GatewayConfigSnapshot } from "./config.js";
 import {
   buildGatewayConfig,
@@ -204,11 +203,11 @@ function bindRuntime(
   container.bind(ConnectionManager).toSelf().inSingletonScope();
 
   container
-    .bind<AgentTransportFactory>(AgentTransportToken)
+    .bind<AgentTransportFactory>(AgentTransportFactory)
     .toDynamicValue(() => new A2ATransport())
     .inSingletonScope();
   container
-    .bind<AgentTransportFactory>(AgentTransportToken)
+    .bind<AgentTransportFactory>(AgentTransportFactory)
     .toDynamicValue(() => new ACPTransport())
     .inSingletonScope();
   container.bind(AgentClientFactory).toSelf().inSingletonScope();
@@ -218,16 +217,17 @@ function bindRuntime(
   container.bind(RuntimeOpenClawConfigProjection).toSelf().inSingletonScope();
   container
     .bind(OpenClawPluginRuntime)
-    .toDynamicValue(() =>
-      new OpenClawPluginRuntime({
-        config: {
-          loadConfig: () =>
-            container.get(RuntimeOpenClawConfigProjection).getConfig(),
-          writeConfigFile: async () => {
-            throw new Error("Not implemented");
+    .toDynamicValue(
+      () =>
+        new OpenClawPluginRuntime({
+          config: {
+            loadConfig: () =>
+              container.get(RuntimeOpenClawConfigProjection).getConfig(),
+            writeConfigFile: async () => {
+              throw new Error("Not implemented");
+            },
           },
-        },
-      }),
+        }),
     )
     .inSingletonScope();
   container
@@ -287,14 +287,10 @@ function bindClusterRuntime(container: Container): void {
     .to(RedisOwnershipGate)
     .inSingletonScope();
   // RedisRuntimeEventBus is already bound in bindInfrastructure (cluster path).
-  container
-    .bind(RuntimeEventBus)
-    .toService(RedisRuntimeEventBus);
+  container.bind(RuntimeEventBus).toService(RedisRuntimeEventBus);
 
   container.bind(LeaderScheduler).toSelf().inSingletonScope();
-  container
-    .bind(RuntimeScheduler)
-    .toService(LeaderScheduler);
+  container.bind(RuntimeScheduler).toService(LeaderScheduler);
 }
 
 function bindHttp(container: Container): void {

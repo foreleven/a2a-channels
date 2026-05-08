@@ -1,9 +1,7 @@
 import { injectable, multiInject } from "inversify";
-import type { AgentTransportFactory } from "@agent-relay/agent-transport";
+import { AgentTransportFactory } from "@agent-relay/agent-transport";
 import { AgentClient, TransportRegistry } from "@agent-relay/agent-transport";
 import type { AgentConfigSnapshot } from "@agent-relay/domain";
-
-import { AgentTransportToken } from "./transport-tokens.js";
 
 /** Creates runtime agent client handles from registered transport implementations. */
 @injectable()
@@ -12,7 +10,7 @@ export class AgentClientFactory {
 
   /** Registers all injected transport implementations by protocol. */
   constructor(
-    @multiInject(AgentTransportToken)
+    @multiInject(AgentTransportFactory)
     transports: AgentTransportFactory[],
   ) {
     for (const transport of transports) {
