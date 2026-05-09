@@ -42,6 +42,7 @@ export class AgentClientFactory {
     const factory = this.transportRegistry.resolve(agent.protocol);
     const baseTransport = factory.create(agent.config, {
       agentName: agent.name,
+      agentId: agent.id,
     });
     const transport = new SessionMappingTransport({
       inner: baseTransport,

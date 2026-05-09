@@ -445,7 +445,7 @@ describe("GatewayApp", () => {
       issues: [
         {
           path: "protocol",
-          message: 'Invalid option: expected one of "a2a"|"acp"',
+          message: 'Invalid option: expected one of "a2a"|"acp"|"ws-tunnel"',
         },
       ],
     });

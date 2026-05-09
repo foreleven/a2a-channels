@@ -45,6 +45,9 @@
       ],
       "@agent-relay/store-sqlite": [
         "./packages/store-sqlite/src/index.ts"
+      ],
+      "@agent-relay/relay": [
+        "./apps/relay/src/index.ts"
       ]
     }
   },

@@ -6,6 +6,8 @@ import {
   A2ATransport,
   ACPTransport,
   AgentTransportFactory,
+  WsTunnelTransportFactory,
+  WsTunnelConnectionSource,
 } from "@agent-relay/agent-transport";
 import {
   OpenClawPluginHost,
@@ -81,6 +83,8 @@ import { RuntimeAssignmentService } from "../runtime/runtime-assignment-service.
 import { RuntimeOpenClawConfigProjection } from "../runtime/runtime-openclaw-config-projection.js";
 import { BunQueueScheduledJobWorkerService } from "../runtime/cron/bunqueue-scheduled-job-service.js";
 import { ScheduledJobExecutor } from "../runtime/cron/scheduled-job-executor.js";
+import { WsTunnelConnectionRegistry } from "../runtime/ws-tunnel-registry.js";
+import { WsTunnelRouteHandler } from "../runtime/ws-tunnel-route-handler.js";
 import type { GatewayConfigSnapshot } from "./config.js";
 import {
   buildGatewayConfig,
@@ -216,6 +220,24 @@ function bindRuntime(
     .bind<AgentTransportFactory>(AgentTransportFactory)
     .toDynamicValue(() => new ACPTransport())
     .inSingletonScope();
+
+  // ws-tunnel transport: the registry holds live WS connections from relay CLI
+  // instances; the factory resolves them at request time.
+  container
+    .bind(WsTunnelConnectionRegistry)
+    .toSelf()
+    .inSingletonScope();
+  container
+    .bind(WsTunnelConnectionSource)
+    .toService(WsTunnelConnectionRegistry);
+  container
+    .bind<AgentTransportFactory>(AgentTransportFactory)
+    .toDynamicValue(() =>
+      new WsTunnelTransportFactory(container.get(WsTunnelConnectionRegistry)),
+    )
+    .inSingletonScope();
+
+  container.bind(WsTunnelRouteHandler).toSelf().inSingletonScope();
   container.bind(AgentClientFactory).toSelf().inSingletonScope();
 
   container.bind(AgentClientRegistry).toSelf().inSingletonScope();

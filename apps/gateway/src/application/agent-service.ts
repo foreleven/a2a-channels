@@ -2,7 +2,7 @@
  * AgentService – application service for Agent configuration use-cases.
  */
 
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import {
   AgentConfigAggregate,
   AgentConfigRepository,
@@ -13,6 +13,7 @@ import type {
   AgentConfigSnapshot,
   AgentProtocol,
   AgentProtocolConfig,
+  WsTunnelAgentConfig,
 } from "@agent-relay/domain";
 import { inject, injectable } from "inversify";
 
@@ -78,10 +79,12 @@ export class AgentService {
 
   async register(data: RegisterAgentData): Promise<AgentConfigSnapshot> {
     assertAgentName(data.name);
-    assertProtocolConfig(data.protocol, data.config);
+    const config = injectRelayTokenIfNeeded(data.protocol, data.config);
+    assertProtocolConfig(data.protocol, config);
     const aggregate = AgentConfigAggregate.register({
       id: randomUUID(),
       ...data,
+      config,
     });
     await this.repo.save(aggregate);
     return aggregate.snapshot();
@@ -99,10 +102,45 @@ export class AgentService {
     const current = aggregate.snapshot();
     assertAgentName(changes.name ?? current.name);
     const nextProtocol = changes.protocol ?? current.protocol;
-    const nextConfig = changes.config ?? current.config;
+    const nextConfig = mergeWsTunnelConfig(
+      current.protocol,
+      current.config,
+      nextProtocol,
+      changes.config ?? current.config,
+    );
     assertProtocolConfig(nextProtocol, nextConfig);
 
-    aggregate.update(changes);
+    aggregate.update({ ...changes, config: nextConfig });
+    await this.repo.save(aggregate);
+    this.broadcastAgentChanged(id);
+    return aggregate.snapshot();
+  }
+
+  /**
+   * Regenerates the relayToken for a ws-tunnel agent.
+   * Returns the updated snapshot (which includes the new token) or null if
+   * the agent does not exist or is not a ws-tunnel agent.
+   */
+  async regenerateRelayToken(id: string): Promise<AgentConfigSnapshot | null> {
+    const aggregate = await this.repo.findById(id);
+    if (!aggregate) {
+      return null;
+    }
+
+    const current = aggregate.snapshot();
+    if (current.protocol !== "ws-tunnel") {
+      throw new InvalidAgentConfigError(
+        `Agent ${id} is not a ws-tunnel agent; cannot regenerate relay token`,
+      );
+    }
+
+    const currentConfig = current.config as WsTunnelAgentConfig;
+    const newConfig: WsTunnelAgentConfig = {
+      ...currentConfig,
+      relayToken: generateRelayToken(),
+    };
+
+    aggregate.update({ config: newConfig });
     await this.repo.save(aggregate);
     this.broadcastAgentChanged(id);
     return aggregate.snapshot();
@@ -160,7 +198,54 @@ function assertProtocolConfig(
     return;
   }
 
-  if (!("transport" in config)) {
-    throw new InvalidAgentConfigError("ACP agent config requires transport");
+  if (protocol === "acp") {
+    if (!("transport" in config)) {
+      throw new InvalidAgentConfigError("ACP agent config requires transport");
+    }
+    return;
   }
+
+  if (protocol === "ws-tunnel") {
+    if (!("transport" in config) || (config as { transport?: unknown }).transport !== "ws-tunnel") {
+      throw new InvalidAgentConfigError(
+        "ws-tunnel agent config requires transport: 'ws-tunnel'",
+      );
+    }
+  }
+}
+
+function generateRelayToken(): string {
+  return randomBytes(32).toString("hex");
+}
+
+/**
+ * For `ws-tunnel` agents, auto-injects the `relayToken` on first registration
+ * (so the caller does not need to supply it).
+ */
+function injectRelayTokenIfNeeded(
+  protocol: AgentProtocol,
+  config: AgentProtocolConfig,
+): AgentProtocolConfig {
+  if (protocol !== "ws-tunnel") return config;
+  const wsCfg = config as WsTunnelAgentConfig;
+  if (wsCfg.relayToken) return config;
+  return { ...wsCfg, relayToken: generateRelayToken() };
+}
+
+/**
+ * When updating a ws-tunnel agent, preserve the existing relayToken from the
+ * stored config regardless of what the caller supplies (the dedicated
+ * `regenerateRelayToken()` method is the only authorised path for rotation).
+ */
+function mergeWsTunnelConfig(
+  currentProtocol: AgentProtocol,
+  currentConfig: AgentProtocolConfig,
+  nextProtocol: AgentProtocol,
+  nextConfig: AgentProtocolConfig,
+): AgentProtocolConfig {
+  if (currentProtocol !== "ws-tunnel" || nextProtocol !== "ws-tunnel") {
+    return nextConfig;
+  }
+  const existingToken = (currentConfig as WsTunnelAgentConfig).relayToken;
+  return { ...(nextConfig as WsTunnelAgentConfig), relayToken: existingToken };
 }

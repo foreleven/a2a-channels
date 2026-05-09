@@ -5,6 +5,8 @@ import type {
   AgentConfigSnapshot,
   AgentProtocol,
   AgentProtocolConfig,
+  WsTunnelAgentConfig,
+  ClaudeCodeExecutorConfig,
 } from "@agent-relay/domain";
 import { AgentConfigAggregate } from "@agent-relay/domain";
 import { injectable } from "inversify";
@@ -80,7 +82,9 @@ export class AgentConfigStateRepository implements AgentConfigRepository {
 }
 
 function parseAgentProtocol(value: string): AgentProtocol {
-  return value === "acp" ? "acp" : "a2a";
+  if (value === "acp") return "acp";
+  if (value === "ws-tunnel") return "ws-tunnel";
+  return "a2a";
 }
 
 function parseAgentConfig(
@@ -108,6 +112,14 @@ function parseAgentConfig(
         timeoutMs: parsed.timeoutMs,
       };
     }
+    if (protocol === "ws-tunnel" && isWsTunnelAgentConfig(parsed)) {
+      return {
+        transport: "ws-tunnel",
+        relayToken: parsed.relayToken,
+        executor: parseClaudeCodeExecutorConfig(parsed.executor),
+        timeoutMs: typeof parsed.timeoutMs === "number" ? parsed.timeoutMs : undefined,
+      };
+    }
     // Warn about unrecognised configs (e.g. previously persisted ACP REST rows)
     // so operators know they need to re-configure the agent.
     console.warn(
@@ -119,7 +131,9 @@ function parseAgentConfig(
 
   return parseAgentProtocol(protocolValue) === "acp"
     ? { transport: "stdio", command: "" }
-    : { url: "" };
+    : parseAgentProtocol(protocolValue) === "ws-tunnel"
+      ? { transport: "ws-tunnel", relayToken: "", executor: { type: "claude-code" } }
+      : { url: "" };
 }
 
 function isA2AAgentConfig(value: unknown): value is A2AAgentConfig {
@@ -158,4 +172,36 @@ function isACPAgentConfig(value: unknown): value is ACPAgentConfig {
 
 function isObject(value: unknown): value is { [key: string]: unknown } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isWsTunnelAgentConfig(value: unknown): value is {
+  transport: "ws-tunnel";
+  relayToken: string;
+  executor: unknown;
+  timeoutMs?: number;
+} {
+  if (!isObject(value)) return false;
+  return (
+    value.transport === "ws-tunnel" && typeof value.relayToken === "string"
+  );
+}
+
+function parseClaudeCodeExecutorConfig(
+  raw: unknown,
+): ClaudeCodeExecutorConfig {
+  if (!isObject(raw) || raw.type !== "claude-code") {
+    return { type: "claude-code" };
+  }
+  return {
+    type: "claude-code",
+    ...(typeof raw.model === "string" ? { model: raw.model } : {}),
+    ...(typeof raw.systemPrompt === "string"
+      ? { systemPrompt: raw.systemPrompt }
+      : {}),
+    ...(typeof raw.maxTurns === "number" ? { maxTurns: raw.maxTurns } : {}),
+    ...(Array.isArray(raw.allowedTools) &&
+    raw.allowedTools.every((t) => typeof t === "string")
+      ? { allowedTools: raw.allowedTools as string[] }
+      : {}),
+  };
 }

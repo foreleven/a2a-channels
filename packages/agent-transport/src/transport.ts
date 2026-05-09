@@ -68,7 +68,7 @@ export interface AgentResponseStreamEvent {
   files?: AgentFile[];
 }
 
-export type AgentProtocol = "a2a" | "acp";
+export type AgentProtocol = "a2a" | "acp" | "ws-tunnel";
 
 export interface A2AAgentConfig {
   readonly url: string;
@@ -91,7 +91,21 @@ export interface ACPStdioAgentConfig {
 }
 
 export type ACPAgentConfig = ACPStdioAgentConfig;
-export type AgentProtocolConfig = A2AAgentConfig | ACPAgentConfig;
+
+export interface WsTunnelAgentConfig {
+  readonly transport: "ws-tunnel";
+  readonly relayToken: string;
+  readonly executor: {
+    readonly type: "claude-code";
+    readonly model?: string;
+    readonly systemPrompt?: string;
+    readonly maxTurns?: number;
+    readonly allowedTools?: readonly string[];
+  };
+  readonly timeoutMs?: number;
+}
+
+export type AgentProtocolConfig = A2AAgentConfig | ACPAgentConfig | WsTunnelAgentConfig;
 
 export interface AgentClientOptions {
   protocol: AgentProtocol;
@@ -172,6 +186,8 @@ export interface AgentTransportFactory {
 
 export interface AgentTransportContext {
   readonly agentName?: string;
+  /** Gateway-side agent identifier, used by WsTunnelTransportFactory. */
+  readonly agentId?: string;
 }
 
 /** Protocol-keyed registry for resolving agent transport implementations. */

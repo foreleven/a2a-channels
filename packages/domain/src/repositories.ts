@@ -8,6 +8,7 @@
 import type {
   AgentConfigAggregate,
   AgentConfigSnapshot,
+  AgentProtocol,
 } from "./aggregates/agent-config.js";
 import type {
   ChannelBindingAggregate,
@@ -76,7 +77,7 @@ export interface ChannelMessageRepository {
 
 export interface SessionMappingKey {
   readonly agentId: string;
-  readonly protocol: "a2a" | "acp";
+  readonly protocol: AgentProtocol;
   readonly sessionKey: string;
 }
 
