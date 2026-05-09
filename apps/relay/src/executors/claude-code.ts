@@ -6,9 +6,8 @@
  * tools) is applied as CLI flags.
  *
  * The `claude` binary is resolved in order:
- *  1. The local `@anthropic-ai/claude-code` package installed alongside this
- *     CLI (i.e. in node_modules).
- *  2. The `CLAUDE_BIN` environment variable.
+ *  1. The `CLAUDE_BIN` environment variable.
+ *  2. The local `@anthropic-ai/claude-code` package installed alongside this CLI.
  *  3. `claude` on PATH.
  */
 

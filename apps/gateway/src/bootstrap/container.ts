@@ -230,6 +230,12 @@ function bindRuntime(
   container
     .bind(WsTunnelConnectionSource)
     .toService(WsTunnelConnectionRegistry);
+  // Register as a ServiceContribution so GatewayServer calls stop() on shutdown,
+  // cleanly closing all active WS connections and rejecting pending requests.
+  container
+    .bind<ServiceContribution>(ServiceContributionToken)
+    .toDynamicValue(() => container.get(WsTunnelConnectionRegistry))
+    .inSingletonScope();
   container
     .bind<AgentTransportFactory>(AgentTransportFactory)
     .toDynamicValue(() =>

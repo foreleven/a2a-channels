@@ -134,6 +134,12 @@ export class WsTunnelConnectionRegistry implements WsTunnelConnectionSource {
     conn.ws.terminate();
   }
 
+  // ServiceContribution interface – registered with ServiceContributionToken so
+  // that GatewayServer participates in the registry's shutdown lifecycle.
+
+  /** No-op: the registry is ready as soon as it is instantiated. */
+  async start(): Promise<void> {}
+
   /** Shut down all connections (called during gateway shutdown). */
   async stop(): Promise<void> {
     for (const [agentId] of this.connections) {

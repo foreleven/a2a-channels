@@ -460,4 +460,213 @@ describe("GatewayApp", () => {
       bindingIds: ["binding-1"],
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // ws-tunnel relay-specific endpoints
+  // ---------------------------------------------------------------------------
+
+  test("runner-config returns executor config for a valid relay token", async () => {
+    const container = createHttpContainer();
+    const relayToken = "my-secret-relay-token";
+    const wsTunnelAgent: AgentConfigSnapshot = {
+      id: "relay-agent-1",
+      name: "relay-agent",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        relayToken,
+        executor: {
+          type: "claude-code",
+          model: "claude-opus-4-5",
+          systemPrompt: "You are helpful.",
+          maxTurns: 5,
+        },
+      },
+      createdAt: "2026-04-21T00:00:00.000Z",
+    };
+    container.rebindSync(AgentService).toConstantValue({
+      list: async () => [],
+      getById: async (id: string) => (id === wsTunnelAgent.id ? wsTunnelAgent : null),
+      register: async () => wsTunnelAgent,
+      update: async () => null,
+      delete: async () => false,
+      regenerateRelayToken: async () => null,
+    } as unknown as AgentService);
+    const app = container.get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request(`/api/agents/${wsTunnelAgent.id}/runner-config`, {
+      headers: { Authorization: `Bearer ${relayToken}` },
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as {
+      agentId: string;
+      name: string;
+      gatewayWsUrl: string;
+      executor: { type: string };
+    };
+    assert.equal(body.agentId, wsTunnelAgent.id);
+    assert.equal(body.name, wsTunnelAgent.name);
+    assert.ok(body.gatewayWsUrl.startsWith("ws"), "gatewayWsUrl must be a WS URL");
+    assert.ok(
+      body.gatewayWsUrl.endsWith(`/ws/a2a/${wsTunnelAgent.id}`),
+      "gatewayWsUrl must end with the agent path",
+    );
+    assert.equal(body.executor.type, "claude-code");
+  });
+
+  test("runner-config returns 401 for an invalid relay token", async () => {
+    const container = createHttpContainer();
+    const wsTunnelAgent: AgentConfigSnapshot = {
+      id: "relay-agent-2",
+      name: "relay-agent-2",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        relayToken: "correct-token",
+        executor: { type: "claude-code" },
+      },
+      createdAt: "2026-04-21T00:00:00.000Z",
+    };
+    container.rebindSync(AgentService).toConstantValue({
+      list: async () => [],
+      getById: async (id: string) => (id === wsTunnelAgent.id ? wsTunnelAgent : null),
+      register: async () => wsTunnelAgent,
+      update: async () => null,
+      delete: async () => false,
+      regenerateRelayToken: async () => null,
+    } as unknown as AgentService);
+    const app = container.get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request(`/api/agents/${wsTunnelAgent.id}/runner-config`, {
+      headers: { Authorization: "Bearer wrong-token" },
+    });
+
+    assert.equal(response.status, 401);
+  });
+
+  test("runner-config returns 404 for an unknown agent", async () => {
+    const container = createHttpContainer();
+    container.rebindSync(AgentService).toConstantValue({
+      list: async () => [],
+      getById: async () => null,
+      register: async () => { throw new Error("not called"); },
+      update: async () => null,
+      delete: async () => false,
+      regenerateRelayToken: async () => null,
+    } as unknown as AgentService);
+    const app = container.get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request("/api/agents/no-such-id/runner-config", {
+      headers: { Authorization: "Bearer some-token" },
+    });
+
+    assert.equal(response.status, 404);
+  });
+
+  test("runner-config returns 400 for a non-ws-tunnel agent", async () => {
+    const container = createHttpContainer();
+    const a2aAgent: AgentConfigSnapshot = {
+      id: "a2a-agent-x",
+      name: "a2a-agent-x",
+      protocol: "a2a",
+      config: { url: "http://localhost:3001" },
+      createdAt: "2026-04-21T00:00:00.000Z",
+    };
+    container.rebindSync(AgentService).toConstantValue({
+      list: async () => [],
+      getById: async (id: string) => (id === a2aAgent.id ? a2aAgent : null),
+      register: async () => a2aAgent,
+      update: async () => null,
+      delete: async () => false,
+      regenerateRelayToken: async () => null,
+    } as unknown as AgentService);
+    const app = container.get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request(`/api/agents/${a2aAgent.id}/runner-config`, {
+      headers: { Authorization: "Bearer any-token" },
+    });
+
+    assert.equal(response.status, 400);
+  });
+
+  test("runner-config is not protected by JWT middleware", async () => {
+    // The runner-config endpoint must be reachable without a valid JWT.
+    const container = createHttpContainer();
+    const relayToken = "relay-bearer-token";
+    const wsTunnelAgent: AgentConfigSnapshot = {
+      id: "relay-agent-noauth",
+      name: "relay-agent-noauth",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        relayToken,
+        executor: { type: "claude-code" },
+      },
+      createdAt: "2026-04-21T00:00:00.000Z",
+    };
+    container.rebindSync(AgentService).toConstantValue({
+      list: async () => [],
+      getById: async (id: string) => (id === wsTunnelAgent.id ? wsTunnelAgent : null),
+      register: async () => wsTunnelAgent,
+      update: async () => null,
+      delete: async () => false,
+      regenerateRelayToken: async () => null,
+    } as unknown as AgentService);
+    const app = container.get<HonoGatewayApp>(GatewayApp);
+
+    // No JWT – only the relay token in the Authorization header.
+    const response = await app.request(`/api/agents/${wsTunnelAgent.id}/runner-config`, {
+      headers: { Authorization: `Bearer ${relayToken}` },
+    });
+
+    // Should succeed with the relay token, not be blocked by JWT middleware.
+    assert.equal(response.status, 200);
+  });
+
+  test("regenerate-token returns the new relay token (JWT-protected)", async () => {
+    const container = createHttpContainer();
+    const newToken = "brand-new-secret";
+    const wsTunnelAgent: AgentConfigSnapshot = {
+      id: "relay-regen-1",
+      name: "relay-regen-1",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        relayToken: newToken,
+        executor: { type: "claude-code" },
+      },
+      createdAt: "2026-04-21T00:00:00.000Z",
+    };
+    container.rebindSync(AgentService).toConstantValue({
+      list: async () => [],
+      getById: async () => wsTunnelAgent,
+      register: async () => wsTunnelAgent,
+      update: async () => null,
+      delete: async () => false,
+      regenerateRelayToken: async () => wsTunnelAgent,
+    } as unknown as AgentService);
+    const app = container.get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request(
+      `/api/agents/${wsTunnelAgent.id}/regenerate-token`,
+      { method: "POST", headers: authHeaders },
+    );
+
+    assert.equal(response.status, 200);
+    const body = await response.json() as { relayToken: string };
+    assert.equal(body.relayToken, newToken);
+  });
+
+  test("regenerate-token requires JWT authentication", async () => {
+    const container = createHttpContainer();
+    const app = container.get<HonoGatewayApp>(GatewayApp);
+
+    const response = await app.request("/api/agents/relay-regen-1/regenerate-token", {
+      method: "POST",
+      // No auth header
+    });
+
+    assert.equal(response.status, 401);
+  });
 });

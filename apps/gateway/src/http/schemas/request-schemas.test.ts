@@ -52,4 +52,96 @@ describe("agent request schemas", () => {
 
     assert.equal(parsed.success, false);
   });
+
+  // ---------------------------------------------------------------------------
+  // ws-tunnel configs
+  // ---------------------------------------------------------------------------
+
+  test("accepts a minimal ws-tunnel agent config", () => {
+    const parsed = registerAgentBodySchema.safeParse({
+      name: "my-relay-agent",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        executor: { type: "claude-code" },
+      },
+    });
+
+    assert.equal(parsed.success, true, JSON.stringify(parsed));
+  });
+
+  test("accepts a full ws-tunnel agent config", () => {
+    const parsed = registerAgentBodySchema.safeParse({
+      name: "full-relay-agent",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        executor: {
+          type: "claude-code",
+          model: "claude-opus-4-5",
+          systemPrompt: "You are helpful.",
+          maxTurns: 5,
+          allowedTools: ["Read", "Write", "Bash"],
+        },
+        timeoutMs: 30_000,
+      },
+    });
+
+    assert.equal(parsed.success, true, JSON.stringify(parsed));
+  });
+
+  test("rejects ws-tunnel config without an executor", () => {
+    const parsed = registerAgentBodySchema.safeParse({
+      name: "bad-relay-agent",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+      },
+    });
+
+    assert.equal(parsed.success, false);
+  });
+
+  test("rejects ws-tunnel config with wrong executor type", () => {
+    const parsed = registerAgentBodySchema.safeParse({
+      name: "bad-exec-agent",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        executor: { type: "openai" },
+      },
+    });
+
+    assert.equal(parsed.success, false);
+  });
+
+  test("rejects ws-tunnel protocol paired with a non-ws-tunnel transport", () => {
+    const parsed = registerAgentBodySchema.safeParse({
+      name: "mismatch-agent",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "stdio",
+        command: "npx",
+      },
+    });
+
+    assert.equal(parsed.success, false);
+  });
+
+  test("defaults relayToken to empty string when not supplied", () => {
+    const parsed = registerAgentBodySchema.safeParse({
+      name: "relay-no-token",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        executor: { type: "claude-code" },
+      },
+    });
+
+    assert.equal(parsed.success, true);
+    if (parsed.success) {
+      const cfg = parsed.data.config as { relayToken?: string };
+      assert.equal(cfg.relayToken, "");
+    }
+  });
 });
