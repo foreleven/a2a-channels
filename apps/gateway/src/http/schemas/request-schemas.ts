@@ -59,7 +59,10 @@ const wsTunnelAgentConfigSchema = z.object({
   executor: wsTunnelExecutorConfigSchema,
   timeoutMs: z.number().int().positive().optional(),
   // relayToken is always generated server-side by AgentService.
-  // Clients must not supply it; the gateway owns token issuance and rotation.
+  // Clients must not supply it; strict() will reject any request that includes
+  // it as an unrecognised field.  The transform injects an empty placeholder so
+  // the output type satisfies WsTunnelAgentConfig (which requires relayToken);
+  // AgentService.register() replaces the placeholder with a generated token.
 }).strict().transform((data) => ({ ...data, relayToken: "" }));
 const agentConfigSchema = z.union([
   wsTunnelAgentConfigSchema,

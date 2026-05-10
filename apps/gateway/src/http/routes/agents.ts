@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { inject, injectable } from "inversify";
-import type { AgentConfigSnapshot, WsTunnelAgentConfig } from "@agent-relay/domain";
+import type { AgentConfigSnapshot, AgentProtocolConfig, WsTunnelAgentConfig } from "@agent-relay/domain";
 
 import {
   AgentService,
@@ -20,11 +20,17 @@ import { extractBearerToken } from "../utils/auth.js";
  * returning it in public list/get responses.  The token is only obtainable
  * through the dedicated relay-token–authenticated runner-config endpoint or
  * the regenerate-token endpoint.
+ *
+ * The returned snapshot omits `relayToken` from the config object.  The cast
+ * to `AgentConfigSnapshot` is intentional: the omission is a deliberate
+ * security boundary and the result is used only for JSON serialization.
  */
 function redactRelayToken(snapshot: AgentConfigSnapshot): AgentConfigSnapshot {
   if (snapshot.protocol !== "ws-tunnel") return snapshot;
   const { relayToken: _omit, ...publicConfig } = snapshot.config as WsTunnelAgentConfig;
-  return { ...snapshot, config: publicConfig as WsTunnelAgentConfig };
+  // The spread omits relayToken; we cast back to AgentProtocolConfig for the
+  // public snapshot type.  The runtime object intentionally omits the field.
+  return { ...snapshot, config: publicConfig as unknown as AgentProtocolConfig };
 }
 
 /**
