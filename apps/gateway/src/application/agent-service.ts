@@ -219,17 +219,18 @@ function generateRelayToken(): string {
 }
 
 /**
- * For `ws-tunnel` agents, auto-injects the `relayToken` on first registration
- * (so the caller does not need to supply it).
+ * For `ws-tunnel` agents, always injects a freshly generated `relayToken`
+ * regardless of any value the caller supplied.  The gateway owns token
+ * issuance; client-supplied values must be discarded.
  */
 function injectRelayTokenIfNeeded(
   protocol: AgentProtocol,
   config: AgentProtocolConfig,
 ): AgentProtocolConfig {
   if (protocol !== "ws-tunnel") return config;
-  const wsCfg = config as WsTunnelAgentConfig;
-  if (wsCfg.relayToken) return config;
-  return { ...wsCfg, relayToken: generateRelayToken() };
+  // Always generate – never accept a caller-supplied token so weak/known
+  // tokens cannot be injected at registration time.
+  return { ...(config as WsTunnelAgentConfig), relayToken: generateRelayToken() };
 }
 
 /**

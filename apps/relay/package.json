@@ -4,7 +4,7 @@
   "description": "relay – CLI that connects a Claude Code executor to the agent-relay gateway via a WebSocket tunnel",
   "type": "module",
   "bin": {
-    "relay": "src/index.ts"
+    "relay": "bin/relay.js"
   },
   "main": "src/index.ts",
   "scripts": {

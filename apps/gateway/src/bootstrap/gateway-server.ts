@@ -132,7 +132,13 @@ export class GatewayServer {
             socket: Parameters<WsTunnelRouteHandler["handleUpgrade"]>[1],
             head: Parameters<WsTunnelRouteHandler["handleUpgrade"]>[2],
           ) => {
-            handler.handleUpgrade(req, socket, head).catch(
+            handler.handleUpgrade(req, socket, head).then(
+              (handled) => {
+                if (!handled) {
+                  // Path did not match – close the dangling connection.
+                  socket.destroy();
+                }
+              },
               (err: unknown) => {
                 this.logger.error({ err }, "ws-tunnel upgrade error");
                 socket.destroy();

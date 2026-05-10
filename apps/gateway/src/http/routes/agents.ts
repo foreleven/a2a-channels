@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { inject, injectable } from "inversify";
-import type { WsTunnelAgentConfig } from "@agent-relay/domain";
+import type { AgentConfigSnapshot, WsTunnelAgentConfig } from "@agent-relay/domain";
 
 import {
   AgentService,
@@ -14,6 +14,18 @@ import {
   updateAgentBodySchema,
 } from "../schemas/request-schemas.js";
 import { extractBearerToken } from "../utils/auth.js";
+
+/**
+ * Strips the sensitive `relayToken` from a ws-tunnel agent snapshot before
+ * returning it in public list/get responses.  The token is only obtainable
+ * through the dedicated relay-token–authenticated runner-config endpoint or
+ * the regenerate-token endpoint.
+ */
+function redactRelayToken(snapshot: AgentConfigSnapshot): AgentConfigSnapshot {
+  if (snapshot.protocol !== "ws-tunnel") return snapshot;
+  const { relayToken: _omit, ...publicConfig } = snapshot.config as WsTunnelAgentConfig;
+  return { ...snapshot, config: publicConfig as WsTunnelAgentConfig };
+}
 
 /**
  * HTTP adapter for agent configuration CRUD.
@@ -35,11 +47,14 @@ export class AgentRoutes {
   ) {}
 
   register(app: Hono): void {
-    app.get("/api/agents", async (c) => c.json(await this.agentService.list()));
+    app.get("/api/agents", async (c) => {
+      const agents = await this.agentService.list();
+      return c.json(agents.map(redactRelayToken));
+    });
 
     app.get("/api/agents/:id", async (c) => {
       const agent = await this.agentService.getById(c.req.param("id"));
-      return agent ? c.json(agent) : c.json({ error: "Not found" }, 404);
+      return agent ? c.json(redactRelayToken(agent)) : c.json({ error: "Not found" }, 404);
     });
 
     /**

@@ -128,6 +128,20 @@ describe("agent request schemas", () => {
     assert.equal(parsed.success, false);
   });
 
+  test("rejects relayToken supplied in the request body", () => {
+    const parsed = registerAgentBodySchema.safeParse({
+      name: "relay-with-token",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        executor: { type: "claude-code" },
+        relayToken: "user-supplied-token",  // must be rejected by strict()
+      },
+    });
+
+    assert.equal(parsed.success, false);
+  });
+
   test("defaults relayToken to empty string when not supplied", () => {
     const parsed = registerAgentBodySchema.safeParse({
       name: "relay-no-token",

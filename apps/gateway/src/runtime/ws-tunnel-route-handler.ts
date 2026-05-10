@@ -51,8 +51,8 @@ export class WsTunnelRouteHandler {
     if (!match) return false;
 
     const agentId = match[1] ?? "";
-    const authHeader = req.headers["authorization"] ?? "";
-    const token = extractBearerToken(authHeader);
+    const rawAuthHeader = req.headers["authorization"];
+    const token = extractBearerToken(rawAuthHeader);
 
     // Authenticate before completing the WS upgrade.
     const agent = await this.agentService.getById(agentId).catch(() => null);

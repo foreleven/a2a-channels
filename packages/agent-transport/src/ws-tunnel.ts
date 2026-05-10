@@ -79,7 +79,13 @@ export class WsTunnelTransportFactory implements AgentTransportFactory {
           "(transport: 'ws-tunnel')",
       );
     }
-    const agentId = context?.agentId ?? "";
+    const agentId = context?.agentId;
+    if (!agentId) {
+      throw new Error(
+        "WsTunnelTransportFactory requires an agentId in the transport " +
+          "context; ws-tunnel routing cannot proceed without it",
+      );
+    }
     return new WsTunnelAgentTransport(agentId, config, this.source);
   }
 }

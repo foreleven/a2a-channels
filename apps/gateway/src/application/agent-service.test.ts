@@ -110,7 +110,7 @@ describe("AgentService", () => {
       protocol: "ws-tunnel",
       config: {
         transport: "ws-tunnel",
-        relayToken: "",            // empty – should be replaced by service
+        relayToken: "",            // always replaced server-side
         executor: { type: "claude-code" },
       },
     });
@@ -120,6 +120,30 @@ describe("AgentService", () => {
     assert.equal(typeof cfg.relayToken, "string");
     assert.ok(cfg.relayToken.length > 0, "relayToken must be non-empty");
     assert.notEqual(cfg.relayToken, "", "relayToken must not be the placeholder");
+  });
+
+  test("always generates a fresh relayToken even when a non-empty token is supplied", async () => {
+    const repo: AgentConfigRepository = {
+      findById: async () => null,
+      findAll: async () => [],
+      save: async () => {},
+    };
+    const service = new AgentService(repo, createBindingRepo(), eventBus);
+    const clientToken = "weak-client-chosen-token";
+
+    const result = await service.register({
+      name: "forced-token-agent",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        relayToken: clientToken,   // must be discarded
+        executor: { type: "claude-code" },
+      },
+    });
+
+    const cfg = result.config as WsTunnelAgentConfig;
+    assert.notEqual(cfg.relayToken, clientToken, "service must not accept client-supplied tokens");
+    assert.ok(cfg.relayToken.length > 0, "a generated token must be present");
   });
 
   test("preserves existing relayToken when updating a ws-tunnel agent", async () => {

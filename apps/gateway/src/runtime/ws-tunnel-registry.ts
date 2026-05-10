@@ -66,7 +66,25 @@ export class WsTunnelConnectionRegistry implements WsTunnelConnectionSource {
       );
     }
 
-    const requestId = (JSON.parse(frame) as { id?: string }).id ?? "";
+    let parsedFrame: { id?: unknown };
+    try {
+      parsedFrame = JSON.parse(frame) as { id?: unknown };
+    } catch {
+      throw new Error(
+        `Cannot route relay frame: failed to parse JSON for agent "${agentId}"`,
+      );
+    }
+
+    const requestId = typeof parsedFrame.id === "string" && parsedFrame.id
+      ? parsedFrame.id
+      : null;
+
+    if (!requestId) {
+      throw new Error(
+        `Cannot route relay frame to agent "${agentId}": frame is missing ` +
+          "a non-empty string 'id' field required for response correlation",
+      );
+    }
 
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {

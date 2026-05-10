@@ -117,6 +117,29 @@ describe("WsTunnelConnectionRegistry", () => {
     );
   });
 
+  test("send rejects when the frame is missing an id field", async () => {
+    const registry = new WsTunnelConnectionRegistry();
+    const ws = new FakeWs();
+    registry.register("agent-1", ws as never);
+
+    // Frame has no 'id' field → must be rejected before any WS send.
+    await assert.rejects(
+      () => registry.send("agent-1", JSON.stringify({ method: "message/send" }), 1_000),
+      /missing.*id/i,
+    );
+  });
+
+  test("send rejects when the frame id is empty string", async () => {
+    const registry = new WsTunnelConnectionRegistry();
+    const ws = new FakeWs();
+    registry.register("agent-1", ws as never);
+
+    await assert.rejects(
+      () => registry.send("agent-1", JSON.stringify({ id: "" }), 1_000),
+      /missing.*id/i,
+    );
+  });
+
   test("send rejects when the relay returns a JSON-RPC error frame", async () => {
     const registry = new WsTunnelConnectionRegistry();
     const ws = new FakeWs();
