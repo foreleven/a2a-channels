@@ -89,6 +89,7 @@ Channel account
 apps/
   gateway/      Hono HTTP server, OpenClaw host, runtime orchestration, store
   echo-agent/   Minimal A2A-compatible echo agent for local testing
+  relay/        CLI that connects a Claude Code executor to the gateway via WebSocket tunnel
   web/          Next.js admin UI for channels, agents, and runtime status
 
 packages/
@@ -222,7 +223,10 @@ Agent names are also used as ACP workspace folder names, so they must be a
 single folder-safe segment containing only letters, numbers, `.`, `_`, and `-`.
 
 Supported protocols are registered through transport adapters. The current
-gateway binds `a2a` and `acp`.
+gateway binds `a2a`, `acp`, and `ws-tunnel`.
+
+The `ws-tunnel` protocol is for agents that cannot accept inbound TCP
+connections.  See [docs/ws-tunnel.md](docs/ws-tunnel.md).
 
 ### Channels
 
@@ -279,6 +283,16 @@ agent in `apps/echo-agent` exposes:
 | `GET` | `/.well-known/agent-card.json` | A2A agent card |
 | `POST` | `/a2a/jsonrpc` | A2A JSON-RPC endpoint |
 | `POST` | `/a2a/rest` | A2A HTTP+JSON endpoint |
+
+### ws-tunnel
+
+For `protocol: "ws-tunnel"`, AgentRelay routes A2A JSON-RPC frames through a
+persistent WebSocket opened by the relay CLI running on the agent host.  This
+lets agents behind NAT or firewalls connect outward to the gateway without
+requiring inbound TCP connections.
+
+See [docs/ws-tunnel.md](docs/ws-tunnel.md) for the full protocol description,
+gateway API reference, and relay CLI usage.
 
 ### ACP
 
