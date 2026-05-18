@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bot, Cable, Check, Copy, Terminal } from "lucide-react";
 
-import type { AgentConfig, AgentProtocol, WsTunnelAgentConfig } from "@/lib/api";
+import type { AgentConfig, WsTunnelAgentConfig } from "@/lib/api";
 import { createAgent } from "@/lib/api";
 import {
   AGENT_PROTOCOL_OPTIONS,
@@ -151,7 +151,7 @@ export function NewAgentPage({
           </Button>
           <h1 className="text-2xl font-semibold tracking-normal">New Agent</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Register an A2A endpoint, ACP stdio process, or a WebSocket tunnel agent.
+            Register an A2A endpoint, ACP stdio process, or ACP Remote agent.
           </p>
         </div>
         <Button
@@ -196,7 +196,7 @@ export function NewAgentPage({
                   )}
                   <span className="truncate">{protocol.label}</span>
                 </span>
-                <Badge variant="secondary">{protocol.value}</Badge>
+                <Badge variant="secondary">{protocol.badge}</Badge>
               </Link>
             ))}
           </div>
@@ -211,7 +211,7 @@ export function NewAgentPage({
                   {selectedProtocol.summary}
                 </p>
               </div>
-              <Badge variant="outline">{selectedProtocol.value}</Badge>
+              <Badge variant="outline">{selectedProtocol.badge}</Badge>
             </div>
           </CardHeader>
           <CardContent className="p-5">
@@ -232,6 +232,11 @@ export function NewAgentPage({
   );
 }
 
-export function isSupportedAgentProtocol(value: string): value is AgentProtocol {
-  return value === "a2a" || value === "acp" || value === "ws-tunnel";
+export function isSupportedAgentProtocol(value: string): boolean {
+  return (
+    value === "a2a" ||
+    value === "acp" ||
+    value === "acp-remote" ||
+    value === "ws-tunnel"
+  );
 }

@@ -477,9 +477,8 @@ describe("GatewayApp", () => {
         relayToken,
         executor: {
           type: "claude-code",
-          model: "claude-opus-4-5",
-          systemPrompt: "You are helpful.",
-          maxTurns: 5,
+          command: "claude",
+          args: ["--experimental-acp"],
         },
       },
       createdAt: "2026-04-21T00:00:00.000Z",
@@ -503,7 +502,7 @@ describe("GatewayApp", () => {
       agentId: string;
       name: string;
       gatewayWsUrl: string;
-      executor: { type: string };
+      executor: { type: string; command: string };
     };
     assert.equal(body.agentId, wsTunnelAgent.id);
     assert.equal(body.name, wsTunnelAgent.name);
@@ -513,6 +512,7 @@ describe("GatewayApp", () => {
       "gatewayWsUrl must end with the agent path",
     );
     assert.equal(body.executor.type, "claude-code");
+    assert.equal(body.executor.command, "claude");
   });
 
   test("runner-config returns 401 for an invalid relay token", async () => {
@@ -524,7 +524,7 @@ describe("GatewayApp", () => {
       config: {
         transport: "ws-tunnel",
         relayToken: "correct-token",
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
       },
       createdAt: "2026-04-21T00:00:00.000Z",
     };
@@ -601,7 +601,7 @@ describe("GatewayApp", () => {
       config: {
         transport: "ws-tunnel",
         relayToken,
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
       },
       createdAt: "2026-04-21T00:00:00.000Z",
     };
@@ -634,7 +634,7 @@ describe("GatewayApp", () => {
       config: {
         transport: "ws-tunnel",
         relayToken: newToken,
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
       },
       createdAt: "2026-04-21T00:00:00.000Z",
     };

@@ -46,14 +46,25 @@ const acpStdioAgentConfigSchema = z.object({
   permission: acpPermissionSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
 }).strict();
+const acpRemoteExecutorBaseSchema = {
+  command: nonEmptyString,
+  args: z.array(z.string()).optional(),
+  cwd: z.string().optional(),
+  permission: acpPermissionSchema.optional(),
+  timeoutMs: z.number().int().positive().optional(),
+};
 const claudeCodeExecutorConfigSchema = z.object({
   type: z.literal("claude-code"),
-  model: z.string().optional(),
-  systemPrompt: z.string().optional(),
-  maxTurns: z.number().int().positive().optional(),
-  allowedTools: z.array(z.string()).optional(),
+  ...acpRemoteExecutorBaseSchema,
 }).strict();
-const wsTunnelExecutorConfigSchema = claudeCodeExecutorConfigSchema;
+const codexExecutorConfigSchema = z.object({
+  type: z.literal("codex"),
+  ...acpRemoteExecutorBaseSchema,
+}).strict();
+const wsTunnelExecutorConfigSchema = z.union([
+  claudeCodeExecutorConfigSchema,
+  codexExecutorConfigSchema,
+]);
 const wsTunnelAgentConfigSchema = z.object({
   transport: z.literal("ws-tunnel"),
   executor: wsTunnelExecutorConfigSchema,

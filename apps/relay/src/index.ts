@@ -3,7 +3,7 @@
  * relay – CLI for the agent-relay WebSocket tunnel protocol.
  *
  * Commands:
- *   relay serve <agent-id>            Connect the local Claude Code executor
+ *   relay serve <agent-id>            Connect the configured ACP executor
  *                                     to the gateway and process messages.
  *   relay exec  <agent-id> <message>  Run a single message locally (no WS).
  *
@@ -19,9 +19,7 @@ const program = new Command();
 
 program
   .name("relay")
-  .description(
-    "relay – connect a Claude Code executor to the agent-relay gateway",
-  )
+  .description("relay – connect an ACP executor to the agent-relay gateway")
   .version("0.1.0");
 
 // ---------------------------------------------------------------------------
@@ -31,7 +29,7 @@ program
 program
   .command("serve <agent-id>")
   .description(
-    "Connect a local Claude Code executor to the gateway via WebSocket tunnel",
+    "Connect a local ACP executor to the gateway via WebSocket tunnel",
   )
   .option(
     "--gateway-url <url>",

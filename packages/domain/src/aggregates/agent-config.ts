@@ -35,24 +35,31 @@ export interface ACPStdioAgentConfig {
 
 export type ACPAgentConfig = ACPStdioAgentConfig;
 
-/**
- * Executor configuration for the relay CLI's Claude Code executor.
- *
- * The relay CLI spawns the `claude` binary as a subprocess with these settings.
- */
-export interface ClaudeCodeExecutorConfig {
-  readonly type: "claude-code";
-  /** Claude model to use. Defaults to the claude CLI's default model. */
-  readonly model?: string;
-  /** System prompt passed to the Claude session. */
-  readonly systemPrompt?: string;
-  /** Maximum number of agentic turns. Defaults to 3. */
-  readonly maxTurns?: number;
-  /** Tools the agent is allowed to use (e.g. ["Read", "Write", "Bash"]). */
-  readonly allowedTools?: readonly string[];
+interface ACPRemoteExecutorBaseConfig {
+  readonly command: string;
+  readonly args?: readonly string[];
+  readonly cwd?: string;
+  readonly permission?:
+    | "allow_once"
+    | "allow_always"
+    | "reject_once"
+    | "reject_always";
+  readonly timeoutMs?: number;
 }
 
-export type WsTunnelExecutorConfig = ClaudeCodeExecutorConfig;
+/** ACP stdio executor configuration for Claude Code running behind relay CLI. */
+export interface ClaudeCodeExecutorConfig extends ACPRemoteExecutorBaseConfig {
+  readonly type: "claude-code";
+}
+
+/** ACP stdio executor configuration for Codex running behind relay CLI. */
+export interface CodexExecutorConfig extends ACPRemoteExecutorBaseConfig {
+  readonly type: "codex";
+}
+
+export type WsTunnelExecutorConfig =
+  | ClaudeCodeExecutorConfig
+  | CodexExecutorConfig;
 
 /**
  * Configuration for an agent that connects to the gateway via a WebSocket

@@ -7,6 +7,7 @@ import type {
   AgentProtocolConfig,
   WsTunnelAgentConfig,
   ClaudeCodeExecutorConfig,
+  WsTunnelExecutorConfig,
 } from "@agent-relay/domain";
 import { AgentConfigAggregate } from "@agent-relay/domain";
 import { injectable } from "inversify";
@@ -116,7 +117,7 @@ function parseAgentConfig(
       return {
         transport: "ws-tunnel",
         relayToken: parsed.relayToken,
-        executor: parseClaudeCodeExecutorConfig(parsed.executor),
+        executor: parseWsTunnelExecutorConfig(parsed.executor),
         timeoutMs: typeof parsed.timeoutMs === "number" ? parsed.timeoutMs : undefined,
       };
     }
@@ -132,7 +133,11 @@ function parseAgentConfig(
   return parseAgentProtocol(protocolValue) === "acp"
     ? { transport: "stdio", command: "" }
     : parseAgentProtocol(protocolValue) === "ws-tunnel"
-      ? { transport: "ws-tunnel", relayToken: "", executor: { type: "claude-code" } }
+      ? {
+          transport: "ws-tunnel",
+          relayToken: "",
+          executor: defaultACPRemoteExecutorConfig("claude-code"),
+        }
       : { url: "" };
 }
 
@@ -186,22 +191,71 @@ function isWsTunnelAgentConfig(value: unknown): value is {
   );
 }
 
-function parseClaudeCodeExecutorConfig(
-  raw: unknown,
-): ClaudeCodeExecutorConfig {
-  if (!isObject(raw) || raw.type !== "claude-code") {
-    return { type: "claude-code" };
+function parseWsTunnelExecutorConfig(raw: unknown): WsTunnelExecutorConfig {
+  if (!isObject(raw)) {
+    return defaultACPRemoteExecutorConfig("claude-code");
   }
+  if (raw.type === "codex") {
+    return parseACPRemoteExecutorConfig(raw, "codex");
+  }
+  if (raw.type === "claude-code") {
+    return parseACPRemoteExecutorConfig(raw, "claude-code");
+  }
+
+  return defaultACPRemoteExecutorConfig("claude-code");
+}
+
+function parseACPRemoteExecutorConfig(
+  raw: { [key: string]: unknown },
+  type: "claude-code" | "codex",
+): WsTunnelExecutorConfig {
+  const fallback = defaultACPRemoteExecutorConfig(type);
+  return {
+    type,
+    command: typeof raw.command === "string" && raw.command.trim()
+      ? raw.command
+      : fallback.command,
+    ...(Array.isArray(raw.args) &&
+    raw.args.every((arg) => typeof arg === "string")
+      ? { args: raw.args }
+      : {}),
+    ...(typeof raw.cwd === "string" ? { cwd: raw.cwd } : {}),
+    ...(isACPPermission(raw.permission)
+      ? { permission: raw.permission }
+      : {}),
+    ...(typeof raw.timeoutMs === "number" &&
+    Number.isInteger(raw.timeoutMs) &&
+    raw.timeoutMs > 0
+      ? { timeoutMs: raw.timeoutMs }
+      : {}),
+  } as WsTunnelExecutorConfig;
+}
+
+function defaultACPRemoteExecutorConfig(
+  type: "claude-code" | "codex",
+): WsTunnelExecutorConfig {
+  if (type === "codex") {
+    return {
+      type: "codex",
+      command: "npx",
+      args: ["@zed-industries/codex-acp"],
+    };
+  }
+
   return {
     type: "claude-code",
-    ...(typeof raw.model === "string" ? { model: raw.model } : {}),
-    ...(typeof raw.systemPrompt === "string"
-      ? { systemPrompt: raw.systemPrompt }
-      : {}),
-    ...(typeof raw.maxTurns === "number" ? { maxTurns: raw.maxTurns } : {}),
-    ...(Array.isArray(raw.allowedTools) &&
-    raw.allowedTools.every((t) => typeof t === "string")
-      ? { allowedTools: raw.allowedTools as string[] }
-      : {}),
+    command: "claude",
+    args: ["--experimental-acp"],
   };
+}
+
+function isACPPermission(
+  value: unknown,
+): value is NonNullable<ClaudeCodeExecutorConfig["permission"]> {
+  return (
+    value === "allow_once" ||
+    value === "allow_always" ||
+    value === "reject_once" ||
+    value === "reject_always"
+  );
 }

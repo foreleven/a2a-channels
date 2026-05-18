@@ -111,7 +111,7 @@ describe("AgentService", () => {
       config: {
         transport: "ws-tunnel",
         relayToken: "",            // always replaced server-side
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
       },
     });
 
@@ -137,7 +137,7 @@ describe("AgentService", () => {
       config: {
         transport: "ws-tunnel",
         relayToken: clientToken,   // must be discarded
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
       },
     });
 
@@ -155,7 +155,11 @@ describe("AgentService", () => {
       config: {
         transport: "ws-tunnel",
         relayToken: originalToken,
-        executor: { type: "claude-code", model: "claude-opus-4-5" },
+        executor: {
+          type: "claude-code",
+          command: "claude",
+          args: ["--experimental-acp"],
+        },
       },
     });
     const service = new AgentService(
@@ -168,7 +172,7 @@ describe("AgentService", () => {
       config: {
         transport: "ws-tunnel",
         relayToken: "ignored-new-token",   // must not overwrite stored token
-        executor: { type: "claude-code", model: "claude-sonnet-4-5" },
+        executor: { type: "codex", command: "npx", args: ["@zed-industries/codex-acp"] },
       },
     });
 
@@ -179,7 +183,8 @@ describe("AgentService", () => {
       originalToken,
       "relayToken must be preserved across updates",
     );
-    assert.equal(cfg.executor.model, "claude-sonnet-4-5");
+    assert.equal(cfg.executor.type, "codex");
+    assert.equal(cfg.executor.command, "npx");
   });
 
   test("regenerateRelayToken replaces the token and returns the snapshot", async () => {
@@ -191,7 +196,7 @@ describe("AgentService", () => {
       config: {
         transport: "ws-tunnel",
         relayToken: originalToken,
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
       },
     });
     const service = new AgentService(
@@ -217,7 +222,7 @@ describe("AgentService", () => {
       config: {
         transport: "ws-tunnel",
         relayToken: "tok",
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
       },
     });
     const service = new AgentService(

@@ -37,9 +37,6 @@ export function AgentConfigFields({
   const timeoutError = form.timeoutMs.trim()
     ? validation.timeoutMs
     : undefined;
-  const maxTurnsError = form.executorMaxTurns.trim()
-    ? validation.executorMaxTurns
-    : undefined;
 
   return (
     <FieldGroup>
@@ -224,71 +221,130 @@ export function AgentConfigFields({
 
       {form.protocol === "ws-tunnel" && (
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField inputId="executor-model" label="Model">
-            <Input
-              id="executor-model"
-              onChange={(event) =>
-                onChange({ ...form, executorModel: event.target.value })
-              }
-              placeholder="claude-opus-4-5"
-              value={form.executorModel}
-            />
-            <FieldDescription>
-              Claude model passed to the relay CLI. Defaults to the claude CLI
-              default when left blank.
-            </FieldDescription>
+          <FormField label="Executor">
+            <Select
+              onValueChange={(value) => {
+                const nextType = value === "codex" ? "codex" : "claude-code";
+                const currentDefaultCommand =
+                  form.executorType === "codex" ? "npx" : "claude";
+                const nextDefaultCommand =
+                  nextType === "codex" ? "npx" : "claude";
+                const currentDefaultArgs =
+                  form.executorType === "codex"
+                    ? "@zed-industries/codex-acp"
+                    : "--experimental-acp";
+                const nextDefaultArgs =
+                  nextType === "codex"
+                    ? "@zed-industries/codex-acp"
+                    : "--experimental-acp";
+
+                onChange({
+                  ...form,
+                  executorType: nextType,
+                  command:
+                    !form.command || form.command === currentDefaultCommand
+                      ? nextDefaultCommand
+                      : form.command,
+                  args:
+                    !form.args || form.args === currentDefaultArgs
+                      ? nextDefaultArgs
+                      : form.args,
+                });
+              }}
+              value={form.executorType}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="claude-code">Claude Code</SelectItem>
+                  <SelectItem value="codex">Codex</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </FormField>
           <FormField
-            error={maxTurnsError}
-            inputId="executor-max-turns"
-            label="Max Turns"
+            error={commandError}
+            inputId="executor-command"
+            label="Command"
+            required
           >
             <Input
               aria-describedby={
-                maxTurnsError ? "executor-max-turns-error" : undefined
+                commandError ? "executor-command-error" : undefined
               }
-              aria-invalid={Boolean(maxTurnsError)}
-              id="executor-max-turns"
-              inputMode="numeric"
+              aria-invalid={Boolean(commandError)}
+              id="executor-command"
               onChange={(event) =>
-                onChange({ ...form, executorMaxTurns: event.target.value })
+                onChange({ ...form, command: event.target.value })
               }
-              placeholder="3"
-              value={form.executorMaxTurns}
+              placeholder={form.executorType === "codex" ? "npx" : "claude"}
+              required
+              value={form.command}
             />
-            <FieldDescription>Maximum agentic turns per request.</FieldDescription>
           </FormField>
           <FormField
             className="sm:col-span-2"
-            inputId="executor-system-prompt"
-            label="System Prompt"
+            inputId="executor-arguments"
+            label="Arguments"
           >
             <Textarea
-              id="executor-system-prompt"
+              className="min-h-24 font-mono text-xs"
+              id="executor-arguments"
               onChange={(event) =>
-                onChange({ ...form, executorSystemPrompt: event.target.value })
+                onChange({ ...form, args: event.target.value })
               }
-              placeholder="You are a helpful assistant."
-              rows={3}
-              value={form.executorSystemPrompt}
-            />
-          </FormField>
-          <FormField
-            className="sm:col-span-2"
-            inputId="executor-allowed-tools"
-            label="Allowed Tools"
-          >
-            <Input
-              id="executor-allowed-tools"
-              onChange={(event) =>
-                onChange({ ...form, executorAllowedTools: event.target.value })
+              placeholder={
+                form.executorType === "codex"
+                  ? "@zed-industries/codex-acp"
+                  : "--experimental-acp"
               }
-              placeholder="Read, Write, Bash"
-              value={form.executorAllowedTools}
+              spellCheck={false}
+              value={form.args}
             />
             <FieldDescription>
-              Comma-separated list of tools the Claude executor may use.
+              One argument per line. The relay CLI starts this as an ACP stdio
+              process.
             </FieldDescription>
+          </FormField>
+          <FormField inputId="executor-cwd" label="Working Directory">
+            <Input
+              id="executor-cwd"
+              onChange={(event) =>
+                onChange({ ...form, cwd: event.target.value })
+              }
+              placeholder="Defaults to relay CLI cwd"
+              value={form.cwd}
+            />
+          </FormField>
+          <FormField label="Permission">
+            <Select
+              onValueChange={(value) =>
+                onChange({
+                  ...form,
+                  permission:
+                    value === "gateway-default"
+                      ? ""
+                      : parsePermission(value),
+                })
+              }
+              value={form.permission || "gateway-default"}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Gateway default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="gateway-default">Gateway default</SelectItem>
+                  {ACP_PERMISSION_OPTIONS.map((permission) => (
+                    <SelectItem key={permission.value} value={permission.value}>
+                      {permission.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </FormField>
           <FormField
             error={timeoutError}

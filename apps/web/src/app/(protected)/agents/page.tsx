@@ -215,7 +215,7 @@ export default function AgentsPage() {
                     <TableCell className="font-medium">{agent.name}</TableCell>
                     <TableCell>
                       <Badge variant="secondary">
-                        {agent.protocol}
+                        {formMapper.protocolLabel(agent.protocol)}
                         {formMapper.transportLabel(agent.config)
                           ? `:${formMapper.transportLabel(agent.config)}`
                           : ""}

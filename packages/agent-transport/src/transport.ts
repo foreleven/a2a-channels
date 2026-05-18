@@ -95,13 +95,31 @@ export type ACPAgentConfig = ACPStdioAgentConfig;
 export interface WsTunnelAgentConfig {
   readonly transport: "ws-tunnel";
   readonly relayToken: string;
-  readonly executor: {
-    readonly type: "claude-code";
-    readonly model?: string;
-    readonly systemPrompt?: string;
-    readonly maxTurns?: number;
-    readonly allowedTools?: readonly string[];
-  };
+  readonly executor:
+    | {
+        readonly type: "claude-code";
+        readonly command: string;
+        readonly args?: readonly string[];
+        readonly cwd?: string;
+        readonly permission?:
+          | "allow_once"
+          | "allow_always"
+          | "reject_once"
+          | "reject_always";
+        readonly timeoutMs?: number;
+      }
+    | {
+        readonly type: "codex";
+        readonly command: string;
+        readonly args?: readonly string[];
+        readonly cwd?: string;
+        readonly permission?:
+          | "allow_once"
+          | "allow_always"
+          | "reject_once"
+          | "reject_always";
+        readonly timeoutMs?: number;
+      };
   readonly timeoutMs?: number;
 }
 

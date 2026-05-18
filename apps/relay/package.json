@@ -1,7 +1,7 @@
 {
   "name": "@agent-relay/relay",
   "version": "0.1.0",
-  "description": "relay – CLI that connects a Claude Code executor to the agent-relay gateway via a WebSocket tunnel",
+  "description": "relay – CLI that connects an ACP executor to the agent-relay gateway via a WebSocket tunnel",
   "type": "module",
   "bin": {
     "relay": "bin/relay.js"
@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@agent-relay/domain": "workspace:*",
-    "@anthropic-ai/claude-code": "^2.1.0",
+    "@agent-relay/agent-transport": "workspace:*",
     "commander": "^14.0.0",
     "ws": "^8.18.0"
   },

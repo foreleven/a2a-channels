@@ -9,7 +9,7 @@
  */
 
 import { fetchRunnerConfig } from "../gateway-client.js";
-import { ClaudeCodeExecutor } from "../executors/claude-code.js";
+import { createRelayExecutor } from "../executors/relay-executor.js";
 import type { RelayCredentials } from "../types.js";
 
 export interface ExecOptions {
@@ -25,12 +25,16 @@ export async function runExec(
   const creds = resolveCredentials(agentId, opts);
 
   const config = await fetchRunnerConfig(creds);
-  const executor = new ClaudeCodeExecutor(config.executor);
+  const executor = createRelayExecutor(config);
 
-  const result = await executor.execute(message);
-  process.stdout.write(result);
-  if (!result.endsWith("\n")) {
-    process.stdout.write("\n");
+  try {
+    const result = await executor.execute(message);
+    process.stdout.write(result);
+    if (!result.endsWith("\n")) {
+      process.stdout.write("\n");
+    }
+  } finally {
+    await executor.stop();
   }
 }
 

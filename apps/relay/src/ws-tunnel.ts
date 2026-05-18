@@ -12,7 +12,7 @@
 
 import WebSocket from "ws";
 import type { RunnerConfig } from "./types.js";
-import type { ClaudeCodeExecutor } from "./executors/claude-code.js";
+import type { RelayExecutor } from "./executors/relay-executor.js";
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
@@ -93,7 +93,7 @@ function buildErrorResponse(
 export interface WsTunnelClientOptions {
   config: RunnerConfig;
   relayToken: string;
-  executor: ClaudeCodeExecutor;
+  executor: RelayExecutor;
   onConnected?: () => void;
   onDisconnected?: () => void;
   onError?: (err: Error) => void;

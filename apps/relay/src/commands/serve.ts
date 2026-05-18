@@ -2,8 +2,8 @@
  * `relay serve <agent-id>` command
  *
  * Fetches the runner configuration from the gateway and starts a persistent
- * WebSocket tunnel session.  Incoming A2A JSON-RPC frames are processed by
- * the Claude Code executor and responses are sent back over the tunnel.
+ * WebSocket tunnel session. Incoming A2A JSON-RPC frames are processed by
+ * the configured ACP executor and responses are sent back over the tunnel.
  *
  * Credentials are resolved in priority order:
  *   1. CLI flags (`--gateway-url`, `--relay-token`)
@@ -11,7 +11,7 @@
  */
 
 import { fetchRunnerConfig } from "../gateway-client.js";
-import { ClaudeCodeExecutor } from "../executors/claude-code.js";
+import { createRelayExecutor } from "../executors/relay-executor.js";
 import { WsTunnelClient } from "../ws-tunnel.js";
 import type { RelayCredentials } from "../types.js";
 
@@ -32,7 +32,7 @@ export async function runServe(
     `[relay] Agent: ${config.name} (${config.agentId}) | executor: ${config.executor.type}`,
   );
 
-  const executor = new ClaudeCodeExecutor(config.executor);
+  const executor = createRelayExecutor(config);
 
   const client = new WsTunnelClient({
     config,
@@ -57,10 +57,12 @@ export async function runServe(
     process.on("SIGINT", () => {
       console.log("\n[relay] Shutting down …");
       client.stop();
+      void executor.stop();
       resolve();
     });
     process.on("SIGTERM", () => {
       client.stop();
+      void executor.stop();
       resolve();
     });
   });

@@ -56,15 +56,22 @@ export interface ACPStdioAgentConfig {
   timeoutMs?: number;
 }
 
-export interface ClaudeCodeExecutorConfig {
-  type: "claude-code";
-  model?: string;
-  systemPrompt?: string;
-  maxTurns?: number;
-  allowedTools?: string[];
+export type ACPRemoteExecutorType = "claude-code" | "codex";
+
+export interface ACPRemoteExecutorConfig {
+  type: ACPRemoteExecutorType;
+  command: string;
+  args?: string[];
+  cwd?: string;
+  permission?:
+    | "allow_once"
+    | "allow_always"
+    | "reject_once"
+    | "reject_always";
+  timeoutMs?: number;
 }
 
-export type WsTunnelExecutorConfig = ClaudeCodeExecutorConfig;
+export type WsTunnelExecutorConfig = ACPRemoteExecutorConfig;
 
 export interface WsTunnelAgentConfig {
   transport: "ws-tunnel";

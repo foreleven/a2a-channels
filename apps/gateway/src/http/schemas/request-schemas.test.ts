@@ -63,7 +63,7 @@ describe("agent request schemas", () => {
       protocol: "ws-tunnel",
       config: {
         transport: "ws-tunnel",
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
       },
     });
 
@@ -78,10 +78,11 @@ describe("agent request schemas", () => {
         transport: "ws-tunnel",
         executor: {
           type: "claude-code",
-          model: "claude-opus-4-5",
-          systemPrompt: "You are helpful.",
-          maxTurns: 5,
-          allowedTools: ["Read", "Write", "Bash"],
+          command: "claude",
+          args: ["--experimental-acp"],
+          cwd: "/tmp/agent",
+          permission: "reject_once",
+          timeoutMs: 30_000,
         },
         timeoutMs: 30_000,
       },
@@ -115,6 +116,23 @@ describe("agent request schemas", () => {
     assert.equal(parsed.success, false);
   });
 
+  test("accepts a codex ACP Remote executor config", () => {
+    const parsed = registerAgentBodySchema.safeParse({
+      name: "codex-relay-agent",
+      protocol: "ws-tunnel",
+      config: {
+        transport: "ws-tunnel",
+        executor: {
+          type: "codex",
+          command: "npx",
+          args: ["@zed-industries/codex-acp"],
+        },
+      },
+    });
+
+    assert.equal(parsed.success, true, JSON.stringify(parsed));
+  });
+
   test("rejects ws-tunnel protocol paired with a non-ws-tunnel transport", () => {
     const parsed = registerAgentBodySchema.safeParse({
       name: "mismatch-agent",
@@ -134,7 +152,7 @@ describe("agent request schemas", () => {
       protocol: "ws-tunnel",
       config: {
         transport: "ws-tunnel",
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
         relayToken: "user-supplied-token",  // must be rejected by strict()
       },
     });
@@ -148,7 +166,7 @@ describe("agent request schemas", () => {
       protocol: "ws-tunnel",
       config: {
         transport: "ws-tunnel",
-        executor: { type: "claude-code" },
+        executor: { type: "claude-code", command: "claude" },
       },
     });
 
