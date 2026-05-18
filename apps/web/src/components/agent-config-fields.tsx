@@ -78,7 +78,7 @@ export function AgentConfigFields({
               value={form.url}
             />
           </FormField>
-        ) : (
+        ) : form.protocol === "acp" ? (
           <FormField
             error={commandError}
             inputId="agent-command"
@@ -99,7 +99,7 @@ export function AgentConfigFields({
               value={form.command}
             />
           </FormField>
-        )}
+        ) : null}
       </div>
 
       {form.protocol === "a2a" && (
@@ -215,6 +215,158 @@ export function AgentConfigFields({
               placeholder="120000"
               value={form.timeoutMs}
             />
+          </FormField>
+        </div>
+      )}
+
+      {form.protocol === "ws-tunnel" && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Executor">
+            <Select
+              onValueChange={(value) => {
+                const nextType = value === "codex" ? "codex" : "claude-code";
+                const currentDefaultCommand =
+                  form.executorType === "codex" ? "npx" : "claude";
+                const nextDefaultCommand =
+                  nextType === "codex" ? "npx" : "claude";
+                const currentDefaultArgs =
+                  form.executorType === "codex"
+                    ? "@zed-industries/codex-acp"
+                    : "--experimental-acp";
+                const nextDefaultArgs =
+                  nextType === "codex"
+                    ? "@zed-industries/codex-acp"
+                    : "--experimental-acp";
+
+                onChange({
+                  ...form,
+                  executorType: nextType,
+                  command:
+                    !form.command || form.command === currentDefaultCommand
+                      ? nextDefaultCommand
+                      : form.command,
+                  args:
+                    !form.args || form.args === currentDefaultArgs
+                      ? nextDefaultArgs
+                      : form.args,
+                });
+              }}
+              value={form.executorType}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="claude-code">Claude Code</SelectItem>
+                  <SelectItem value="codex">Codex</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField
+            error={commandError}
+            inputId="executor-command"
+            label="Command"
+            required
+          >
+            <Input
+              aria-describedby={
+                commandError ? "executor-command-error" : undefined
+              }
+              aria-invalid={Boolean(commandError)}
+              id="executor-command"
+              onChange={(event) =>
+                onChange({ ...form, command: event.target.value })
+              }
+              placeholder={form.executorType === "codex" ? "npx" : "claude"}
+              required
+              value={form.command}
+            />
+          </FormField>
+          <FormField
+            className="sm:col-span-2"
+            inputId="executor-arguments"
+            label="Arguments"
+          >
+            <Textarea
+              className="min-h-24 font-mono text-xs"
+              id="executor-arguments"
+              onChange={(event) =>
+                onChange({ ...form, args: event.target.value })
+              }
+              placeholder={
+                form.executorType === "codex"
+                  ? "@zed-industries/codex-acp"
+                  : "--experimental-acp"
+              }
+              spellCheck={false}
+              value={form.args}
+            />
+            <FieldDescription>
+              One argument per line. The relay CLI starts this as an ACP stdio
+              process.
+            </FieldDescription>
+          </FormField>
+          <FormField inputId="executor-cwd" label="Working Directory">
+            <Input
+              id="executor-cwd"
+              onChange={(event) =>
+                onChange({ ...form, cwd: event.target.value })
+              }
+              placeholder="Defaults to relay CLI cwd"
+              value={form.cwd}
+            />
+          </FormField>
+          <FormField label="Permission">
+            <Select
+              onValueChange={(value) =>
+                onChange({
+                  ...form,
+                  permission:
+                    value === "gateway-default"
+                      ? ""
+                      : parsePermission(value),
+                })
+              }
+              value={form.permission || "gateway-default"}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Gateway default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="gateway-default">Gateway default</SelectItem>
+                  {ACP_PERMISSION_OPTIONS.map((permission) => (
+                    <SelectItem key={permission.value} value={permission.value}>
+                      {permission.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField
+            error={timeoutError}
+            inputId="agent-timeout"
+            label="Request Timeout (ms)"
+          >
+            <Input
+              aria-describedby={
+                timeoutError ? "agent-timeout-error" : undefined
+              }
+              aria-invalid={Boolean(timeoutError)}
+              id="agent-timeout"
+              inputMode="numeric"
+              onChange={(event) =>
+                onChange({ ...form, timeoutMs: event.target.value })
+              }
+              placeholder="60000"
+              value={form.timeoutMs}
+            />
+            <FieldDescription>
+              Milliseconds to wait for the relay CLI to respond.
+            </FieldDescription>
           </FormField>
         </div>
       )}

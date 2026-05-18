@@ -290,7 +290,7 @@
     tbody.innerHTML = agents.map(a => `
       <tr>
         <td><strong>${esc(a.name)}</strong></td>
-        <td><span class="badge" style="background:#e8f0fe;color:#1a73e8">${esc(a.protocol ?? 'a2a').toUpperCase()}</span></td>
+        <td><span class="badge" style="background:#e8f0fe;color:#1a73e8">${esc(agentProtocolLabel(a.protocol ?? 'a2a'))}</span></td>
         <td><code>${esc(agentTarget(a))}</code></td>
         <td>${esc(a.description ?? '')}</td>
         <td class="actions">
@@ -376,10 +376,19 @@
 
   function agentTarget(agent) {
     const config = agent.config || {};
+    if (config.transport === 'ws-tunnel') {
+      return `WebSocket relay -> ${(config.executor || {}).type || 'executor'}`;
+    }
     if (config.transport === 'stdio') {
       return [config.command, ...(config.args || [])].filter(Boolean).join(' ');
     }
     return config.url || '';
+  }
+
+  function agentProtocolLabel(protocol) {
+    if (protocol === 'ws-tunnel') return 'ACP Remote';
+    if (protocol === 'acp') return 'ACP';
+    return 'A2A';
   }
 
   async function submitChannel(e) {

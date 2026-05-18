@@ -5,6 +5,9 @@ import type {
   AgentConfigSnapshot,
   AgentProtocol,
   AgentProtocolConfig,
+  WsTunnelAgentConfig,
+  ClaudeCodeExecutorConfig,
+  WsTunnelExecutorConfig,
 } from "@agent-relay/domain";
 import { AgentConfigAggregate } from "@agent-relay/domain";
 import { injectable } from "inversify";
@@ -80,7 +83,9 @@ export class AgentConfigStateRepository implements AgentConfigRepository {
 }
 
 function parseAgentProtocol(value: string): AgentProtocol {
-  return value === "acp" ? "acp" : "a2a";
+  if (value === "acp") return "acp";
+  if (value === "ws-tunnel") return "ws-tunnel";
+  return "a2a";
 }
 
 function parseAgentConfig(
@@ -108,6 +113,14 @@ function parseAgentConfig(
         timeoutMs: parsed.timeoutMs,
       };
     }
+    if (protocol === "ws-tunnel" && isWsTunnelAgentConfig(parsed)) {
+      return {
+        transport: "ws-tunnel",
+        relayToken: parsed.relayToken,
+        executor: parseWsTunnelExecutorConfig(parsed.executor),
+        timeoutMs: typeof parsed.timeoutMs === "number" ? parsed.timeoutMs : undefined,
+      };
+    }
     // Warn about unrecognised configs (e.g. previously persisted ACP REST rows)
     // so operators know they need to re-configure the agent.
     console.warn(
@@ -119,7 +132,13 @@ function parseAgentConfig(
 
   return parseAgentProtocol(protocolValue) === "acp"
     ? { transport: "stdio", command: "" }
-    : { url: "" };
+    : parseAgentProtocol(protocolValue) === "ws-tunnel"
+      ? {
+          transport: "ws-tunnel",
+          relayToken: "",
+          executor: defaultACPRemoteExecutorConfig("claude-code"),
+        }
+      : { url: "" };
 }
 
 function isA2AAgentConfig(value: unknown): value is A2AAgentConfig {
@@ -158,4 +177,85 @@ function isACPAgentConfig(value: unknown): value is ACPAgentConfig {
 
 function isObject(value: unknown): value is { [key: string]: unknown } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isWsTunnelAgentConfig(value: unknown): value is {
+  transport: "ws-tunnel";
+  relayToken: string;
+  executor: unknown;
+  timeoutMs?: number;
+} {
+  if (!isObject(value)) return false;
+  return (
+    value.transport === "ws-tunnel" && typeof value.relayToken === "string"
+  );
+}
+
+function parseWsTunnelExecutorConfig(raw: unknown): WsTunnelExecutorConfig {
+  if (!isObject(raw)) {
+    return defaultACPRemoteExecutorConfig("claude-code");
+  }
+  if (raw.type === "codex") {
+    return parseACPRemoteExecutorConfig(raw, "codex");
+  }
+  if (raw.type === "claude-code") {
+    return parseACPRemoteExecutorConfig(raw, "claude-code");
+  }
+
+  return defaultACPRemoteExecutorConfig("claude-code");
+}
+
+function parseACPRemoteExecutorConfig(
+  raw: { [key: string]: unknown },
+  type: "claude-code" | "codex",
+): WsTunnelExecutorConfig {
+  const fallback = defaultACPRemoteExecutorConfig(type);
+  return {
+    type,
+    command: typeof raw.command === "string" && raw.command.trim()
+      ? raw.command
+      : fallback.command,
+    ...(Array.isArray(raw.args) &&
+    raw.args.every((arg) => typeof arg === "string")
+      ? { args: raw.args }
+      : {}),
+    ...(typeof raw.cwd === "string" ? { cwd: raw.cwd } : {}),
+    ...(isACPPermission(raw.permission)
+      ? { permission: raw.permission }
+      : {}),
+    ...(typeof raw.timeoutMs === "number" &&
+    Number.isInteger(raw.timeoutMs) &&
+    raw.timeoutMs > 0
+      ? { timeoutMs: raw.timeoutMs }
+      : {}),
+  } as WsTunnelExecutorConfig;
+}
+
+function defaultACPRemoteExecutorConfig(
+  type: "claude-code" | "codex",
+): WsTunnelExecutorConfig {
+  if (type === "codex") {
+    return {
+      type: "codex",
+      command: "npx",
+      args: ["@zed-industries/codex-acp"],
+    };
+  }
+
+  return {
+    type: "claude-code",
+    command: "claude",
+    args: ["--experimental-acp"],
+  };
+}
+
+function isACPPermission(
+  value: unknown,
+): value is NonNullable<ClaudeCodeExecutorConfig["permission"]> {
+  return (
+    value === "allow_once" ||
+    value === "allow_always" ||
+    value === "reject_once" ||
+    value === "reject_always"
+  );
 }

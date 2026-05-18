@@ -18,7 +18,7 @@ const agentNameSchema = nonEmptyString.refine(isValidAgentName, {
   message:
     "Agent name must be a folder-safe name using only letters, numbers, dots, underscores, and hyphens",
 });
-const agentProtocolSchema = z.enum(["a2a", "acp"]);
+const agentProtocolSchema = z.enum(["a2a", "acp", "ws-tunnel"]);
 const a2aContextIdStrategySchema = z.enum([
   "client-provided",
   "server-assigned",
@@ -46,13 +46,43 @@ const acpStdioAgentConfigSchema = z.object({
   permission: acpPermissionSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
 }).strict();
+const acpRemoteExecutorBaseSchema = {
+  command: nonEmptyString,
+  args: z.array(z.string()).optional(),
+  cwd: z.string().optional(),
+  permission: acpPermissionSchema.optional(),
+  timeoutMs: z.number().int().positive().optional(),
+};
+const claudeCodeExecutorConfigSchema = z.object({
+  type: z.literal("claude-code"),
+  ...acpRemoteExecutorBaseSchema,
+}).strict();
+const codexExecutorConfigSchema = z.object({
+  type: z.literal("codex"),
+  ...acpRemoteExecutorBaseSchema,
+}).strict();
+const wsTunnelExecutorConfigSchema = z.union([
+  claudeCodeExecutorConfigSchema,
+  codexExecutorConfigSchema,
+]);
+const wsTunnelAgentConfigSchema = z.object({
+  transport: z.literal("ws-tunnel"),
+  executor: wsTunnelExecutorConfigSchema,
+  timeoutMs: z.number().int().positive().optional(),
+  // relayToken is always generated server-side by AgentService.
+  // Clients must not supply it; strict() will reject any request that includes
+  // it as an unrecognised field.  The transform injects an empty placeholder so
+  // the output type satisfies WsTunnelAgentConfig (which requires relayToken);
+  // AgentService.register() replaces the placeholder with a generated token.
+}).strict().transform((data) => ({ ...data, relayToken: "" }));
 const agentConfigSchema = z.union([
+  wsTunnelAgentConfigSchema,
   acpStdioAgentConfigSchema,
   a2aAgentConfigSchema,
 ]);
 
 function validateAgentProtocolConfig(
-  data: { protocol?: "a2a" | "acp"; config?: unknown },
+  data: { protocol?: "a2a" | "acp" | "ws-tunnel"; config?: unknown },
   ctx: z.RefinementCtx,
 ): void {
   if (!data.protocol || !data.config || typeof data.config !== "object") {
@@ -72,6 +102,13 @@ function validateAgentProtocolConfig(
       code: "custom",
       path: ["config"],
       message: "ACP agent config requires transport",
+    });
+  }
+  if (data.protocol === "ws-tunnel" && config.transport !== "ws-tunnel") {
+    ctx.addIssue({
+      code: "custom",
+      path: ["config"],
+      message: "ws-tunnel agent config requires transport: 'ws-tunnel'",
     });
   }
 }

@@ -89,6 +89,7 @@ Channel account
 apps/
   gateway/      Hono HTTP server, OpenClaw host, runtime orchestration, store
   echo-agent/   Minimal A2A-compatible echo agent for local testing
+  relay/        CLI that connects an ACP executor to the gateway via WebSocket tunnel
   web/          Next.js admin UI for channels, agents, and runtime status
 
 packages/
@@ -222,7 +223,11 @@ Agent names are also used as ACP workspace folder names, so they must be a
 single folder-safe segment containing only letters, numbers, `.`, `_`, and `-`.
 
 Supported protocols are registered through transport adapters. The current
-gateway binds `a2a` and `acp`.
+gateway binds `a2a`, `acp`, and `ws-tunnel`.
+
+`ws-tunnel` is exposed in the admin UI as **ACP Remote**. It is for ACP agents
+that cannot accept inbound TCP connections and still connect to the gateway
+through the WebSocket relay. See [docs/ws-tunnel.md](docs/ws-tunnel.md).
 
 ### Channels
 
@@ -279,6 +284,34 @@ agent in `apps/echo-agent` exposes:
 | `GET` | `/.well-known/agent-card.json` | A2A agent card |
 | `POST` | `/a2a/jsonrpc` | A2A JSON-RPC endpoint |
 | `POST` | `/a2a/rest` | A2A HTTP+JSON endpoint |
+
+### ACP Remote
+
+For `protocol: "ws-tunnel"`, AgentRelay routes A2A JSON-RPC frames through a
+persistent WebSocket opened by the relay CLI running on the agent host.  This
+lets agents behind NAT or firewalls connect outward to the gateway without
+requiring inbound TCP connections. The relay CLI starts the configured ACP
+stdio executor; `claude-code` and `codex` executor types are supported.
+
+Example Codex ACP Remote executor:
+
+```json
+{
+  "name": "remote-codex",
+  "protocol": "ws-tunnel",
+  "config": {
+    "transport": "ws-tunnel",
+    "executor": {
+      "type": "codex",
+      "command": "npx",
+      "args": ["@zed-industries/codex-acp"]
+    }
+  }
+}
+```
+
+See [docs/ws-tunnel.md](docs/ws-tunnel.md) for the full protocol description,
+gateway API reference, and relay CLI usage.
 
 ### ACP
 

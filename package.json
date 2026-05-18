@@ -11,6 +11,7 @@
     "seed": "make seed",
     "echo-agent": "node --import tsx/esm apps/echo-agent/src/index.ts",
     "web": "pnpm --filter @agent-relay/web dev",
+    "relay": "node --import tsx/esm apps/relay/src/index.ts",
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc --noEmit",
     "test": "make test"

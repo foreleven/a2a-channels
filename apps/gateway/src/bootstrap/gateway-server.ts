@@ -1,4 +1,5 @@
 import { serve as honoServe, type ServerType } from "@hono/node-server";
+import { Server as HttpServer } from "node:http";
 import {
   inject,
   injectable,
@@ -19,6 +20,7 @@ import {
   type GatewayLogger as GatewayLoggerPort,
 } from "../infra/logger.js";
 import { RelayRuntime } from "../runtime/relay-runtime.js";
+import { WsTunnelRouteHandler } from "../runtime/ws-tunnel-route-handler.js";
 
 interface StartupLogger {
   info(message: string): void;
@@ -46,6 +48,7 @@ const defaultLogger: StartupLogger = {
  * - start/stop the Hono HTTP server
  * - start/stop background workers that must follow process lifetime
  * - bootstrap runtime orchestration before opening the HTTP listener
+ * - attach the WebSocket upgrade handler for the ws-tunnel agent protocol
  *
  * Domain behavior stays outside this class; this is a system boundary, not an
  * application service.
@@ -70,6 +73,9 @@ export class GatewayServer {
     private readonly serviceContributions: ServiceContribution[] = [],
     @inject(GatewayLogger)
     private readonly logger: GatewayLoggerPort = createSilentGatewayLogger(),
+    @inject(WsTunnelRouteHandler)
+    @optional()
+    private readonly wsTunnelRouteHandler: WsTunnelRouteHandler | null = null,
   ) {}
 
   async start(options: GatewayServerStartOptions = {}): Promise<void> {
@@ -114,6 +120,33 @@ export class GatewayServer {
           );
         },
       );
+
+      // Attach WebSocket upgrade handler for the ws-tunnel protocol.
+      // Node.js http.Server emits 'upgrade' for HTTP → WS upgrades.
+      if (this.wsTunnelRouteHandler !== null && this.server instanceof HttpServer) {
+        const handler = this.wsTunnelRouteHandler;
+        this.server.on(
+          "upgrade",
+          (
+            req: Parameters<WsTunnelRouteHandler["handleUpgrade"]>[0],
+            socket: Parameters<WsTunnelRouteHandler["handleUpgrade"]>[1],
+            head: Parameters<WsTunnelRouteHandler["handleUpgrade"]>[2],
+          ) => {
+            handler.handleUpgrade(req, socket, head).then(
+              (handled) => {
+                if (!handled) {
+                  // Path did not match – close the dangling connection.
+                  socket.destroy();
+                }
+              },
+              (err: unknown) => {
+                this.logger.error({ err }, "ws-tunnel upgrade error");
+                socket.destroy();
+              },
+            );
+          },
+        );
+      }
     } catch (error) {
       await this.relayRuntime.shutdown();
       await this.stopStartedServicesAfterFailedStart();

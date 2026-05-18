@@ -1,0 +1,22 @@
+{
+  "name": "@agent-relay/relay",
+  "version": "0.1.0",
+  "description": "relay – CLI that connects an ACP executor to the agent-relay gateway via a WebSocket tunnel",
+  "type": "module",
+  "bin": {
+    "relay": "bin/relay.js"
+  },
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node --import tsx/esm src/index.ts"
+  },
+  "dependencies": {
+    "@agent-relay/domain": "workspace:*",
+    "@agent-relay/agent-transport": "workspace:*",
+    "commander": "^14.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

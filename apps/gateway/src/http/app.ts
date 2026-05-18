@@ -90,11 +90,13 @@ export class HonoGatewayApp implements GatewayApp {
       c.json({ status: "ok", service: "agent-relay-gateway" }),
     );
 
-    // Auth middleware: protect all API routes except /api/auth/*.
+    // Auth middleware: protect all API routes except /api/auth/* and the
+    // relay-token–authenticated runner-config endpoint.
     app.use("/api/*", async (c, next) => {
       if (
         c.req.path === "/api/health" ||
-        c.req.path.startsWith("/api/auth/")
+        c.req.path.startsWith("/api/auth/") ||
+        /^\/api\/agents\/[^/]+\/runner-config$/.test(c.req.path)
       ) {
         return next();
       }
