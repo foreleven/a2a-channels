@@ -2,12 +2,22 @@ import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { describe, test } from "node:test";
 
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
+
 import { OpenClawPluginRuntime } from "./index.js";
 
 function createRuntime() {
+  const config: OpenClawConfig = { channels: {} };
   return new OpenClawPluginRuntime({
     config: {
-      loadConfig: () => ({ channels: {} }),
+      current: () => config,
+      mutateConfigFile: async () => {
+        throw new Error("Config mutation is not supported in tests");
+      },
+      replaceConfigFile: async () => {
+        throw new Error("Config replacement is not supported in tests");
+      },
+      loadConfig: () => config,
       writeConfigFile: async () => {},
     },
   }).asPluginRuntime();

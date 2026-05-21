@@ -14,6 +14,7 @@ import {
   type ChannelMessageRepository,
 } from "@agent-relay/domain";
 import { OpenClawPluginRuntime } from "@agent-relay/openclaw-compat";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import { Connection, ConnectionManager } from "./index.js";
 
@@ -709,9 +710,17 @@ describe("ConnectionManager", () => {
 });
 
 function createRuntime(): OpenClawPluginRuntime {
+  const config: OpenClawConfig = { channels: {} };
   return new OpenClawPluginRuntime({
     config: {
-      loadConfig: () => ({ channels: {} }) as never,
+      current: () => config,
+      mutateConfigFile: async () => {
+        throw new Error("Config mutation is not supported in tests");
+      },
+      replaceConfigFile: async () => {
+        throw new Error("Config replacement is not supported in tests");
+      },
+      loadConfig: () => config,
       writeConfigFile: async () => {},
     },
   });

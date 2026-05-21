@@ -22,13 +22,6 @@ export interface GatewayConfigSnapshot {
   bunQueueQueueName: string;
   bunQueueWorkerConcurrency: number;
   bunQueuePrefix?: string;
-  sandboxAioPsm?: string;
-  sandboxAioSandboxId?: string;
-  sandboxAioRegion?: string;
-  sandboxAioBaseUrl?: string;
-  sandboxAioToken?: string;
-  sandboxAioUserJwt?: string;
-  sandboxAioTimeoutMs: number;
 }
 
 export const GatewayConfigOverrides = Symbol.for(
@@ -109,34 +102,6 @@ export class GatewayConfigService {
     return this.snapshot.bunQueuePrefix;
   }
 
-  get sandboxAioPsm(): string | undefined {
-    return this.snapshot.sandboxAioPsm;
-  }
-
-  get sandboxAioSandboxId(): string | undefined {
-    return this.snapshot.sandboxAioSandboxId;
-  }
-
-  get sandboxAioRegion(): string | undefined {
-    return this.snapshot.sandboxAioRegion;
-  }
-
-  get sandboxAioBaseUrl(): string | undefined {
-    return this.snapshot.sandboxAioBaseUrl;
-  }
-
-  get sandboxAioToken(): string | undefined {
-    return this.snapshot.sandboxAioToken;
-  }
-
-  get sandboxAioUserJwt(): string | undefined {
-    return this.snapshot.sandboxAioUserJwt;
-  }
-
-  get sandboxAioTimeoutMs(): number {
-    return this.snapshot.sandboxAioTimeoutMs;
-  }
-
   toSnapshot(): GatewayConfigSnapshot {
     return { ...this.snapshot };
   }
@@ -185,26 +150,6 @@ export function buildGatewayConfig(
       Number(process.env["BUNQUEUE_WORKER_CONCURRENCY"] ?? 2),
     bunQueuePrefix:
       overrides.bunQueuePrefix ?? normalizeOptional(process.env["BUNQUEUE_PREFIX"]),
-    sandboxAioPsm:
-      overrides.sandboxAioPsm ?? normalizeOptional(process.env["SANDBOX_AIO_PSM"]),
-    sandboxAioSandboxId:
-      overrides.sandboxAioSandboxId ??
-      normalizeOptional(process.env["SANDBOX_AIO_SANDBOX_ID"]),
-    sandboxAioRegion:
-      overrides.sandboxAioRegion ??
-      normalizeOptional(process.env["SANDBOX_AIO_REGION"]),
-    sandboxAioBaseUrl:
-      overrides.sandboxAioBaseUrl ??
-      normalizeOptional(process.env["SANDBOX_AIO_BASE_URL"]),
-    sandboxAioToken:
-      overrides.sandboxAioToken ??
-      normalizeOptional(process.env["SANDBOX_AIO_TOKEN"]),
-    sandboxAioUserJwt:
-      overrides.sandboxAioUserJwt ??
-      normalizeOptional(process.env["SANDBOX_AIO_USER_JWT"]),
-    sandboxAioTimeoutMs:
-      overrides.sandboxAioTimeoutMs ??
-      Number(process.env["SANDBOX_AIO_TIMEOUT_MS"] ?? 300_000),
   };
 }
 

@@ -11,7 +11,6 @@ import { ChannelRoutes } from "./routes/channels.js";
 import { MessageRoutes } from "./routes/messages.js";
 import { RuntimeStatusRoutes } from "./routes/runtime-status.js";
 import { ScheduledJobRoutes } from "./routes/scheduled-jobs.js";
-import { SandboxRoutes } from "./routes/sandboxes.js";
 import { extractAuthToken } from "./routes/accounts.js";
 
 export interface GatewayApp {
@@ -53,8 +52,6 @@ export class HonoGatewayApp implements GatewayApp {
     private readonly runtimeStatusRoutes: RuntimeStatusRoutes,
     @inject(ScheduledJobRoutes)
     private readonly scheduledJobRoutes: ScheduledJobRoutes,
-    @inject(SandboxRoutes)
-    private readonly sandboxRoutes: SandboxRoutes,
   ) {
     this.app = this.createApp();
     this.request = this.app.request.bind(this.app);
@@ -120,7 +117,6 @@ export class HonoGatewayApp implements GatewayApp {
     this.messageRoutes.register(app);
     this.runtimeStatusRoutes.register(app);
     this.scheduledJobRoutes.register(app);
-    this.sandboxRoutes.register(app);
     this.accountRoutes.register(app);
 
     return app;

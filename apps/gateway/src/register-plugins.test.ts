@@ -9,6 +9,7 @@ import {
   OpenClawPluginHost,
   OpenClawPluginRuntime,
 } from "@agent-relay/openclaw-compat";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import { registerAllPlugins } from "./register-plugins.js";
 import { OpenClawChannelPackageDescriptor } from "./runtime/channel-plugin-descriptor.js";
@@ -16,9 +17,17 @@ import { OpenClawChannelPackageDescriptor } from "./runtime/channel-plugin-descr
 const require = createRequire(import.meta.url);
 
 function createHost(): OpenClawPluginHost {
+  const config: OpenClawConfig = { channels: {} };
   const runtime = new OpenClawPluginRuntime({
     config: {
-      loadConfig: () => ({ channels: {} }),
+      current: () => config,
+      mutateConfigFile: async () => {
+        throw new Error("Config mutation is not supported in tests");
+      },
+      replaceConfigFile: async () => {
+        throw new Error("Config replacement is not supported in tests");
+      },
+      loadConfig: () => config,
       writeConfigFile: async () => {},
     },
   });

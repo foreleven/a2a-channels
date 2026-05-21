@@ -15,10 +15,6 @@ import type {
   ChannelBindingSnapshot,
 } from "./aggregates/channel-binding.js";
 import type { ChannelMessageRecord } from "./messages.js";
-import type {
-  SandboxAggregate,
-  SandboxSnapshot,
-} from "./sandbox.js";
 
 export const ChannelBindingRepository = Symbol.for(
   "ports.ChannelBindingRepository",
@@ -30,7 +26,6 @@ export const ChannelMessageRepository = Symbol.for(
 export const SessionMappingRepository = Symbol.for(
   "ports.SessionMappingRepository",
 );
-export const SandboxRepository = Symbol.for("ports.SandboxRepository");
 
 export interface ChannelBindingRepository {
   /** Load the aggregate from the current state table. Returns null if unknown. */
@@ -69,14 +64,6 @@ export interface AgentConfigRepository {
   /** Load all non-deleted agents as snapshots from the current state table. */
   findAll(): Promise<AgentConfigSnapshot[]>;
   save(aggregate: AgentConfigAggregate): Promise<void>;
-}
-
-export interface SandboxRepository {
-  findById(id: string): Promise<SandboxAggregate | null>;
-  findAll(): Promise<SandboxSnapshot[]>;
-  findByAgentId(agentId: string): Promise<SandboxSnapshot[]>;
-  save(aggregate: SandboxAggregate): Promise<void>;
-  delete(id: string): Promise<boolean>;
 }
 
 export interface ChannelMessageRepository {
